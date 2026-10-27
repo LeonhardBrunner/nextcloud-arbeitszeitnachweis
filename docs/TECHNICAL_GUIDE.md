@@ -1,0 +1,293 @@
+# Timesheet: Technische Anleitung / Technical guide
+
+[App-Beschreibung / App overview](../README.md)
+
+<details open>
+<summary>Deutsch</summary>
+
+## 1. Worum es hier geht
+
+Timesheet läuft innerhalb von Nextcloud. PHP verarbeitet und speichert die Daten. JavaScript steuert die Bedienung im Browser. Die App-ID und der Installationsordner heißen `timesheet`.
+
+Dieses Projekt baut auf Version 1.2.0 von David Gun (Repa1253) auf. Die maßgebliche App-Version steht in `appinfo/info.xml`. Dort sind Nextcloud 30–33 und PHP 8.2–8.5 als vorgesehene Versionen eingetragen; eine vollständige praktische Prüfung aller Kombinationen steht aus.
+
+## 2. Die Ordner und Dateien
+
+| Name | Bedeutung |
+| --- | --- |
+| `appinfo/` | Anmeldung der App bei Nextcloud, Versionsangaben und Zuordnung der Browseranfragen. |
+| `lib/` | PHP-Code für Berechnungen, Datenbank, Einstellungen und E-Mail-Aufgaben. |
+| `templates/` | Aufbau der App-Seite und der Verwaltungsseite. |
+| `js/` | JavaScript für Zeiteinträge, Export, HR-Ansicht und Einstellungen. |
+| `css/` und `img/` | Gestaltung und App-Symbole. |
+| `l10n/` | Übersetzungen. Nextcloud erwartet diesen Ordnernamen. `de.json` enthält deutsche Texte für PHP, `de.js` für den Browser. Beide Dateien haben eine eigene Aufgabe. |
+| `vendor/` | Installierte PHP-Bibliotheken, unter anderem für den Excelexport. Composer erzeugt diesen Ordner; er gehört zur vollständigen Installation. |
+| `tools/` | Kleine Programme für die Prüfung des Codes. Die Einstellungen der PHP-Werkzeuge liegen gemeinsam in `tools/php/`. |
+| `vendor-bin/` | Angaben und Abhängigkeiten der zusätzlichen PHP-Prüfwerkzeuge. |
+| `tests/` | Vorbereitung für Tests innerhalb einer Nextcloud-Testumgebung. Eigentliche Testfälle fehlen bisher. |
+| `docs/TECHNICAL_GUIDE.md` | Diese Anleitung für Entwicklung und Veröffentlichung. |
+
+Die kurzen Namen der App-Ordner gehören zur Nextcloud-Struktur und bleiben erhalten. Die PHP-Dateinamen sind außerdem mit ihren Klassen und Aufrufen verbunden. Eine Umbenennung allein würde diese Verbindungen unterbrechen.
+
+Im Hauptordner stehen die Einstellungen für Composer und npm. `composer.json` und `composer.lock` legen die PHP-Bibliotheken fest. `package.json` enthält nur den JavaScript-Prüfbefehl, keine zusätzlichen npm-Pakete. `.nvmrc` nennt Node 22 als gemeinsame Ausgangsversion; der Prüfbefehl unterstützt Node ab Version 22. `README.md` beschreibt die App, `CHANGELOG.md` die Versionsgeschichte und `LICENSE` die Lizenz.
+
+## 3. Änderungen an der richtigen Stelle
+
+| Änderung | Einstieg |
+| --- | --- |
+| Sichtbare Texte und Seitenaufbau | `templates/main.php`; `lib/Controller/PageController.php` lädt die dazugehörigen Skripte und die Gestaltung. |
+| Aussehen | `css/style.css` und `img/`. |
+| Zeiteinträge | `js/timesheet-entries.js`, `lib/Controller/EntryController.php`, `lib/Service/EntryService.php`. |
+| Stundenstände und Monatswerte | `lib/Db/EntryMapper.php`, `lib/Service/MonthlyBalanceService.php`, `lib/Controller/BalanceController.php`. |
+| Monats- und Jahresexport | `js/timesheet-export.js` und der Export im `EntryController`. |
+| HR-Übersicht und Zuständigkeiten | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
+| Einstellungen | `js/timesheet-config.js`, `lib/Controller/ConfigController.php`, `lib/Controller/SettingsController.php`, `templates/settings-admin.php`, `js/admin.js`. |
+| E-Mails und Feiertage | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
+| Gemeinsame Browserfunktionen | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
+
+Neue Verbindungen zwischen Browser und PHP werden in `appinfo/routes.php` eingetragen. Datenbankänderungen liegen unter `lib/Migration/`. Bereits veröffentlichte Änderungen bleiben dort erhalten, damit Neuinstallationen und Updates dieselben Schritte durchlaufen können.
+
+## 4. Die App lokal ausprobieren
+
+Eine lokale Demo ist eine getrennte Nextcloud mit Datenbank und Testkonten. Dieses Repository enthält noch keine eigene Docker-Konfiguration. Der folgende Ablauf setzt deshalb eine bereits eingerichtete Demo voraus. Die [Nextcloud-Entwicklerdokumentation](https://docs.nextcloud.com/server/33/developer_manual/) beschreibt den Rahmen dafür.
+
+Für die Beispiele heißt der Docker-Dienst `nextcloud`. Nextcloud liegt im Container unter `/var/www/html`; PHP und Composer sind vorhanden. Der Fork ist als beschreibbarer Ordner unter `/var/www/html/custom_apps/timesheet` eingebunden. Browseradresse und Testzugang gehören zur jeweiligen Demo.
+
+1. Im Editor ist der gewünschte Branch ausgewählt, beispielsweise `Updated_App`.
+2. Die Docker-Konfiguration verweist auf den vollständigen lokalen Pfad dieses Forks. Falls die Demo `TIMESHEET_APP_PATH` unterstützt, steht der Pfad in deren `.env`. Diese Einstellung gehört zur Demo.
+3. Im Ordner der Compose-Datei werden Konfiguration und Start geprüft:
+
+   ```powershell
+   docker compose config --quiet
+   docker compose up -d
+   ```
+
+4. Composer installiert die für den Betrieb benötigten Bibliotheken im eingebundenen Fork:
+
+   ```powershell
+   docker compose exec -u www-data -w /var/www/html/custom_apps/timesheet nextcloud composer install --no-dev --no-scripts --no-plugins --no-interaction --prefer-dist
+   docker compose exec -u www-data -w /var/www/html/custom_apps/timesheet nextcloud composer check-platform-reqs --no-dev
+   ```
+
+   Dieser Aufruf lässt zusätzliche Entwicklerwerkzeuge aus. Ein Fehler an dieser Stelle ist ein offener Einrichtungsschritt; ein Wechsel auf `composer update` würde die Bibliotheksversionen verändern.
+
+5. Status und Aktivierung erfolgen mit den Nextcloud-Verwaltungsbefehlen:
+
+   ```powershell
+   docker compose exec -u www-data nextcloud php /var/www/html/occ status
+   docker compose exec -u www-data nextcloud php /var/www/html/occ app:enable timesheet
+   ```
+
+   Eine eingerichtete Nextcloud meldet `installed: true`. Nach einem Versionswechsel kann zusätzlich ein Datenbank-Update erforderlich sein; dafür gilt der dokumentierte Upgrade-Ablauf der Demo. Die [occ-Anleitung](https://docs.nextcloud.com/server/33/admin_manual/occ_command.html) erklärt diese Verwaltungsbefehle.
+
+6. Die App ist unter der Browseradresse der Demo mit dem Pfad `/apps/timesheet/` erreichbar. Eine kleine sichtbare Textänderung und anschließendes Neuladen zeigen, ob die Demo tatsächlich diesen Fork verwendet.
+
+Gespeicherte Änderungen an den eingebundenen Dateien erscheinen nach dem Neuladen; ein Upload zu GitHub ist dafür nicht erforderlich. Ein Branchwechsel verändert die Dateien, setzt aber die Datenbank nicht zurück. Für Änderungen an den derzeitigen JavaScript- und CSS-Dateien ist kein Build-Schritt erforderlich.
+
+Feiertagsdaten benötigen ausgehenden HTTPS-Zugriff auf `get.api-feiertage.de`, sofern keine gültigen gespeicherten Daten vorhanden sind. HR-E-Mails setzen persönliche Benachrichtigungseinstellungen, eine Empfängeradresse, funktionierenden Nextcloud-Mailversand und Hintergrundaufgaben voraus. Der vorhandene Job versendet regulär montags. Test-E-Mails gehören in ein Testpostfach.
+
+## 5. Änderungen prüfen
+
+Im Hauptordner des Repositorys prüft folgender Befehl die Schreibweise aller JavaScript-Dateien unter `js/` und `l10n/`. Node ab Version 22 reicht aus; `npm install` ist dafür nicht nötig.
+
+```powershell
+npm run check:javascript
+```
+
+Mit lokal verfügbarem PHP prüft dieser Befehl alle PHP-Dateien der App und ihrer Prüfprogramme:
+
+```powershell
+php tools/check-php-syntax.php
+```
+
+In der beschriebenen Docker-Demo ist dieselbe Prüfung über Composer erreichbar:
+
+```powershell
+docker compose exec -u www-data -w /var/www/html/custom_apps/timesheet nextcloud composer lint
+```
+
+Diese Prüfungen finden Schreibfehler im Code. Ob Arbeitszeiten richtig berechnet werden und Schaltflächen funktionieren, zeigt erst die Prüfung in der App: Eintrag anlegen, ändern und löschen; Monatswerte vergleichen; Monats- und Jahresexport öffnen. Bei HR-Änderungen kommen getrennte HR-Konten und Mitarbeitergruppen hinzu. Für Berechnungen dienen bekannte Beispieltage und bestehende Stundenstände als Vergleich.
+
+Zusätzliche PHP-Werkzeuge sind vorbereitet, aber noch nicht als vollständig eingerichtete Werkzeugkette geprüft:
+
+| Befehl bei installierten Werkzeugen | Aufgabe und Einstellung |
+| --- | --- |
+| `composer cs:check` | Abweichungen von der PHP-Schreibweise anzeigen; `tools/php/code-style.php`. |
+| `composer cs:fix` | Diese Schreibweise auf die Dateien anwenden. |
+| `composer psalm` | Mögliche PHP-Fehler suchen; `tools/php/static-analysis.xml`. |
+| `composer rector` | Vorschläge zur PHP-Modernisierung anzeigen, ohne Dateien zu ändern; `tools/php/modernize-code.php`. |
+| `composer test:unit` | Künftige Testfälle in der Nextcloud-Testumgebung ausführen. Bisher enthält `tests/` nur die Vorbereitung. |
+
+## 6. Zusammenarbeit und Veröffentlichung
+
+Ein überschaubarer Commit beschreibt eine zusammengehörige Änderung und ihre Prüfung. GitHub Desktop zeigt Branch und Dateiunterschiede vor dem Commit an. „Push origin“ lädt den Branch in den eigenen Fork. Ein Pull Request schlägt die Übernahme ins Firmen-Repository vor. Ein Commit oder Push installiert keine neue Version in Nextcloud.
+
+Im bisherigen Checkout heißt der eigene Fork `origin`, das [Firmen-Repository](https://github.com/Xiller/nextcloud-arbeitszeitnachweis) `upstream` und das [ursprüngliche Repository](https://github.com/Repa1253/timesheet) `original`. `git remote -v` zeigt die tatsächlich eingetragenen Quellen. Die [Verhaltensregeln für die Zusammenarbeit](../CODE_OF_CONDUCT.md) bleiben Bestandteil des Projekts.
+
+Für eine Veröffentlichung gilt diese Reihenfolge:
+
+1. Ein vollständiger Ausgabeordner `timesheet` enthält App-Dateien, Laufzeitbibliotheken und Lizenzhinweise. Entwicklungsdateien werden bereits bei dessen Vorbereitung ausgespart.
+2. Neuinstallation, Update und Excelexport werden mit dieser Ausgabe geprüft. Bestehende Daten und Stundenstände bleiben erhalten.
+3. `occ integrity:sign-app` signiert den fertigen App-Ordner mit dem verwalteten Schlüssel und Zertifikat. Dabei entsteht `appinfo/signature.json`, die Prüfliste für die App-Dateien.
+4. Der danach unveränderte Ordner wird als `timesheet-VERSION.tar.gz` verpackt. Im Archiv liegt genau ein oberster Ordner `timesheet`. Die Versionsangabe entspricht `appinfo/info.xml`.
+5. Für genau dieses Archiv wird mit OpenSSL eine SHA-512-Signatur im Base64-Format erstellt. Der Nextcloud App Store erhält Archiv und Archivsignatur.
+
+Die App-Signatur und die Archivsignatur sind zwei getrennte Schritte. Nachträgliche Änderungen erfordern die entsprechende erneute Signierung. Ein Git-Export nach dem App-Signieren würde die ignorierte `signature.json` verlieren. Schlüssel, Zertifikat, Zugänge und Freigabe gehören zum geregelten Veröffentlichungsprozess; private Schlüssel und Token liegen außerhalb des Repositorys.
+
+Die [Nextcloud-Anleitung zur App-Signatur](https://docs.nextcloud.com/server/stable/developer_manual/app_publishing_maintenance/code_signing.html) und die [App-Store-Anleitung](https://nextcloudappstore.readthedocs.io/en/latest/developer.html#uploading-an-app-release) beschreiben die Befehle und Übergabeparameter. Die früheren umgebungsspezifischen Veröffentlichungshinweise sind damit hier zusammengeführt.
+
+## 7. Noch offen
+
+- Eine eigene, auf einem frischen Rechner erprobte Demo-Konfiguration fehlt.
+- `composer.json` und `composer.lock` enthalten unterschiedliche PHP-Anforderungen. Die Bibliotheksversionen wurden bei der Ordnerbereinigung nicht geändert; eine saubere Installation und die Einrichtung der zusätzlichen PHP-Werkzeuge stehen aus.
+- HR-Zugriffsprüfungen unterscheiden sich zwischen einzelnen Anfragen. Die Trennung zwischen Mitarbeitergruppen braucht praktische Prüffälle.
+- Unvollständige Einträge, Tagesziel null und bestehende Saldoüberträge brauchen nachvollziehbare Berechnungsbeispiele. Ob Altdaten ungewöhnliche oder negative Pausenwerte für Überträge enthalten, ist anhand der tatsächlichen Daten zu klären.
+- Ein vollständiger Veröffentlichungslauf mit geprüftem Archiv und Datenerhalt steht aus.
+- Anton entscheidet fachlich und nimmt ab. Technisches Review, Zusammenführen von Änderungen sowie GitHub-, Store- und Signierzuständigkeiten sind noch eindeutig zuzuordnen.
+
+</details>
+
+<details>
+<summary>English</summary>
+
+## 1. Purpose
+
+Timesheet runs inside Nextcloud. PHP processes and stores data. JavaScript handles browser interaction. The app ID and installation directory are both `timesheet`.
+
+This project builds on version 1.2.0 by David Gun (Repa1253). The authoritative app version is in `appinfo/info.xml`. It declares Nextcloud 30–33 and PHP 8.2–8.5 as intended versions; a complete practical compatibility check is still outstanding.
+
+## 2. Directories and files
+
+| Name | Meaning |
+| --- | --- |
+| `appinfo/` | App registration, version information and routing of browser requests. |
+| `lib/` | PHP code for calculations, database access, settings and email tasks. |
+| `templates/` | Structure of the app page and administration page. |
+| `js/` | JavaScript for time entries, exports, the HR view and settings. |
+| `css/` and `img/` | Styling and app icons. |
+| `l10n/` | Translations. Nextcloud expects this directory name. `de.json` contains German text for PHP and `de.js` for the browser. Each file has its own purpose. |
+| `vendor/` | Installed PHP libraries, including those for Excel exports. Composer creates this directory; it belongs to a complete installation. |
+| `tools/` | Small programs for checking the code. PHP tool settings are grouped in `tools/php/`. |
+| `vendor-bin/` | Configuration and dependencies for the additional PHP checking tools. |
+| `tests/` | Setup for tests inside a Nextcloud test environment. Actual test cases are still missing. |
+| `docs/TECHNICAL_GUIDE.md` | This guide to development and publishing. |
+
+The short app directory names belong to the Nextcloud structure and remain unchanged. PHP filenames are also connected to their classes and callers. Renaming them alone would break those connections.
+
+Composer and npm settings are in the repository root. `composer.json` and `composer.lock` define PHP libraries. `package.json` contains only the JavaScript check command, with no additional npm packages. `.nvmrc` names Node 22 as a shared starting version; the check supports Node 22 and later. `README.md` describes the app, `CHANGELOG.md` the release history, and `LICENSE` the license.
+
+## 3. Where changes belong
+
+| Change | Starting point |
+| --- | --- |
+| Visible text and page structure | `templates/main.php`; `lib/Controller/PageController.php` loads the related scripts and styling. |
+| Appearance | `css/style.css` and `img/`. |
+| Time entries | `js/timesheet-entries.js`, `lib/Controller/EntryController.php`, `lib/Service/EntryService.php`. |
+| Balances and monthly values | `lib/Db/EntryMapper.php`, `lib/Service/MonthlyBalanceService.php`, `lib/Controller/BalanceController.php`. |
+| Monthly and yearly exports | `js/timesheet-export.js` and the export in `EntryController`. |
+| HR overview and responsibilities | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
+| Settings | `js/timesheet-config.js`, `lib/Controller/ConfigController.php`, `lib/Controller/SettingsController.php`, `templates/settings-admin.php`, `js/admin.js`. |
+| Emails and public holidays | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
+| Shared browser functions | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
+
+New connections between the browser and PHP are registered in `appinfo/routes.php`. Database changes live under `lib/Migration/`. Previously published changes remain there so that fresh installations and updates can follow the same steps.
+
+## 4. Trying the app locally
+
+A local demo is a separate Nextcloud with a database and test accounts. This repository does not yet include its own Docker configuration. The following procedure therefore assumes an existing configured demo. The [Nextcloud developer documentation](https://docs.nextcloud.com/server/33/developer_manual/) describes the framework for such an environment.
+
+In these examples, the Docker service is called `nextcloud`. Nextcloud is at `/var/www/html` inside the container, with PHP and Composer available. The fork is mounted as a writable directory at `/var/www/html/custom_apps/timesheet`. The browser address and test login belong to the particular demo.
+
+1. The intended branch, for example `Updated_App`, is selected in the editor.
+2. The Docker configuration points to this fork's full local path. If the demo supports `TIMESHEET_APP_PATH`, the path is set in its `.env`. This setting belongs to the demo.
+3. Configuration and startup are checked from the directory containing the Compose file:
+
+   ```powershell
+   docker compose config --quiet
+   docker compose up -d
+   ```
+
+4. Composer installs runtime libraries in the mounted fork:
+
+   ```powershell
+   docker compose exec -u www-data -w /var/www/html/custom_apps/timesheet nextcloud composer install --no-dev --no-scripts --no-plugins --no-interaction --prefer-dist
+   docker compose exec -u www-data -w /var/www/html/custom_apps/timesheet nextcloud composer check-platform-reqs --no-dev
+   ```
+
+   This invocation skips additional development tools. An error at this point remains an unresolved setup step; switching to `composer update` would change library versions.
+
+5. Nextcloud administration commands check status and enable the app:
+
+   ```powershell
+   docker compose exec -u www-data nextcloud php /var/www/html/occ status
+   docker compose exec -u www-data nextcloud php /var/www/html/occ app:enable timesheet
+   ```
+
+   A configured Nextcloud reports `installed: true`. A version change may also require a database upgrade; the demo's documented upgrade procedure applies. The [occ guide](https://docs.nextcloud.com/server/33/admin_manual/occ_command.html) explains these administration commands.
+
+6. The app is available at the demo's browser address under `/apps/timesheet/`. A small visible text change followed by a reload shows whether the demo actually uses this fork.
+
+Saved changes to mounted files appear after a reload; a GitHub upload is not required. Switching branches changes files but does not roll back the database. Changes to the current JavaScript and CSS files do not require a build step.
+
+Public holiday data requires outbound HTTPS access to `get.api-feiertage.de` unless valid cached data is available. HR emails require personal notification settings, a recipient address, working Nextcloud mail delivery and background jobs. The existing job normally sends on Mondays. Test emails belong in a test mailbox.
+
+## 5. Checking changes
+
+From the repository root, this command checks the syntax of every JavaScript file under `js/` and `l10n/`. Node 22 or later is sufficient; `npm install` is not needed.
+
+```powershell
+npm run check:javascript
+```
+
+With PHP available locally, this command checks all PHP files in the app and its checking tools:
+
+```powershell
+php tools/check-php-syntax.php
+```
+
+In the Docker demo described above, the same check is available through Composer:
+
+```powershell
+docker compose exec -u www-data -w /var/www/html/custom_apps/timesheet nextcloud composer lint
+```
+
+These checks find syntax errors. Correct time calculations and working buttons require checks inside the app: create, edit and delete an entry, compare monthly values, and open monthly and yearly exports. HR changes also need separate HR accounts and employee groups. Known example days and existing balances provide comparisons for calculations.
+
+Additional PHP tools are configured but have not yet been verified as a fully installed toolchain:
+
+| Command with tools installed | Purpose and configuration |
+| --- | --- |
+| `composer cs:check` | Show PHP code style differences; `tools/php/code-style.php`. |
+| `composer cs:fix` | Apply this code style to files. |
+| `composer psalm` | Find possible PHP errors; `tools/php/static-analysis.xml`. |
+| `composer rector` | Show PHP modernization suggestions without changing files; `tools/php/modernize-code.php`. |
+| `composer test:unit` | Run future test cases inside the Nextcloud test environment. `tests/` currently contains only the setup. |
+
+## 6. Collaboration and publishing
+
+A focused commit describes one related change and its checks. GitHub Desktop shows the branch and file differences before committing. “Push origin” uploads the branch to the personal fork. A pull request proposes its inclusion in the company repository. A commit or push does not install a new version in Nextcloud.
+
+In the existing checkout, `origin` means the personal fork, `upstream` the [company repository](https://github.com/Xiller/nextcloud-arbeitszeitnachweis), and `original` the [original repository](https://github.com/Repa1253/timesheet). `git remote -v` shows the configured sources. The [code of conduct](../CODE_OF_CONDUCT.md) remains part of the project.
+
+Publishing follows this order:
+
+1. A complete output directory named `timesheet` contains app files, runtime libraries and license notices. Development files are excluded while preparing this directory.
+2. Fresh installation, upgrade and Excel exports are checked using this output. Existing data and balances are preserved.
+3. `occ integrity:sign-app` signs the finished app directory using the managed key and certificate. This creates `appinfo/signature.json`, the list of signed app files.
+4. The unchanged directory is then packaged as `timesheet-VERSION.tar.gz`. The archive has exactly one top-level directory named `timesheet`. Its version matches `appinfo/info.xml`.
+5. OpenSSL creates a Base64-encoded SHA-512 signature for this exact archive. The Nextcloud App Store receives the archive and its archive signature.
+
+The app signature and archive signature are separate steps. Later changes require the corresponding signature to be recreated. A Git export after app signing would lose the ignored `signature.json`. Keys, certificate, credentials and approval belong to the publishing process; private keys and tokens stay outside the repository.
+
+The [Nextcloud app signing guide](https://docs.nextcloud.com/server/stable/developer_manual/app_publishing_maintenance/code_signing.html) and [App Store guide](https://nextcloudappstore.readthedocs.io/en/latest/developer.html#uploading-an-app-release) describe the commands and parameters. Earlier environment-specific publishing notes have been consolidated here.
+
+## 7. Still open
+
+- The repository lacks its own demo configuration tested on a fresh machine.
+- `composer.json` and `composer.lock` specify different PHP requirements. Library versions were not changed during this cleanup; a clean installation and setup of the additional PHP tools remain outstanding.
+- HR access checks differ between individual requests. Separation between employee groups needs practical checks.
+- Incomplete entries, a zero daily target and existing balance carryovers need reproducible calculation examples. Actual data is needed to establish whether old carryovers use unusual or negative break values.
+- A complete publishing run with a verified archive and preserved data remains outstanding.
+- Anton makes product decisions and accepts the result. Technical review, merging changes, and GitHub, Store and signing responsibilities still need clear assignment.
+
+</details>

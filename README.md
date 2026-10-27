@@ -1,109 +1,123 @@
-# Nextcloud Timesheet (development)
+# Nextcloud Timesheet (XiLLeR GmbH)
 
-A lightweight Timesheet app for Nextcloud. This repository contains the app source intended for local Nextcloud Docker development.
+<details open>
+<summary>Deutsch</summary>
+
+## Was macht die App?
+
+Mit Timesheet erfassen Mitarbeitende ihre Arbeitszeiten direkt in Nextcloud. Sie tragen Arbeitsbeginn, Arbeitsende und Pausen ein. Die App berechnet daraus die Arbeitszeit und zeigt den Stundenstand an.
+
+Die Personalabteilung (HR) erhält eine Übersicht über Mitarbeitende und ihre erfassten Zeiten. Arbeitszeitnachweise lassen sich als Exceldatei herunterladen und weiterverarbeiten.
+
+Dieses Projekt baut auf [Timesheet 1.2.0 von Repa1253](https://github.com/Repa1253/timesheet/releases/tag/1.2.0) auf und wird für die XiLLeR GmbH weitergeführt. Der ursprüngliche Entwickler ist David Gun (Repa1253).
+
+## Funktionen
+
+### Für Mitarbeitende
+
+- Pro Tag einen Eintrag mit Beginn, Ende, gesamter Pausendauer und Kommentar anlegen, ändern oder löschen.
+- Unvollständige Einträge und reine Kommentare speichern, um Angaben später zu ergänzen.
+- Erfasste Arbeitszeit, Tagesdifferenz und Stundenstände in der Monatsübersicht ansehen.
+- Arbeitszeitnachweise für einen Monat oder ein Jahr als Exceldatei (XLSX) exportieren.
+- Hinweise sehen, etwa bei zu kurzen Pausen oder zu langen Arbeitstagen.
+
+So können Mitarbeitende ihre Einträge selbst pflegen und nachvollziehen, wie ihre erfassten Zeiten berechnet werden.
+
+### Für HR
+
+- Eine Übersicht mit Stundenständen, letzten vollständigen Einträgen und Warnhinweisen öffnen.
+- Einträge von Mitarbeitenden ansehen, bearbeiten und exportieren.
+- Tagesziele und die Feiertagsregion pro Person einstellen.
+- Optionale E-Mail-Hinweise zu fehlenden Einträgen und überschrittenen Saldo-Schwellen erhalten.
+
+Die Übersicht hilft HR, auffällige Einträge zu finden und die erfassten Zeiten gesammelt durchzugehen. Der Excelexport liefert Dateien für die weitere Bearbeitung; eine direkte Anbindung an eine Lohnsoftware ist nicht enthalten.
+
+### Einstellungen und Grenzen
+
+Administrierende ordnen HR-Gruppen den Mitarbeitergruppen zu und legen Zeitregeln und deren Prioritäten fest. Persönliche Einstellungen betreffen unter anderem Tagesziel, Feiertagsregion und HR-Benachrichtigungen.
+
+Die App verwendet ein einheitliches Tagesziel pro Person. Für die Sollzeitberechnung zählen nur vollständige Zeiteinträge: Leere Tage und reine Kommentare erzeugen nicht automatisch Minusstunden. Pausen werden als Gesamtdauer pro Tag erfasst.
+
+Feiertage werden für deutsche Bundesländer unterstützt. E-Mail-Hinweise gehen derzeit an HR und benötigen eingerichteten Nextcloud-Mailversand sowie laufende Hintergrundaufgaben. Die Zeitregeln zeigen Hinweise an; ein Ablauf für verbindliche HR-Freigaben ist nicht enthalten.
+
+## Voraussetzungen
+
+Für Version 1.2.0 ist in den [App-Metadaten](appinfo/info.xml) folgende Kompatibilität vorgesehen:
+
+- Nextcloud 30–33
+- PHP 8.2–8.5
+
+Das sind die deklarierten Versionsgrenzen. Sie sind kein Nachweis, dass jede Kombination praktisch getestet wurde. Timesheet läuft innerhalb einer eingerichteten Nextcloud-Installation.
+
+Für Feiertagsdaten benötigt Nextcloud ausgehenden HTTPS-Zugriff auf `get.api-feiertage.de`, sofern keine gültigen zwischengespeicherten Daten vorhanden sind.
+
+## Installation und Weiterentwicklung
+
+Die [technische Anleitung](docs/TECHNICAL_GUIDE.md) erklärt den Aufbau, die Werkzeuge und das Ausprobieren eigener Änderungen in einer lokalen Demo. Dort stehen auch die noch offenen Fragen zu Installation, Tests und Veröffentlichung.
+
+## Lizenz
+
+Die App steht unter **AGPL-3.0-or-later**. Der vollständige Lizenztext steht in [LICENSE](LICENSE).
+
+</details>
+
+<details>
+<summary>English</summary>
+
+## What does the app do?
+
+Timesheet lets employees record their working hours directly in Nextcloud. They enter their start time, end time and breaks. The app calculates working time and displays their balance.
+
+Human Resources (HR) gets an overview of employees and their recorded hours. Timesheets can be downloaded as Excel files for further processing.
+
+This project builds on [Timesheet 1.2.0 by Repa1253](https://github.com/Repa1253/timesheet/releases/tag/1.2.0) and is being continued for XiLLeR GmbH. The original developer is David Gun (Repa1253).
 
 ## Features
-- Time entries
-- HR overview (accessible users + overtime summary)
-- XLSX export
-- Optional holiday integration
-- Automated HR reminder emails (background job)
+
+### For employees
+
+- Create, edit or delete one entry per day with a start time, end time, total break duration and comment.
+- Save incomplete entries or comments on their own and add missing details later.
+- View recorded working time, daily differences and balances in the monthly overview.
+- Export timesheets for a month or a year as Excel files (XLSX).
+- See warnings, for example about short breaks or long working days.
+
+Employees can maintain their own entries and see how their recorded hours are calculated.
+
+### For HR
+
+- Open an overview of balances, last complete entries and warnings.
+- View, edit and export employee entries.
+- Set each person's daily target and public holiday region.
+- Receive optional email notifications about missing entries and exceeded balance thresholds.
+
+The overview helps HR find entries that need attention and review recorded hours together. Excel exports provide files for further processing; there is no direct integration with payroll software.
+
+### Settings and limitations
+
+Administrators assign HR groups to employee groups and configure time rules and their priorities. Personal settings include the daily target, public holiday region and HR notifications.
+
+The app uses a uniform daily target for each person. Only complete time entries count towards target hours: empty days and comments on their own do not automatically create negative hours. Breaks are recorded as a total duration per day.
+
+Public holidays are supported for German federal states. Email notifications currently go to HR and require configured Nextcloud mail delivery and running background jobs. Time rules display warnings; a binding HR approval workflow is not included.
 
 ## Requirements
-- Nextcloud 30–32
-- PHP 8.1+
-- Docker & docker-compose (optional, for local development)
-- Composer (for PHP dependencies)
-- Node.js / npm (optional, for frontend assets)
 
-## Development notes
-- Follow Nextcloud server API and app development guidelines for compatibility.
+The [app metadata](appinfo/info.xml) declares the following compatibility for version 1.2.0:
 
-## Project structure
+- Nextcloud 30–33
+- PHP 8.2–8.5
 
-### App metadata & routing
-- `appinfo/info.xml`  
-  App metadata & registration: name/id, dependencies, navigation entry, settings, and background jobs.
-- `appinfo/routes.php`  
-  Defines the app’s HTTP routes: UI entry point and API endpoints (e.g., entries, HR overview, settings).
+These are declared version limits, not evidence that every combination has been tested. Timesheet runs inside a configured Nextcloud installation.
 
-### Bootstrap
-- `lib/AppInfo/Application.php`
-  Ensures the HR notification background job is registered.
+For public holiday data, Nextcloud needs outbound HTTPS access to `get.api-feiertage.de` unless valid cached data is available.
 
-### Controllers
-- `lib/Controller/PageController.php`  
-  Renders the main UI and loads JS/CSS assets.
-- `lib/Controller/EntryController.php`  
-  REST API for timesheet entries + XLSX export (HR can optionally access other users).
-- `lib/Controller/ConfigController.php`  
-  Reads/writes per-user config and HR notification settings with access checks.
-- `lib/Controller/OverviewController.php`  
-  HR endpoints: list accessible users + compute overtime summary.
-- `lib/Controller/HolidayController.php`  
-  Public endpoint to fetch holidays via `HolidayService`.
-- `lib/Controller/SettingsController.php`  
-  Admin endpoints for HR group setup and HR access rules stored in app config.
+## Installation and development
 
-### Services
-- `lib/Service/EntryService.php`  
-  Core entry CRUD logic with permission checks (HR vs. normal user).
-- `lib/Service/HrService.php`  
-  Central HR permission model: “who is HR” + “which users HR can access” (group/rule based).
-- `lib/Service/HrNotificationService.php`  
-  Builds the HR warning payload (no-entry / overtime / negative overtime) used by the timed job.
-- `lib/Service/HolidayService.php`  
-  Fetches holidays from an external API and caches them in Nextcloud app data.
-
-### Settings (Admin)
-- `lib/Settings/AdminSection.php`  
-  Registers the admin settings section for this app in Nextcloud.
-- `lib/Settings/AdminSettings.php`  
-  Defines the admin settings page/form and ties it to stored app config.
-
-### Background job (TimedJob)
-- `lib/BackgroundJob/HrNotificationJob.php`  
-  Scheduled job that periodically triggers HR notification logic and sends reminder emails.
-
-### Templates (UI)
-- `templates/main.php`  
-  Main server-rendered page template for the app UI (loaded by `PageController`).
-- `templates/settings-admin.php`  
-  Admin settings template shown in Nextcloud’s admin area.
-
-### Frontend (JavaScript)
-- `js/timesheet-main.js`  
-  Frontend entry point: bootstraps the timesheet UI.
-- `js/timesheet-core.js`  
-  Shared frontend base (common helpers / shared logic used by other modules).
-- `js/timesheet-entries.js`  
-  Handles entry UI + API calls for creating/updating/deleting entries.
-- `js/timesheet-export.js`  
-  Export UI/flow (triggers XLSX export and related actions).
-- `js/timesheet-hr.js`  
-  HR UI logic (overview, user selection, HR-specific actions).
-- `js/timesheet-config.js`  
-  User configuration UI logic (load/save settings).
-- `js/timesheet-copy.js`  
-  Copy/clipboard helpers used across the UI.
-- `js/admin.js`  
-  Admin settings page behavior (client-side interactions).
-
-### Localization
-  Add a new language by adding matching `l10n/<locale>.json` and `l10n/<locale>.js`.
-- `l10n/*.json`  
-  Server-side translations used by PHP (`$l->t(...)`) and templates.
-- `l10n/*.js`  
-  Client-side translations for JavaScript (`t('timesheet', ...)`), loaded via Nextcloud’s translation utilities.  
-
-### Dependencies
-- `composer.json`  
-  Composer dependencies and tooling configuration.
-
-## Contributing
-- Fork, create a feature branch, and open a pull request.
+The [technical guide](docs/TECHNICAL_GUIDE.md) explains the project structure, tools and how changes can be tested in a local demo. It also lists unresolved questions about installation, testing and publishing.
 
 ## License
-GNU Affero General Public License v3.0 — see LICENSE file.
 
-For issues or questions, open an issue in this repository.
+The app is licensed under **AGPL-3.0-or-later**. See [LICENSE](LICENSE) for the full license text.
+
+</details>

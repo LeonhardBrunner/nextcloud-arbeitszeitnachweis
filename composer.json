@@ -4,7 +4,8 @@
 	"license": "AGPL-3.0-or-later",
 	"authors": [
 		{
-			"name": "David Gun", "email": "dgu@xiller.com"
+			"name": "David Gun",
+			"email": "dgu@xiller.com"
 		}
 	],
 	"autoload": {
@@ -19,13 +20,12 @@
 		"post-update-cmd": [
 			"@composer bin all install --ansi"
 		],
-		"lint": "find . -name \\*.php -not -path './vendor/*' -not -path './vendor-bin/*' -not -path './build/*' -print0 | xargs -0 -n1 php -l",
-		"cs:check": "php-cs-fixer fix --dry-run --diff",
-		"cs:fix": "php-cs-fixer fix",
-		"psalm": "psalm --threads=1 --no-cache",
+		"lint": "@php tools/check-php-syntax.php",
+		"cs:check": "php-cs-fixer fix --config=tools/php/code-style.php --dry-run --diff",
+		"cs:fix": "php-cs-fixer fix --config=tools/php/code-style.php",
+		"psalm": "psalm --config=tools/php/static-analysis.xml --threads=1 --no-cache",
 		"test:unit": "phpunit tests -c tests/phpunit.xml --colors=always --fail-on-warning --fail-on-risky",
-		"openapi": "generate-spec",
-		"rector": "rector && composer cs:fix"
+		"rector": "rector process --config=tools/php/modernize-code.php --dry-run"
 	},
 	"require": {
 		"php": ">=8.2 <=8.5",
@@ -47,5 +47,13 @@
 		"platform": {
 			"php": "8.2"
 		}
+	},
+	"scripts-descriptions": {
+		"lint": "Check PHP syntax in app and tool files.",
+		"cs:check": "Show PHP code style differences without changing files.",
+		"cs:fix": "Apply the configured PHP code style.",
+		"psalm": "Check PHP code for possible errors.",
+		"test:unit": "Run app tests inside the Nextcloud test environment.",
+		"rector": "Show PHP modernization suggestions without changing files."
 	}
 }

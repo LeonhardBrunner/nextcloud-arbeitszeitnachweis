@@ -8,5 +8,6 @@
 /tests/.phpunit.cache
 
 /node_modules/
+/build/
 /appinfo/signature.json
 .vscode/
