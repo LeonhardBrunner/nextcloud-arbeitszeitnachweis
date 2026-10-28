@@ -24,10 +24,10 @@ Dieses Projekt baut auf Version 1.2.0 von David Gun (Repa1253) auf. Die maßgebl
 | `vendor/` | Installierte PHP-Bibliotheken, unter anderem für den Excelexport. Composer erzeugt diesen Ordner; er gehört zur vollständigen Installation. |
 | `tools/` | Kleine Programme für die Prüfung des Codes. Die Einstellungen der PHP-Werkzeuge liegen gemeinsam in `tools/php/`. |
 | `vendor-bin/` | Angaben und Abhängigkeiten der zusätzlichen PHP-Prüfwerkzeuge. |
-| `tests/` | Vorbereitung für Tests innerhalb einer Nextcloud-Testumgebung. Testfälle ausstehend. |
+| `tests/` | JavaScript-Verhaltenstests unter `tests/readability/` und Vorbereitung für PHP-Tests innerhalb einer Nextcloud-Testumgebung. |
 | `docs/TECHNICAL_GUIDE.md` | Anleitung für Entwicklung und Veröffentlichung. |
 
-Im Hauptordner stehen die Einstellungen für Composer und npm. `composer.json` und `composer.lock` legen die PHP-Bibliotheken fest. `package.json` enthält nur den JavaScript-Prüfbefehl, keine zusätzlichen npm-Pakete. `.nvmrc` nennt Node 22 als gemeinsame Ausgangsversion; der Prüfbefehl unterstützt Node ab Version 22. `README.md` beschreibt die App, `CHANGELOG.md` die Versionsgeschichte und `LICENSE` die Lizenz.
+Im Hauptordner stehen die Einstellungen für Composer und npm. `composer.json` und `composer.lock` legen die PHP-Bibliotheken fest. `package.json` enthält die JavaScript-Prüf- und Testbefehle, keine zusätzlichen npm-Pakete. `.nvmrc` nennt Node 22 als gemeinsame Ausgangsversion; der Prüfbefehl unterstützt Node ab Version 22. `README.md` beschreibt die App, `CHANGELOG.md` die Versionsgeschichte und `LICENSE` die Lizenz.
 
 ## 3. Dateien und Aufgaben
 
@@ -37,11 +37,19 @@ Im Hauptordner stehen die Einstellungen für Composer und npm. `composer.json` u
 | Aussehen | `css/style.css` und `img/`. |
 | Zeiteinträge | `js/timesheet-entries.js`, `lib/Controller/EntryController.php`, `lib/Service/EntryService.php`. |
 | Stundenstände und Monatswerte | `lib/Db/EntryMapper.php`, `lib/Service/MonthlyBalanceService.php`, `lib/Controller/BalanceController.php`. |
-| Monats- und Jahresexport | `js/timesheet-export.js` und der Export im `EntryController`. |
+| Monats- und Jahresexport | `js/timesheet-export.js` steuert die Auswahl; `lib/Service/TimesheetXlsxExporter.php` erstellt die Datei. `EntryController` prüft den Zugriff und liefert den Download. |
 | HR-Übersicht und Zuständigkeiten | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
-| Einstellungen | `js/timesheet-config.js`, `lib/Controller/ConfigController.php`, `lib/Controller/SettingsController.php`, `templates/settings-admin.php`, `js/admin.js`. |
+| Einstellungen | `ConfigController` nimmt persönliche Einstellungen entgegen; `lib/Db/HrPreferencesStore.php` liest und speichert HR-E-Mail- und Warnungseinstellungen. Gruppenregeln liegen bei `SettingsController`, `templates/settings-admin.php` und `js/admin.js`. |
 | E-Mails und Feiertage | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
 | Gemeinsame Browserfunktionen | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
+
+### Gemeinsame Schreibregeln
+
+- Namen und Kommentare stehen auf Englisch. Namen beschreiben den Inhalt oder die Aufgabe, etwa `appState`, `monthDisplay` und `breakMinutes`.
+- `.editorconfig` legt Tabs mit vier Zeichen Breite und LF-Zeilenumbrüche für PHP, JavaScript und CSS fest. `.gitattributes` erhält die Zeilenumbrüche auch beim Auschecken mit Git. Historische Datenbankmigrationen bleiben unverändert.
+- Kommentare kennzeichnen größere Abschnitte und erklären besondere Abläufe oder Einheiten. Eine Erklärung jeder einzelnen Zeile ist nicht vorgesehen.
+- Die JavaScript-Dateien bleiben nach Zeiteinträgen, HR, Export, Einstellungen und Seitensteuerung getrennt. Zusammenhängende private Funktionen übernehmen das Lesen einer Zeile, die Vorschau und das Speichern. Laufende Speichervorgänge und ihre Warteschlange bleiben an einer Stelle.
+- Bestehende Browseradressen, Datenfelder, Übersetzungsschlüssel und HTML-Kennungen bleiben bei reinen Strukturänderungen erhalten. Auch bisherige Berechnungs- und Zugriffsregeln bleiben der Vergleichsmaßstab.
 
 Neue Verbindungen zwischen Browser und PHP werden in `appinfo/routes.php` eingetragen. Datenbankänderungen liegen unter `lib/Migration/`. Bereits veröffentlichte Änderungen bleiben dort erhalten, damit Neuinstallationen und Updates dieselben Schritte durchlaufen können.
 
@@ -92,6 +100,12 @@ Im Hauptordner des Repositorys prüft folgender Befehl die Schreibweise aller Ja
 npm run check:javascript
 ```
 
+Die Verhaltenstests prüfen unter anderem Zeitformate, Warnregeln, Speichervorgänge und HR-Regelkarten. Sie laufen ohne zusätzliche npm-Pakete:
+
+```powershell
+npm run test:javascript
+```
+
 Mit lokal verfügbarem PHP prüft dieser Befehl alle PHP-Dateien der App und ihrer Prüfprogramme:
 
 ```powershell
@@ -114,7 +128,7 @@ Zusätzliche PHP-Werkzeuge sind vorbereitet, aber noch nicht als vollständig ei
 | `composer cs:fix` | Diese Schreibweise auf die Dateien anwenden. |
 | `composer psalm` | Mögliche PHP-Fehler suchen; `tools/php/static-analysis.xml`. |
 | `composer rector` | Vorschläge zur PHP-Modernisierung anzeigen, ohne Dateien zu ändern; `tools/php/modernize-code.php`. |
-| `composer test:unit` | Künftige Testfälle in der Nextcloud-Testumgebung ausführen. Bisher enthält `tests/` nur die Vorbereitung. |
+| `composer test:unit` | Künftige PHP-Testfälle in der Nextcloud-Testumgebung ausführen. Die JavaScript-Tests laufen unabhängig davon mit npm. |
 
 ## 6. Zusammenarbeit und Veröffentlichung
 
@@ -137,7 +151,7 @@ Die [Nextcloud-Anleitung zur App-Signatur](https://docs.nextcloud.com/server/sta
 ## 7. Noch offen
 
 - Eine eigene, auf einem frischen Rechner erprobte Demo-Konfiguration fehlt.
-- `composer.json` und `composer.lock` enthalten unterschiedliche PHP-Anforderungen. Eine saubere Installation und die Einrichtung der zusätzlichen PHP-Werkzeuge stehen aus.
+- `composer.json` und `composer.lock` enthalten unterschiedliche PHP-Anforderungen. Die Laufzeitbibliotheken wurden mit dem dokumentierten Aufruf in der Vergleichsumgebung installiert. Die abweichende PHP-Vorgabe und die zusätzliche PHP-Werkzeugkette bleiben gesondert zu bereinigen.
 - HR-Zugriffsprüfungen unterscheiden sich zwischen einzelnen Anfragen. Die Trennung zwischen Mitarbeitergruppen braucht praktische Prüffälle.
 - Unvollständige Einträge, Tagesziel null und bestehende Saldoüberträge brauchen nachvollziehbare Berechnungsbeispiele. Ob Altdaten ungewöhnliche oder negative Pausenwerte für Überträge enthalten, ist anhand der tatsächlichen Daten zu klären.
 - Ein vollständiger Veröffentlichungslauf mit geprüftem Archiv und Datenerhalt steht aus.
@@ -166,10 +180,10 @@ This project builds on version 1.2.0 by David Gun (Repa1253). The authoritative 
 | `vendor/` | Installed PHP libraries, including those for Excel exports. Composer creates this directory; it belongs to a complete installation. |
 | `tools/` | Small programs for checking the code. PHP tool settings are grouped in `tools/php/`. |
 | `vendor-bin/` | Configuration and dependencies for the additional PHP checking tools. |
-| `tests/` | Setup for tests inside a Nextcloud test environment. Actual tests are yet missing. |
+| `tests/` | JavaScript behavior tests under `tests/readability/` and PHP test setup for a Nextcloud test environment. |
 | `docs/TECHNICAL_GUIDE.md` | This guide to development and publishing. |
 
-Composer and npm settings are in the repository root. `composer.json` and `composer.lock` define PHP libraries. `package.json` contains only the JavaScript check command, with no additional npm packages. `.nvmrc` names Node 22 as a shared starting version; the check supports Node 22 and later. `README.md` describes the app, `CHANGELOG.md` the release history, and `LICENSE` the license.
+Composer and npm settings are in the repository root. `composer.json` and `composer.lock` define PHP libraries. `package.json` contains the JavaScript check and test commands, with no additional npm packages. `.nvmrc` names Node 22 as a shared starting version; the check supports Node 22 and later. `README.md` describes the app, `CHANGELOG.md` the release history, and `LICENSE` the license.
 
 ## 3. Where changes belong
 
@@ -179,11 +193,19 @@ Composer and npm settings are in the repository root. `composer.json` and `compo
 | Appearance | `css/style.css` and `img/`. |
 | Time entries | `js/timesheet-entries.js`, `lib/Controller/EntryController.php`, `lib/Service/EntryService.php`. |
 | Balances and monthly values | `lib/Db/EntryMapper.php`, `lib/Service/MonthlyBalanceService.php`, `lib/Controller/BalanceController.php`. |
-| Monthly and yearly exports | `js/timesheet-export.js` and the export in `EntryController`. |
+| Monthly and yearly exports | `js/timesheet-export.js` handles the selection; `lib/Service/TimesheetXlsxExporter.php` creates the file. `EntryController` checks access and returns the download. |
 | HR overview and responsibilities | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
-| Settings | `js/timesheet-config.js`, `lib/Controller/ConfigController.php`, `lib/Controller/SettingsController.php`, `templates/settings-admin.php`, `js/admin.js`. |
+| Settings | `ConfigController` receives personal settings; `lib/Db/HrPreferencesStore.php` reads and saves HR email and warning preferences. Group rules belong to `SettingsController`, `templates/settings-admin.php` and `js/admin.js`. |
 | Emails and public holidays | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
 | Shared browser functions | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
+
+### Shared coding rules
+
+- Names and comments use English. Names describe their content or purpose, such as `appState`, `monthDisplay` and `breakMinutes`.
+- `.editorconfig` defines tabs displayed as four characters and LF line endings for PHP, JavaScript and CSS. `.gitattributes` preserves these line endings during Git checkouts. Historical database migrations remain unchanged.
+- Comments mark larger sections and explain particular behavior or units. Individual lines do not each need an explanation.
+- JavaScript files remain separated by entries, HR, exports, settings and page coordination. Related private functions read a row, update its preview and save it. Active saves and their queue remain together.
+- Existing browser addresses, data fields, translation keys and HTML identifiers stay compatible during structural work. Existing calculations and access rules remain the reference behavior.
 
 New connections between the browser and PHP are registered in `appinfo/routes.php`. Database changes live under `lib/Migration/`. Previously published changes remain there so that fresh installations and updates can follow the same steps.
 
@@ -234,6 +256,12 @@ From the repository root, this command checks the syntax of every JavaScript fil
 npm run check:javascript
 ```
 
+Behavior tests cover time formats, warning rules, saves and HR rule cards, among other cases. They run without additional npm packages:
+
+```powershell
+npm run test:javascript
+```
+
 With PHP available locally, this command checks all PHP files in the app and its checking tools:
 
 ```powershell
@@ -256,7 +284,7 @@ Additional PHP tools are configured but have not yet been verified as a fully in
 | `composer cs:fix` | Apply this code style to files. |
 | `composer psalm` | Find possible PHP errors; `tools/php/static-analysis.xml`. |
 | `composer rector` | Show PHP modernization suggestions without changing files; `tools/php/modernize-code.php`. |
-| `composer test:unit` | Run future test cases inside the Nextcloud test environment. `tests/` currently contains only the setup. |
+| `composer test:unit` | Run future PHP test cases inside the Nextcloud test environment. JavaScript tests run separately through npm. |
 
 ## 6. Collaboration and publishing
 
@@ -279,7 +307,7 @@ The [Nextcloud app signing guide](https://docs.nextcloud.com/server/stable/devel
 ## 7. Still open
 
 - The repository lacks its own demo configuration tested on a fresh machine.
-- `composer.json` and `composer.lock` specify different PHP requirements. Library versions were not changed during this cleanup; a clean installation and setup of the additional PHP tools remain outstanding.
+- `composer.json` and `composer.lock` specify different PHP requirements. Runtime libraries were installed in the comparison environment using the documented command. The PHP requirement mismatch and additional PHP toolchain still need separate work.
 - HR access checks differ between individual requests. Separation between employee groups needs practical checks.
 - Incomplete entries, a zero daily target and existing balance carryovers need reproducible calculation examples. Actual data is needed to establish whether old carryovers use unusual or negative break values.
 - A complete publishing run with a verified archive and preserved data remains outstanding.

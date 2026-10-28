@@ -25,29 +25,29 @@ class Application extends App implements IBootstrap {
 	}
 
 	public function register(IRegistrationContext $context): void {
-		// not needed
+		// No additional service registration is required.
 	}
 
 	public function boot(IBootContext $context): void {
 		$context->injectFn(function (INavigationManager $navigationManager, IURLGenerator $urlGenerator, IFactory $l10nFactory) {
 			$appId = self::APP_ID;
 			$navigationManager->add(function () use ($appId, $urlGenerator, $l10nFactory) {
-				$l = $l10nFactory->get($appId);
+				$translator = $l10nFactory->get($appId);
 				return [
 					'id' => $appId,
 					'order' => 10,
 					'href' => $urlGenerator->linkToRoute($appId . '.page.index'),
 					'icon' => $urlGenerator->imagePath($appId, 'app.svg'),
-					'name' => $l->t('Timesheet'),
+					'name' => $translator->t('Timesheet'),
 					'app' => $appId,
 				];
 			});
 		});
 
-		$server = $context->getServerContainer();
+		$serverContainer = $context->getServerContainer();
 
 		/** @var IJobList $jobList */
-		$jobList = $server->get(IJobList::class);
+		$jobList = $serverContainer->get(IJobList::class);
 		$jobClass = HrNotificationJob::class;
 
 		if (method_exists($jobList, 'has')) {

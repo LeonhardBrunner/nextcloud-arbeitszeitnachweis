@@ -8,225 +8,266 @@ use OCP\IUserSession;
 
 class HrService {
 
-  /** @var array<int, array{id:string,hrGroups:string[],userGroups:string[]}> */
-  private array $rules = [];
+	/** @var array<int, array{id:string,hrGroups:string[],userGroups:string[]}> */
+	private array $rules = [];
 
-  /** @var string[] */
-  private array $hrGroups = [];
+	/** @var string[] */
+	private array $hrGroups = [];
 
-  public function __construct(
-    private IAppConfig $appConfig,
-    private IUserSession $userSession,
-    private IGroupManager $groupManager
-  ) {
-    $this->rules = $this->loadRules();
-    $this->hrGroups = $this->collectAllHrGroups($this->rules);
-  }
+	public function __construct(
+		private IAppConfig $appConfig,
+		private IUserSession $userSession,
+		private IGroupManager $groupManager
+	) {
+		$this->rules = $this->loadRules();
+		$this->hrGroups = $this->collectAllHrGroups($this->rules);
+	}
 
-  public function isHr(?string $uid = null): bool {
-    if ($uid === null) {
-      $user = $this->userSession->getUser();
-      if (!$user) return false;
-      $uid = $user->getUID();
-    }
+	public function isHr(?string $uid = null): bool {
+		if ($uid === null) {
+			$currentUser = $this->userSession->getUser();
+			if (!$currentUser) {
+				return false;
+			}
+			$uid = $currentUser->getUID();
+		}
 
-    foreach ($this->rules as $rule) {
-      foreach ($rule['hrGroups'] as $group) {
-        if ($group === '') continue;
-        if ($this->groupManager->isInGroup($uid, $group)) {
-          return true;
-        }
-      } 
-    }
+		foreach ($this->rules as $rule) {
+			foreach ($rule['hrGroups'] as $group) {
+				if ($group === '') {
+					continue;
+				}
+				if ($this->groupManager->isInGroup($uid, $group)) {
+					return true;
+				}
+			}
+		}
 
-    return false;
-  }
+		return false;
+	}
 
-  public function getAllHrUserIds(): array {
-    $hrUserIds = [];
-    
-    foreach ($this->hrGroups as $group) {
-      if ($group === '') continue;
-      $grp = $this->groupManager->get($group);
-      if (!$grp) continue;
-      foreach ($grp->getUsers() as $user) {
-        $hrUserIds[$user->getUID()] = true;
-      }
-    }
+	public function getAllHrUserIds(): array {
+		$hrUserIds = [];
 
-    return array_keys($hrUserIds);
-  }
+		foreach ($this->hrGroups as $groupId) {
+			if ($groupId === '') {
+				continue;
+			}
+			$group = $this->groupManager->get($groupId);
+			if (!$group) {
+				continue;
+			}
+			foreach ($group->getUsers() as $user) {
+				$hrUserIds[$user->getUID()] = true;
+			}
+		}
 
-  /**
-   * @return string[]
-   */
-  public function getAllowedUserGroups(?string $hrUid = null): array {
-    if ($hrUid === null) {
-      $user = $this->userSession->getUser();
-      if (!$user) return [];
-      $hrUid = $user->getUID();
-    }
+		return array_keys($hrUserIds);
+	}
 
-    $allowed = [];
+	/**
+	 * @return string[]
+	 */
+	public function getAllowedUserGroups(?string $hrUid = null): array {
+		if ($hrUid === null) {
+			$currentUser = $this->userSession->getUser();
+			if (!$currentUser) {
+				return [];
+			}
+			$hrUid = $currentUser->getUID();
+		}
 
-    foreach ($this->rules as $rule) {
-      $isInHrGroup = false;
-      
-      foreach ($rule['hrGroups'] as $g) {
-        if ($g === '') continue;
-        if ($this->groupManager->isInGroup($hrUid, $g)) {
-          $isInHrGroup = true;
-          break;
-        }
-      }
-      
-      if (!$isInHrGroup) continue;
+		$allowedGroupIds = [];
 
-      foreach ($rule['userGroups'] as $ug) {
-        if ($ug === '') continue;
-        $allowed[$ug] = true;
-      }
-    }
+		foreach ($this->rules as $rule) {
+			$isInHrGroup = false;
 
-    return array_keys($allowed);
-  }
+			foreach ($rule['hrGroups'] as $hrGroupId) {
+				if ($hrGroupId === '') {
+					continue;
+				}
+				if ($this->groupManager->isInGroup($hrUid, $hrGroupId)) {
+					$isInHrGroup = true;
+					break;
+				}
+			}
 
-  public function canAccessUser(string $targetUid, ?string $hrUid = null): bool {
-    if ($hrUid === null) {
-      $user = $this->userSession->getUser();
-      if (!$user) return false;
-      $hrUid = $user->getUID();
-    }
+			if (!$isInHrGroup) {
+				continue;
+			}
 
-    if ($targetUid === $hrUid) return true;
-    if (!$this->isHr($hrUid)) return false;
+			foreach ($rule['userGroups'] as $employeeGroupId) {
+				if ($employeeGroupId === '') {
+					continue;
+				}
+				$allowedGroupIds[$employeeGroupId] = true;
+			}
+		}
 
-    $allowedGroups = $this->getAllowedUserGroups($hrUid);
-    foreach ($allowedGroups as $group) {
-      if ($this->groupManager->isInGroup($targetUid, $group)) {
-        return true;
-      }
-    }
+		return array_keys($allowedGroupIds);
+	}
 
-    return false;
-  }
+	public function canAccessUser(string $targetUid, ?string $hrUid = null): bool {
+		if ($hrUid === null) {
+			$currentUser = $this->userSession->getUser();
+			if (!$currentUser) {
+				return false;
+			}
+			$hrUid = $currentUser->getUID();
+		}
 
-  /**
-   * @return array<int, array{id:string,name:string}>
-   */
-  public function getAccessibleUsers(?string $hrUid = null): array {
-    if ($hrUid === null) {
-      $user = $this->userSession->getUser();
-      if (!$user) return [];
-      $hrUid = $user->getUID();
-    }
+		if ($targetUid === $hrUid) {
+			return true;
+		}
+		if (!$this->isHr($hrUid)) {
+			return false;
+		}
 
-    if (!$this->isHr($hrUid)) return [];
-    
-    $allowedGroups = $this->getAllowedUserGroups($hrUid);
-    if (!$allowedGroups) return [];
+		$allowedGroups = $this->getAllowedUserGroups($hrUid);
+		foreach ($allowedGroups as $groupId) {
+			if ($this->groupManager->isInGroup($targetUid, $groupId)) {
+				return true;
+			}
+		}
 
-    $result = [];
+		return false;
+	}
 
-    foreach ($allowedGroups as $group) {
-      $grp = $this->groupManager->get($group);
-      if (!$grp) continue;
+	/**
+	 * @return array<int, array{id:string,name:string}>
+	 */
+	public function getAccessibleUsers(?string $hrUid = null): array {
+		if ($hrUid === null) {
+			$user = $this->userSession->getUser();
+			if (!$user) {
+				return [];
+			}
+			$hrUid = $user->getUID();
+		}
 
-      foreach ($grp->getUsers() as $user) {
-        $uid = $user->getUID();
-        $result[$uid] = [
-          'id' => $uid,
-          'name' => $user->getDisplayName(),
-        ];
-      }
-    }
+		if (!$this->isHr($hrUid)) {
+			return [];
+		}
 
-    $out = array_values($result);
-    usort($out, fn($a, $b) => strnatcasecmp((string)$a['name'], (string)$b['name']));
-    return $out;
-  }
+		$allowedGroups = $this->getAllowedUserGroups($hrUid);
+		if (!$allowedGroups) {
+			return [];
+		}
 
-  /**
-   * @return string[]
-   */
-  public function getHrGroups(): array {
-    return $this->hrGroups;
-  }
+		$usersById = [];
 
-  /**
-   * @return array<int, array{id:string,hrGroups:string[],userGroups:string[]}>
-   */
-  private function loadRules(): array {
-    $rulesJson = (string)$this->appConfig->getAppValueString('hr_access_rules');
-    if (trim($rulesJson) === '') return [];
-    $rules = json_decode($rulesJson, true);
-    if (!is_array($rules) || count($rules) === 0) return [];
-    $clean = $this->sanitizeRules($rules);
-    return $clean ?: [];
-  }
+		foreach ($allowedGroups as $groupId) {
+			$group = $this->groupManager->get($groupId);
+			if (!$group) {
+				continue;
+			}
 
-  /**
-   * @param array $rules
-   * @return array<int, array{id:string,hrGroups:string[],userGroups:string[]}>
-   */
-  private function sanitizeRules(array $rules): array {
-    $cleaned = [];
-   
-    foreach ($rules as $rule) {
-      if (!is_array($rule)) continue;
-      
-      $id = isset($rule['id']) ? trim((string)$rule['id']) : '';
-      if ($id === '') continue;
+			foreach ($group->getUsers() as $user) {
+				$userId = $user->getUID();
+				$usersById[$userId] = [
+					'id' => $userId,
+					'name' => $user->getDisplayName(),
+				];
+			}
+		}
 
-      $hrGroups = $rule['hrGroups'] ?? $rule['hr_groups'] ?? [];
-      $userGroups = $rule['userGroups'] ?? $rule['user_groups'] ?? [];
+		$accessibleUsers = array_values($usersById);
+		usort($accessibleUsers, fn($firstUser, $secondUser) => strnatcasecmp((string)$firstUser['name'], (string)$secondUser['name']));
+		return $accessibleUsers;
+	}
 
-      $hrGroups = is_array($hrGroups) ? $hrGroups : [];
-      $userGroups = is_array($userGroups) ? $userGroups : [];
+	/**
+	 * @return string[]
+	 */
+	public function getHrGroups(): array {
+		return $this->hrGroups;
+	}
 
-      $hrGroups = $this->cleanGroupList($hrGroups);
-      $userGroups = $this->cleanGroupList($userGroups);
+	/**
+	 * @return array<int, array{id:string,hrGroups:string[],userGroups:string[]}>
+	 */
+	private function loadRules(): array {
+		$rulesJson = (string)$this->appConfig->getAppValueString('hr_access_rules');
+		if (trim($rulesJson) === '') {
+			return [];
+		}
+		$rules = json_decode($rulesJson, true);
+		if (!is_array($rules) || count($rules) === 0) {
+			return [];
+		}
+		$sanitizedRules = $this->sanitizeRules($rules);
+		return $sanitizedRules ?: [];
+	}
 
-      if (!$hrGroups) continue;
+	/**
+	 * @param array $rules
+	 * @return array<int, array{id:string,hrGroups:string[],userGroups:string[]}>
+	 */
+	private function sanitizeRules(array $rules): array {
+		$sanitizedRules = [];
 
-      $cleaned[] = [
-        'id' => $id,
-        'hrGroups' => $hrGroups,
-        'userGroups' => $userGroups,
-      ];
-    }
+		foreach ($rules as $rule) {
+			if (!is_array($rule)) {
+				continue;
+			}
 
-    return $cleaned;
-  }
+			$ruleId = isset($rule['id']) ? trim((string)$rule['id']) : '';
+			if ($ruleId === '') {
+				continue;
+			}
 
-  /**
-   * @param array $groups
-   * @return string[]
-   */
-  private function cleanGroupList(array $groups): array {
-    $groups = array_values(array_filter(array_map(fn($g) => trim((string)$g), $groups), fn($g) => $g !== ''));
-    $groups = array_values(array_unique($groups));
+			// Accept both stored key spellings for access rules.
+			$hrGroups = $rule['hrGroups'] ?? $rule['hr_groups'] ?? [];
+			$userGroups = $rule['userGroups'] ?? $rule['user_groups'] ?? [];
 
-    $final = [];
-    foreach ($groups as $g) {
-      if ($this->groupManager->groupExists($g)) {
-        $final[] = $g;
-      }
-    }
-    return $final;
-  }
+			$hrGroups = is_array($hrGroups) ? $hrGroups : [];
+			$userGroups = is_array($userGroups) ? $userGroups : [];
 
-  /**
-   * @param array<int, array{id:string,hrGroups:string[],userGroups:string[]}> $rules
-   * @return string[]
-   */
-  private function collectAllHrGroups(array $rules): array {
-    $all = [];
-    foreach ($rules as $rule) {
-      foreach (($rule['hrGroups'] ?? []) as $g) {
-        $all[$g] = true;
-      }
-    }
-    return array_keys($all);
-  }
+			$hrGroups = $this->cleanGroupList($hrGroups);
+			$userGroups = $this->cleanGroupList($userGroups);
+
+			if (!$hrGroups) {
+				continue;
+			}
+
+			$sanitizedRules[] = [
+				'id' => $ruleId,
+				'hrGroups' => $hrGroups,
+				'userGroups' => $userGroups,
+			];
+		}
+
+		return $sanitizedRules;
+	}
+
+	/**
+	 * @param array $groups
+	 * @return string[]
+	 */
+	private function cleanGroupList(array $groups): array {
+		$groups = array_values(array_filter(array_map(fn($groupId) => trim((string)$groupId), $groups), fn($groupId) => $groupId !== ''));
+		$groups = array_values(array_unique($groups));
+
+		$existingGroupIds = [];
+		foreach ($groups as $groupId) {
+			if ($this->groupManager->groupExists($groupId)) {
+				$existingGroupIds[] = $groupId;
+			}
+		}
+		return $existingGroupIds;
+	}
+
+	/**
+	 * @param array<int, array{id:string,hrGroups:string[],userGroups:string[]}> $rules
+	 * @return string[]
+	 */
+	private function collectAllHrGroups(array $rules): array {
+		$hrGroupIds = [];
+		foreach ($rules as $rule) {
+			foreach (($rule['hrGroups'] ?? []) as $hrGroupId) {
+				$hrGroupIds[$hrGroupId] = true;
+			}
+		}
+		return array_keys($hrGroupIds);
+	}
 }

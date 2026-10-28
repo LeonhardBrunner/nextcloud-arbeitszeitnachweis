@@ -1,113 +1,133 @@
 (function () {
-  "use strict";
+	"use strict";
 
-  const TS = window.Timesheet;
-  if (!TS) return;
+	const timesheet = window.Timesheet;
+	if (!timesheet) {
+		return;
+	}
+	const appState = timesheet.state;
+	const utils = timesheet.util;
+	timesheet.export = timesheet.export || {};
+	const exportModule = timesheet.export;
+	const exportChoices = {
+		mine: {
+			visible: false,
+			ui: null
+		},
+		hr: {
+			visible: false,
+			ui: null
+		}
+	};
 
-  const S = TS.state;
-  const U = TS.util;
+	// Export intervals use month keys for both month and year exports.
+	function getMonthExportBounds(date) {
+		const year = date.getFullYear();
+		const monthIndex = date.getMonth();
+		return {
+			from: new Date(year, monthIndex, 1),
+			to: new Date(year, monthIndex, 1)
+		};
+	}
 
-  TS.export = TS.export || {};
-  const EX = TS.export;
+	function getYearExportBounds(date) {
+		const year = date.getFullYear();
+		return {
+			from: new Date(year, 0, 1),
+			to: new Date(year, 11, 1)
+		};
+	}
 
-  const exportChoices = {
-    mine: { visible: false, ui: null },
-    hr: { visible: false, ui: null },
-  };
+	function getExportTargetUser(viewKind) {
+		if (viewKind !== 'hr') {
+			return null;
+		}
+		return timesheet.dom.hrUserTitle?.querySelector('span')?.textContent?.trim() || null;
+	}
 
-  function monthBounds(date) {
-    const y = date.getFullYear();
-    const m = date.getMonth();
-    return { from: new Date(y, m, 1), to: new Date(y, m, 1) };
-  }
+	function hideExportChoice(viewKind) {
+		const choiceState = exportChoices[viewKind];
+		if (!choiceState) {
+			return;
+		}
+		choiceState.visible = false;
+		if (choiceState.ui?.container) {
+			choiceState.ui.container.classList.remove('is-visible');
+		}
+	}
 
-  function yearBounds(date) {
-    const y = date.getFullYear();
-    return { from: new Date(y, 0, 1), to: new Date(y, 11, 1) };
-  }
+	function runExport(viewKind, exportScope) {
+		const selectedMonth = viewKind === 'hr' ? appState.hrCurrentMonth : appState.currentMonth;
+		const bounds = exportScope === 'year' ? getYearExportBounds(selectedMonth) : getMonthExportBounds(selectedMonth);
+		const fromMonthString = utils.toLocalMonthStr(bounds.from);
+		const toMonthString = utils.toLocalMonthStr(bounds.to);
+		let url = `/apps/${appState.appName}/api/entries/export-xlsx?from=${encodeURIComponent(fromMonthString)}&to=${encodeURIComponent(toMonthString)}`;
+		const targetUser = getExportTargetUser(viewKind);
+		if (targetUser) {
+			url += `&user=${encodeURIComponent(targetUser)}`;
+		}
+		if (utils.USER_LOCALE) {
+			url += `&locale=${encodeURIComponent(utils.USER_LOCALE)}`;
+		}
+		hideExportChoice(viewKind);
+		window.location.href = OC.generateUrl(url);
+	}
 
-  function getTargetUser(kind) {
-    if (kind !== 'hr') return null;
-    return TS.dom.hrUserTitle?.querySelector('span')?.textContent?.trim() || null;
-  }
+	// Create the month/year controls lazily for each view.
+	function ensureExportChoiceUi(viewKind) {
+		const exportButtonId = viewKind === 'hr' ? 'export-hr-xlsx' : 'export-mine-xlsx';
+		const exportButton = document.getElementById(exportButtonId);
+		if (!exportButton) {
+			return null;
+		}
+		const choiceContainerId = `${exportButtonId}-choice-ui`;
+		let container = document.getElementById(choiceContainerId);
+		if (container) {
+			exportChoices[viewKind].ui = exportChoices[viewKind].ui || {
+				container,
+				month: container.querySelector('[data-action="month"]'),
+				year: container.querySelector('[data-action="year"]')
+			};
+			return exportChoices[viewKind].ui;
+		}
+		container = document.createElement('span');
+		container.id = choiceContainerId;
+		container.className = 'ts-export-choice-ui';
+		const createChoiceButton = (label, action) => {
+			const button = document.createElement('button');
+			button.type = 'button';
+			button.textContent = label;
+			button.dataset.action = action;
+			button.className = 'primary';
+			return button;
+		};
+		const monthButton = createChoiceButton(t(appState.appName, 'Month export'), 'month');
+		const yearButton = createChoiceButton(t(appState.appName, 'Year export'), 'year');
+		container.appendChild(monthButton);
+		container.appendChild(yearButton);
+		exportButton.insertAdjacentElement('afterend', container);
+		const choiceElements = {
+			container,
+			month: monthButton,
+			year: yearButton
+		};
+		exportChoices[viewKind].ui = choiceElements;
+		monthButton.addEventListener('click', () => runExport(viewKind, 'month'));
+		yearButton.addEventListener('click', () => runExport(viewKind, 'year'));
+		return choiceElements;
+	}
 
-  function hideExportChoice(kind) {
-    const st = exportChoices[kind];
-    if (!st) return;
-    st.visible = false;
-    if (st.ui?.container) st.ui.container.classList.remove('is-visible');
-  }
+	function handleExportClick(viewKind) {
+		timesheet.dom.refresh();
+		const choiceState = exportChoices[viewKind];
+		const choiceElements = choiceState.ui || ensureExportChoiceUi(viewKind);
+		if (!choiceElements) {
+			return;
+		}
+		choiceState.visible = !choiceState.visible;
+		choiceElements.container.classList.toggle('is-visible', choiceState.visible);
+	}
 
-  function runExport(kind, scope) {
-    const base = (kind === 'hr') ? S.hrCurrentMonth : S.currentMonth;
-    const bounds = (scope === 'year') ? yearBounds(base) : monthBounds(base);
-    const fromStr = U.toLocalMonthStr(bounds.from);
-    const toStr = U.toLocalMonthStr(bounds.to);
-
-    let url = `/apps/${S.appName}/api/entries/export-xlsx?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}`;
-    const targetUser = getTargetUser(kind);
-    if (targetUser) url += `&user=${encodeURIComponent(targetUser)}`;
-    if (U.USER_LOCALE) url += `&locale=${encodeURIComponent(U.USER_LOCALE)}`;
-
-    hideExportChoice(kind);
-    window.location.href = OC.generateUrl(url);
-  }
-
-  function ensureExportChoiceUi(kind) {
-    const exportBtnId = (kind === 'hr') ? 'export-hr-xlsx' : 'export-mine-xlsx';
-    const exportBtn = document.getElementById(exportBtnId);
-    if (!exportBtn) return null;
-
-    const uiId = `${exportBtnId}-choice-ui`;
-    let container = document.getElementById(uiId);
-    if (container) {
-      exportChoices[kind].ui = exportChoices[kind].ui || {
-        container,
-        month: container.querySelector('[data-action="month"]'),
-        year: container.querySelector('[data-action="year"]'),
-      };
-      return exportChoices[kind].ui;
-    }
-
-    container = document.createElement('span');
-    container.id = uiId;
-    container.className = 'ts-export-choice-ui';
-
-    const makeBtn = (label, action) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = label;
-      b.dataset.action = action;
-      b.className = 'primary';
-      return b;
-    };
-
-    const month = makeBtn(t(S.appName, 'Month export'), 'month');
-    const year = makeBtn(t(S.appName, 'Year export'), 'year');
-
-    container.appendChild(month);
-    container.appendChild(year);
-    exportBtn.insertAdjacentElement('afterend', container);
-
-    const ui = { container, month, year };
-    exportChoices[kind].ui = ui;
-
-    month.addEventListener('click', () => runExport(kind, 'month'));
-    year.addEventListener('click', () => runExport(kind, 'year'));
-
-    return ui;
-  }
-
-  function handleExportClick(kind) {
-    TS.dom.refresh();
-
-    const st = exportChoices[kind];
-    const ui = st.ui || ensureExportChoiceUi(kind);
-    if (!ui) return;
-
-    st.visible = !st.visible;
-    ui.container.classList.toggle('is-visible', st.visible);
-  }
-
-  EX.handleExportClick = handleExportClick;
+	// Shared export interface.
+	exportModule.handleExportClick = handleExportClick;
 })();

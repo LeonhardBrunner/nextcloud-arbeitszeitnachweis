@@ -8,181 +8,207 @@ use OCP\IUserManager;
 use OCP\IUserSession;
 
 class GroupRuleService {
-  private const DEFAULTS = [
-    'breakShortMinutes' => 30,
-    'breakShortHours' => 6,
-    'breakLongMinutes' => 45,
-    'breakLongHours' => 9,
-    'maxHours' => 10,
-  ];
-  private const PRIORITY_DEFAULT = 1;
-  private const PRIORITY_MIN = 0;
-  private const PRIORITY_MAX = 9999;
+	private const DEFAULTS = [
+		'breakShortMinutes' => 30,
+		'breakShortHours' => 6,
+		'breakLongMinutes' => 45,
+		'breakLongHours' => 9,
+		'maxHours' => 10,
+	];
+	private const PRIORITY_DEFAULT = 1;
+	private const PRIORITY_MIN = 0;
+	private const PRIORITY_MAX = 9999;
 
-  public function __construct(
-    private IAppConfig $appConfig,
-    private IGroupManager $groupManager,
-    private IUserManager $userManager,
-    private IUserSession $userSession,
-  ) {}
+	public function __construct(
+		private IAppConfig $appConfig,
+		private IGroupManager $groupManager,
+		private IUserManager $userManager,
+		private IUserSession $userSession,
+	) {
+	}
 
-  /**
-   * Returns effective rule thresholds for the given user.
-   * If userId is null, resolves to the current logged-in user.
-   *
-   * @return array<string, int|float>
-   */
-  public function getEffectiveRules(?string $userId = null): array {
-    $uid = $userId;
-    if ($uid === null) {
-      $current = $this->userSession->getUser();
-      if (!$current) return self::DEFAULTS;
-      $uid = $current->getUID();
-    }
+	/**
+	 * Returns effective rule thresholds for the given user.
+	 * If userId is null, resolves to the current logged-in user.
+	 *
+	 * @return array<string, int|float>
+	 */
+	public function getEffectiveRules(?string $userId = null): array {
+		$resolvedUserId = $userId;
+		if ($resolvedUserId === null) {
+			$currentUser = $this->userSession->getUser();
+			if (!$currentUser) {
+				return self::DEFAULTS;
+			}
+			$resolvedUserId = $currentUser->getUID();
+		}
 
-    $user = $this->userManager->get($uid);
-    if (!$user) return self::DEFAULTS;
+		$user = $this->userManager->get($resolvedUserId);
+		if (!$user) {
+			return self::DEFAULTS;
+		}
 
-    if (method_exists($this->groupManager, 'getUserGroupIds')) {
-      $userGroups = $this->groupManager->getUserGroupIds($user);
-    } else {
-      $userGroups = array_map(
-        fn($g) => $g->getGID(),
-        $this->groupManager->getUserGroups($user)
-      );
-    }
-    if (!$userGroups) return self::DEFAULTS;
+		if (method_exists($this->groupManager, 'getUserGroupIds')) {
+			$userGroupIds = $this->groupManager->getUserGroupIds($user);
+		} else {
+			$userGroupIds = array_map(
+				fn($group) => $group->getGID(),
+				$this->groupManager->getUserGroups($user)
+			);
+		}
+		if (!$userGroupIds) {
+			return self::DEFAULTS;
+		}
 
-    $rules = $this->loadRules();
-    if (!$rules) return self::DEFAULTS;
+		$rules = $this->loadRules();
+		if (!$rules) {
+			return self::DEFAULTS;
+		}
 
-    $bestRule = null;
-    $bestPriority = null;
+		// The lowest priority wins; ties retain the first matching rule.
+		$bestRule = null;
+		$bestPriority = null;
 
-    foreach ($rules as $rule) {
-      $ruleGroups = $rule['userGroups'] ?? [];
-      if (!$ruleGroups || !array_intersect($ruleGroups, $userGroups)) continue;
+		foreach ($rules as $rule) {
+			$ruleGroups = $rule['userGroups'] ?? [];
+			if (!$ruleGroups || !array_intersect($ruleGroups, $userGroupIds)) {
+				continue;
+			}
 
-      $priority = $this->getRulePriority($rule);
-      if ($bestRule === null || $priority < $bestPriority) {
-        $bestRule = $rule;
-        $bestPriority = $priority;
-      }
-    }
+			$priority = $this->getRulePriority($rule);
+			if ($bestRule === null || $priority < $bestPriority) {
+				$bestRule = $rule;
+				$bestPriority = $priority;
+			}
+		}
 
-    if ($bestRule !== null) {
-      return $this->extractThresholds($bestRule);
-    }
+		if ($bestRule !== null) {
+			return $this->extractThresholds($bestRule);
+		}
 
-    return self::DEFAULTS;
-  }
+		return self::DEFAULTS;
+	}
 
-  /**
-   * @return array<int, array{id:string,hrGroups:string[],userGroups:string[],priority:int}>
-   */
-  private function loadRules(): array {
-    $raw = (string)$this->appConfig->getAppValueString('hr_access_rules');
-    if (trim($raw) === '') return [];
-    $decoded = json_decode($raw, true);
-    if (!is_array($decoded)) return [];
-    return $this->sanitizeRules($decoded);
-  }
+	/**
+	 * @return array<int, array{id:string,hrGroups:string[],userGroups:string[],priority:int}>
+	 */
+	private function loadRules(): array {
+		$rulesJson = (string)$this->appConfig->getAppValueString('hr_access_rules');
+		if (trim($rulesJson) === '') {
+			return [];
+		}
+		$decodedRules = json_decode($rulesJson, true);
+		if (!is_array($decodedRules)) {
+			return [];
+		}
+		return $this->sanitizeRules($decodedRules);
+	}
 
-  /**
-   * @param array $rules
-   * @return array<int, array<string, mixed>>
-   */
-  private function sanitizeRules(array $rules): array {
-    $cleaned = [];
+	/**
+	 * @param array $rules
+	 * @return array<int, array<string, mixed>>
+	 */
+	private function sanitizeRules(array $rules): array {
+		$sanitizedRules = [];
 
-    foreach ($rules as $rule) {
-      if (!is_array($rule)) continue;
+		foreach ($rules as $rule) {
+			if (!is_array($rule)) {
+				continue;
+			}
 
-      $id = isset($rule['id']) ? trim((string)$rule['id']) : '';
-      if ($id === '') continue;
+			$ruleId = isset($rule['id']) ? trim((string)$rule['id']) : '';
+			if ($ruleId === '') {
+				continue;
+			}
 
-      $hrGroups = $rule['hrGroups'] ?? [];
-      $userGroups = $rule['userGroups'] ?? [];
+			$hrGroups = $rule['hrGroups'] ?? [];
+			$userGroups = $rule['userGroups'] ?? [];
 
-      $hrGroups = is_array($hrGroups) ? $hrGroups : [];
-      $userGroups = is_array($userGroups) ? $userGroups : [];
+			$hrGroups = is_array($hrGroups) ? $hrGroups : [];
+			$userGroups = is_array($userGroups) ? $userGroups : [];
 
-      $hrGroups = $this->cleanGroupList($hrGroups);
-      $userGroups = $this->cleanGroupList($userGroups);
+			$hrGroups = $this->cleanGroupList($hrGroups);
+			$userGroups = $this->cleanGroupList($userGroups);
 
-      $cleaned[] = array_merge([
-        'id' => $id,
-        'hrGroups' => $hrGroups,
-        'userGroups' => $userGroups,
-      ], $this->sanitizeRuleThresholds($rule));
-    }
+			$sanitizedRules[] = array_merge([
+				'id' => $ruleId,
+				'hrGroups' => $hrGroups,
+				'userGroups' => $userGroups,
+			], $this->sanitizeRuleThresholds($rule));
+		}
 
-    return $cleaned;
-  }
+		return $sanitizedRules;
+	}
 
-  /**
-   * @param array $item
-   * @return array<string, int|float>
-   */
-  private function sanitizeRuleThresholds(array $item): array {
-    $d = self::DEFAULTS;
+	/**
+	 * @param array $item
+	 * @return array<string, int|float>
+	 */
+	private function sanitizeRuleThresholds(array $item): array {
+		$defaults = self::DEFAULTS;
 
-    return [
-      'priority'               => $this->clampInt($item['priority']               ?? self::PRIORITY_DEFAULT, self::PRIORITY_MIN, self::PRIORITY_MAX),
-      'breakShortMinutes'      => $this->clampInt($item['breakShortMinutes']      ?? $d['breakShortMinutes'], 0, 600),
-      'breakShortHours'        => $this->clampFloat($item['breakShortHours']      ?? $d['breakShortHours'],   0, 24),
-      'breakLongMinutes'       => $this->clampInt($item['breakLongMinutes']       ?? $d['breakLongMinutes'],  0, 600),
-      'breakLongHours'         => $this->clampFloat($item['breakLongHours']       ?? $d['breakLongHours'],    0, 24),
-      'maxHours'               => $this->clampFloat($item['maxHours']             ?? $d['maxHours'],          0, 24),
-    ];
-  }
+		return [
+			'priority' => $this->clampInt($item['priority'] ?? self::PRIORITY_DEFAULT, self::PRIORITY_MIN, self::PRIORITY_MAX),
+			'breakShortMinutes' => $this->clampInt($item['breakShortMinutes'] ?? $defaults['breakShortMinutes'], 0, 600),
+			'breakShortHours' => $this->clampFloat($item['breakShortHours'] ?? $defaults['breakShortHours'], 0, 24),
+			'breakLongMinutes' => $this->clampInt($item['breakLongMinutes'] ?? $defaults['breakLongMinutes'], 0, 600),
+			'breakLongHours' => $this->clampFloat($item['breakLongHours'] ?? $defaults['breakLongHours'], 0, 24),
+			'maxHours' => $this->clampFloat($item['maxHours'] ?? $defaults['maxHours'], 0, 24),
+		];
+	}
 
-  /**
-   * @param array<string, int|float> $rule
-   * @return array<string, int|float>
-   */
-  private function extractThresholds(array $rule): array {
-    $out = [];
-    foreach (self::DEFAULTS as $key => $fallback) {
-      $out[$key] = array_key_exists($key, $rule) ? $rule[$key] : $fallback;
-    }
-    return $out;
-  }
+	/**
+	 * @param array<string, int|float> $rule
+	 * @return array<string, int|float>
+	 */
+	private function extractThresholds(array $rule): array {
+		$thresholds = [];
+		foreach (self::DEFAULTS as $key => $fallback) {
+			$thresholds[$key] = array_key_exists($key, $rule) ? $rule[$key] : $fallback;
+		}
+		return $thresholds;
+	}
 
-  /**
-   * @param array<string, mixed> $rule
-   */
-  private function getRulePriority(array $rule): int {
-    return $this->clampInt($rule['priority'] ?? self::PRIORITY_DEFAULT, self::PRIORITY_MIN, self::PRIORITY_MAX);
-  }
+	/**
+	 * @param array<string, mixed> $rule
+	 */
+	private function getRulePriority(array $rule): int {
+		return $this->clampInt($rule['priority'] ?? self::PRIORITY_DEFAULT, self::PRIORITY_MIN, self::PRIORITY_MAX);
+	}
 
-  /**
-   * @param array $groups
-   * @return string[]
-   */
-  private function cleanGroupList(array $groups): array {
-    $groups = array_values(array_filter(array_map(fn($g) => trim((string)$g), $groups), fn($g) => $g !== ''));
-    $groups = array_values(array_unique($groups));
+	/**
+	 * @param array $groups
+	 * @return string[]
+	 */
+	private function cleanGroupList(array $groups): array {
+		$groups = array_values(array_filter(array_map(fn($groupId) => trim((string)$groupId), $groups), fn($groupId) => $groupId !== ''));
+		$groups = array_values(array_unique($groups));
 
-    $final = [];
-    foreach ($groups as $g) {
-      if ($this->groupManager->groupExists($g)) {
-        $final[] = $g;
-      }
-    }
-    return $final;
-  }
+		$existingGroupIds = [];
+		foreach ($groups as $groupId) {
+			if ($this->groupManager->groupExists($groupId)) {
+				$existingGroupIds[] = $groupId;
+			}
+		}
+		return $existingGroupIds;
+	}
 
-  private function clampInt($value, int $min, int $max): int {
-    if (!is_numeric($value)) return $min;
-    $v = (int)$value;
-    return max($min, min($max, $v));
-  }
+	private function clampInt($value, int $min, int $max): int {
+		if (!is_numeric($value)) {
+			return $min;
+		}
+		$numericValue = (int)$value;
+		return max($min, min($max, $numericValue));
+	}
 
-  private function clampFloat($value, float $min, float $max): float {
-    if (!is_numeric($value)) return $min;
-    $v = (float)$value;
-    if (is_nan($v) || is_infinite($v)) return $min;
-    return max($min, min($max, round($v, 2)));
-  }
+	private function clampFloat($value, float $min, float $max): float {
+		if (!is_numeric($value)) {
+			return $min;
+		}
+		$numericValue = (float)$value;
+		if (is_nan($numericValue) || is_infinite($numericValue)) {
+			return $min;
+		}
+		return max($min, min($max, round($numericValue, 2)));
+	}
 }

@@ -1,86 +1,86 @@
-/* Layout */
+/* App layout */
 .card {
-  width: 100%;
-  overflow-x: auto;
+	width: 100%;
+	overflow-x: auto;
 }
 
-/* Tabellenstruktur */
+/* Shared table structure */
 #ts-table,
 #hr-user-table {
-  width: 100%;
-  background: var(--color-main-background, #fff);
+	width: 100%;
+	background: var(--color-main-background, #fff);
 }
 
-#ts-table th, 
+#ts-table th,
 #ts-table td,
 #hr-user-table th,
 #hr-user-table td,
 .hr-userlist th,
 .hr-userlist td {
-  border: 1px solid var(--color-border, #e1e4e8);
-  text-align: center;
-  padding: 0 5px;
+	border: 1px solid var(--color-border, #e1e4e8);
+	text-align: center;
+	padding: 0 5px;
 }
 
-#ts-table th, 
+#ts-table th,
 #ts-table td,
 #hr-user-table th,
 #hr-user-table td {
-  line-height: 1.0;
+	line-height: 1.0;
 }
 
 #ts-table,
 #hr-user-table,
 .hr-userlist {
-  --color-border: #3a3a3a;
+	--color-border: #3a3a3a;
 }
 
 #ts-table th,
 #ts-table td {
-  height: 24px;
+	height: 24px;
 }
 
 #hr-user-table th,
 #hr-user-table td {
-  height: 22px;
+	height: 22px;
 }
 
 #ts-table tbody td:nth-child(9),
 #ts-table tbody td:nth-child(10),
 #hr-user-table tbody td:nth-child(9),
 #hr-user-table tbody td:nth-child(10) {
-  width: 30%; /* 2 * 30% = 60% */
+	width: 30%; /* Two wide columns share 60%. */
 }
 
 #ts-table input.breakMinutes,
 #hr-user-table input.breakMinutes {
-  width: 5em;
-  padding: 0;
+	width: 5em;
+	padding: 0;
 }
 
 #ts-table thead th,
 #hr-user-table thead th,
 .hr-userlist thead th {
-  position: sticky;
-  top: 0;
-  background: var(--color-background-dark, #f6f8fa);
-  font-weight: 600;
-  z-index: 2;
+	position: sticky;
+	top: 0;
+	background: var(--color-background-dark, #f6f8fa);
+	font-weight: 600;
+	z-index: 2;
 }
 
-/* Heute-Highlight */
+/* Current-day highlight */
 #ts-table tbody tr.ts-today,
 #hr-user-table tbody tr.ts-today {
-  background: color-mix(in srgb, var(--color-primary, #0082c9) 12%, transparent);
+	background: color-mix(in srgb, var(--color-primary, #0082c9) 12%, transparent);
 }
 
 #ts-table tbody tr.ts-today td,
 #hr-user-table tbody tr.ts-today td {
-  border-top: 1px solid var(--color-primary, #0082c9);
-  border-bottom: 1px solid var(--color-primary, #0082c9);
+	border-top: 1px solid var(--color-primary, #0082c9);
+	border-bottom: 1px solid var(--color-primary, #0082c9);
 }
 
-/* Inputfelder */
+/* Table inputs and focus states */
 #ts-table input[type="date"],
 #ts-table input[type="time"],
 #ts-table input[type="number"],
@@ -89,12 +89,12 @@
 #hr-user-table input[type="time"],
 #hr-user-table input[type="number"],
 #hr-user-table input[type="text"] {
-  border: none;
-  background: transparent;
-  margin: 0;
-  min-height: 0;
-  height: 1.3em;
-  text-align: center;
+	border: none;
+	background: transparent;
+	margin: 0;
+	min-height: 0;
+	height: 1.3em;
+	text-align: center;
 }
 
 #ts-table input:hover,
@@ -109,50 +109,46 @@
 #hr-notifications-section input:focus,
 #hr-warning-thresholds-section input:hover,
 #hr-warning-thresholds-section input:focus {
-  box-shadow: inset 0 0 0 2px var(--color-primary, #0082c9);
+	box-shadow: inset 0 0 0 2px var(--color-primary, #0082c9);
 }
 
-.hr-userlist .hr-user-target,
-.hr-userlist .hr-user-balance {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
+/* Employee list cells and actions */
 .hr-userlist .hr-user-target,
 .hr-userlist .hr-user-balance,
 .hr-userlist .hr-user-last-entry,
 .hr-userlist .hr-user-days-since {
-  text-align: center;
-  font-variant-numeric: tabular-nums;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
 }
 
 .hr-userlist button.hr-load-user {
-  padding: 4px 10px;
-  border: 1px solid var(--color-border, #ccc);
-  background: #ddd;
-  color: #000;
-  margin: 0;
-  width: 100%;
+	padding: 4px 10px;
+	border: 1px solid var(--color-border, #ccc);
+	background: #ddd;
+	color: #000;
+	margin: 0;
+	width: 100%;
 }
 
 .hr-userlist button.hr-load-user:hover {
-  background: #c2c2c2;
+	background: #c2c2c2;
 }
 
 .hr-userlist tbody tr {
-  background: var(--color-main-background, #fff);
+	background: var(--color-main-background, #fff);
 }
 
+/* Table comments and numeric inputs */
 #ts-table textarea.commentInput,
 #hr-user-table textarea.commentInput {
-  width: 100%;
-  border: none;
-  background: transparent;
-  margin: 0;
-  padding: 0 5px !important;
-  min-height: 0;
-  height: 1.3em;
-  resize: none;
+	width: 100%;
+	border: none;
+	background: transparent;
+	margin: 0;
+	padding: 0 5px !important;
+	min-height: 0;
+	height: 1.3em;
+	resize: none;
 }
 
 #ts-table input[type="number"],
@@ -163,325 +159,350 @@
 #hr-notifications-section input[type="text"],
 #hr-warning-thresholds-section input[type="number"],
 #hr-warning-thresholds-section input[type="text"] {
-  text-align: center;
+	text-align: center;
 }
 
+/* Weekend, warning and save feedback */
 #ts-table tbody tr.is-weekend-row:not(.ts-today),
 #hr-user-table tbody tr.is-weekend-row:not(.ts-today) {
-  background: color-mix(in srgb, #6b7280 10%, transparent);
+	background: color-mix(in srgb, #6b7280 10%, transparent);
 }
 
 .ts-warn,
 .hr-user-errors {
-  color: #b00020;
-  font-weight: 600;
-  white-space: normal;
-  word-break: break-word;
+	color: #b00020;
+	font-weight: 600;
+	white-space: normal;
+	word-break: break-word;
 }
 
 .ts-row-saved {
-  box-shadow: inset 0 0 0 2px #2e7d32;
-  border-top: 1px solid #2e7d32 !important;
-  border-bottom: 1px solid #2e7d32 !important;
-  background: color-mix(in srgb, #2e7d32 12%, transparent) !important;
+	box-shadow: inset 0 0 0 2px #2e7d32;
+	border-top: 1px solid #2e7d32 !important;
+	border-bottom: 1px solid #2e7d32 !important;
+	background: color-mix(in srgb, #2e7d32 12%, transparent) !important;
 }
 
-/* Status */
+/* Row status */
 .ts-status {
-  text-align: center;
-  white-space: nowrap;
+	text-align: center;
+	white-space: nowrap;
 }
 
 .ts-status.is-weekend {
-  font-weight: 600;
+	font-weight: 600;
 }
 
 /* Tabs */
 .ts-tabs .ts-tab {
-  background: var(--color-background-dark, #f6f8fa);
-  color: #ffffff;
-  border: 1px solid;
-  padding: 0px 5px;
-  font-weight: 600;
+	background: var(--color-background-dark, #f6f8fa);
+	color: #ffffff;
+	border: 1px solid;
+	padding: 0px 5px;
+	font-weight: 600;
 }
 
 .ts-tabs .ts-tab.active {
-  background: #374151;
+	background: #374151;
 }
 
 .ts-tabview {
-  display: none;
+	display: none;
 }
 
 .ts-tabview.active {
-  display: block;
+	display: block;
 }
 
+/* HR information panel */
 .ts-infobox {
-  padding: 10px 12px;
-  border-left: 4px solid var(--color-primary, #0082c9);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-background-dark, #0082c9) 8%, var(--color-main-background, #fff));
-  line-height: 1.4;
-  width: 464px;
+	padding: 10px 12px;
+	border-left: 4px solid var(--color-primary, #0082c9);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--color-background-dark, #0082c9) 8%, var(--color-main-background, #fff));
+	line-height: 1.4;
+	width: 464px;
 }
 
+/* HR detail header */
 .hr-user-header-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
 }
 
 .hr-user-header-bar h4 {
-  margin: 0;
-  background: var(--color-background-dark, #f6f8fa);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 6px;
-  padding: 0 10px;
+	margin: 0;
+	background: var(--color-background-dark, #f6f8fa);
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 6px;
+	padding: 0 10px;
 }
 
 .hr-user-header-bar button {
-  background: rgb(50, 0, 0);
-  border: 1px solid;
-  padding: 4px 10px;
-  color: #ffffff;
+	background: rgb(50, 0, 0);
+	border: 1px solid;
+	padding: 4px 10px;
+	color: #ffffff;
 }
 
+/* Month controls and configuration */
 .hr-user-controls-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  flex-wrap: wrap;
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	flex-wrap: wrap;
 }
 
 .ts-month-row,
 .ts-month-row-main {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
 }
 
 #tab-mine .ts-month-row-main .hr-config-row,
 #tab-hr .hr-user-controls-row .hr-config-row {
-  margin-left: auto;
+	margin-left: auto;
 }
 
 .ts-month-row-main h3 {
-  margin: 0 12px 0 0;
-  white-space: nowrap;
+	margin: 0 12px 0 0;
+	white-space: nowrap;
 }
 
 .month-display {
-  font-weight: bold;
-  min-width: 120px;
-  text-align: center;
+	font-weight: bold;
+	min-width: 120px;
+	text-align: center;
 }
 
 .month-nav {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-background-dark, #f6f8fa);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 4px;
-  padding: 0 6px;
-  min-width: 0;
-  height: 1.8rem;
-  white-space: nowrap;
-  font-weight: bold;
-  font-size: 0.9rem;
-  line-height: 1;
-  text-align: center;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--color-background-dark, #f6f8fa);
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 4px;
+	padding: 0 6px;
+	min-width: 0;
+	height: 1.8rem;
+	white-space: nowrap;
+	font-weight: bold;
+	font-size: 0.9rem;
+	line-height: 1;
+	text-align: center;
 }
 
 .ts-stats {
-  display: flex;
-  align-items: center;
-  font-size: 0.95rem;
+	display: flex;
+	align-items: center;
+	font-size: 0.95rem;
 }
 
 .ts-stats div {
-  background: var(--color-background-dark, #f6f8fa);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 6px;
-  padding: 4px 10px;
-  white-space: nowrap;
+	background: var(--color-background-dark, #f6f8fa);
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 6px;
+	padding: 4px 10px;
+	white-space: nowrap;
 }
 
 .ts-month-row-main,
 .hr-user-controls-row {
-  background: var(--color-background-dark, #f6f8fa);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 6px;
-  padding: 0px 5px;
-  margin-bottom: 6px;
+	background: var(--color-background-dark, #f6f8fa);
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 6px;
+	padding: 0px 5px;
+	margin-bottom: 6px;
 }
 
+/* Break input format switch */
 .ts-break-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  margin-left: 0;
-  margin-right: auto;
-  width: fit-content;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border, #d0d7de);
-  background: var(--color-background-dark, #f6f8fa);
-  color: var(--color-main-text, #1f2937);
-  font-size: 0.9rem;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 6px;
+	margin-left: 0;
+	margin-right: auto;
+	width: fit-content;
+	padding: 4px 10px;
+	border-radius: 8px;
+	border: 1px solid var(--color-border, #d0d7de);
+	background: var(--color-background-dark, #f6f8fa);
+	color: var(--color-main-text, #1f2937);
+	font-size: 0.9rem;
 }
 
 .ts-break-toggle-label {
-  color: var(--color-main-text, #1f2937);
-  font-weight: 600;
+	color: var(--color-main-text, #1f2937);
+	font-weight: 600;
 }
 
 .ts-break-mode-option {
-  color: var(--color-main-text, #1f2937);
-  font-weight: 600;
-  user-select: none;
+	color: var(--color-main-text, #1f2937);
+	font-weight: 600;
+	user-select: none;
 }
 
 .ts-break-mode-option.is-active {
-  color: var(--color-main-text, #1f2937);
-  font-weight: 600;
+	color: var(--color-main-text, #1f2937);
+	font-weight: 600;
 }
 
 .ts-break-switch {
-  position: relative;
-  display: inline-flex;
-  width: 38px;
-  height: 20px;
-  cursor: pointer;
+	position: relative;
+	display: inline-flex;
+	width: 38px;
+	height: 20px;
+	cursor: pointer;
 }
 
 .ts-break-toggle-switch {
-  position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
+	position: absolute;
+	opacity: 0;
+	width: 1px;
+	height: 1px;
 }
 
 .ts-break-switch-slider {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 999px;
-  background: #6b7280;
-  transition: background-color 120ms ease, border-color 120ms ease;
+	position: relative;
+	width: 100%;
+	height: 100%;
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 999px;
+	background: #6b7280;
+	transition: background-color 120ms ease, border-color 120ms ease;
 }
 
 .ts-break-switch-slider::before {
-  content: '';
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #ffffff;
-  transition: transform 120ms ease;
+	content: '';
+	position: absolute;
+	top: 1px;
+	left: 1px;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background: #ffffff;
+	transition: transform 120ms ease;
 }
 
 .ts-break-toggle-switch:checked + .ts-break-switch-slider {
-  border-color: var(--color-primary, #0082c9);
-  background: var(--color-primary, #0082c9);
+	border-color: var(--color-primary, #0082c9);
+	background: var(--color-primary, #0082c9);
 }
 
 .ts-break-toggle-switch:checked + .ts-break-switch-slider::before {
-  transform: translateX(18px);
+	transform: translateX(18px);
 }
 
 .ts-break-toggle-switch:focus-visible + .ts-break-switch-slider {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary, #0082c9) 30%, transparent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary, #0082c9) 30%, transparent);
 }
 
-/* Buttons innerhalb der Kopfbereiche: klarer Kontrast */
+/* Header buttons */
 .ts-month-row-main button,
 .hr-user-controls-row button {
-  background: var(--color-primary, #0082c9);
-  color: var(--color-primary-text, #ffffff);
-  border: 1px solid var(--color-primary, #0082c9);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font: inherit;
-  cursor: pointer;
+	background: var(--color-primary, #0082c9);
+	color: var(--color-primary-text, #ffffff);
+	border: 1px solid var(--color-primary, #0082c9);
+	border-radius: 4px;
+	padding: 4px 10px;
+	font: inherit;
+	cursor: pointer;
 }
 
 .ts-month-row-main button:hover,
 .hr-user-controls-row button:hover {
-  background: var(--color-primary-hover, #006ba3);
+	background: var(--color-primary-hover, #006ba3);
 }
 
+/* HR overview grid and responsive layout */
 .ts-hr-row {
-  display: grid;
-  gap: 16px;
-  align-items: start;
-  justify-content: start;
-  grid-template-columns: auto auto auto;
-  grid-template-areas: 
-    "users stats warnings"
-    "users stats notifications"
-    "users stats infobox";
+	display: grid;
+	gap: 16px;
+	align-items: start;
+	justify-content: start;
+	grid-template-columns: auto auto auto;
+	grid-template-areas:
+		"users stats warnings"
+		"users stats notifications"
+		"users stats infobox";
 }
 
-#hr-infobox-section { grid-area: infobox; }
-#hr-userlist-section { grid-area: users; justify-self: start; }
-#hr-stats-section { grid-area: stats; justify-self: start; }
-#hr-notifications-section { grid-area: notifications; justify-self: start; }
-#hr-warning-thresholds-section { grid-area: warnings; justify-self: start; }
+#hr-infobox-section {
+	grid-area: infobox;
+}
+
+#hr-userlist-section {
+	grid-area: users;
+	justify-self: start;
+}
+
+#hr-stats-section {
+	grid-area: stats;
+	justify-self: start;
+}
+
+#hr-notifications-section {
+	grid-area: notifications;
+	justify-self: start;
+}
+
+#hr-warning-thresholds-section {
+	grid-area: warnings;
+	justify-self: start;
+}
 
 @media (max-width: 1800px) {
-  .ts-hr-row {
-    grid-template-columns: auto auto;
-    grid-template-areas:
-      "users stats"
-      "users warnings"
-      "users notifications"
-      "users infobox";
-  }
+	.ts-hr-row {
+		grid-template-columns: auto auto;
+		grid-template-areas:
+			"users stats"
+			"users warnings"
+			"users notifications"
+			"users infobox";
+	}
 }
 
 @media (max-width: 1330px) {
-  .ts-hr-row {
-    grid-template-columns: auto auto;
-    grid-template-areas:
-      "stats infobox"
-      "warnings notifications"
-      "users users";
-  }
+	.ts-hr-row {
+		grid-template-columns: auto auto;
+		grid-template-areas:
+			"stats infobox"
+			"warnings notifications"
+			"users users";
+	}
 }
 
 @media (max-width: 1050px) {
-  .ts-hr-row {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-    "stats"
-    "warnings"
-    "notifications"
-    "users"
-    "infobox";
-  }
+	.ts-hr-row {
+		grid-template-columns: 1fr;
+		grid-template-areas:
+			"stats"
+			"warnings"
+			"notifications"
+			"users"
+			"infobox";
+	}
 }
 
+/* HR overview panels */
 #hr-userlist-section,
 #hr-stats-section,
 #hr-notifications-section,
 #hr-warning-thresholds-section {
-  background: var(--color-background-dark, #f6f8fa);
-  border: 1px solid var(--color-border, #d0d7de);
-  border-radius: 6px;
+	background: var(--color-background-dark, #f6f8fa);
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 6px;
 }
 
 #hr-userlist-section h4,
 #hr-stats-section h4,
 #hr-notifications-section h4,
 #hr-warning-thresholds-section h4 {
-  margin: 0 5px 8px;
-  font-weight: 700;
+	margin: 0 5px 8px;
+	font-weight: 700;
 }
 
 #hr-stats-section .hr-stats-table th,
@@ -490,64 +511,60 @@
 #hr-notifications-section .hr-notifications-table td,
 #hr-warning-thresholds-section .hr-warning-thresholds-table th,
 #hr-warning-thresholds-section .hr-warning-thresholds-table td {
-  border: 1px solid var(--color-border, #e1e4e8);
-  background: var(--color-main-background, #fff);
-  padding: 4px 8px;
-  text-align: center;
+	border: 1px solid var(--color-border, #e1e4e8);
+	background: var(--color-main-background, #fff);
+	padding: 4px 8px;
+	text-align: center;
 }
 
 #hr-notifications-section .hr-notifications-table th:nth-child(2),
 #hr-notifications-section .hr-notifications-table td:nth-child(2),
 #hr-warning-thresholds-section .hr-warning-thresholds-table th:nth-child(1),
 #hr-warning-thresholds-section .hr-warning-thresholds-table td:nth-child(1) {
-  text-align: left;
+	text-align: left;
 }
 
 #hr-notifications-section .hr-hint-row td,
 #hr-warning-thresholds-section .hr-hint-row td {
-  text-align: left;
-  font-style: italic;
-  color: var(--color-text-maxcontrast, #666);
+	text-align: left;
+	font-style: italic;
+	color: var(--color-text-maxcontrast, #666);
 }
 
-/** timesheet-export.js */
+/* Export choices */
 .ts-export-choice-ui {
-  display: none;
-  align-items: center;
-  gap: 6px;
-  margin-left: 8px;
+	display: none;
+	align-items: center;
+	gap: 6px;
+	margin-left: 8px;
 }
 .ts-export-choice-ui.is-visible {
-  display: inline-flex;
+	display: inline-flex;
 }
 
 .ts-export-choice-ui button.primary {
-  padding: 2px 8px;
-  line-height: 1.2;
+	padding: 2px 8px;
+	line-height: 1.2;
 }
 
 #export-hr-xlsx,
 #export-hr-xlsx-choice-ui button.primary {
-  border: 1px solid var(--color-border, #d0d7de);
+	border: 1px solid var(--color-border, #d0d7de);
 }
 
+/* Notification and warning threshold inputs */
 #hr-notifications-section .hr-notifications-table td:nth-child(3) input[type="number"],
 #hr-notifications-section .hr-notifications-table td:nth-child(3) input[type="time"],
 #hr-warning-thresholds-section .hr-warning-thresholds-table td:nth-child(2) input[type="number"],
 #hr-warning-thresholds-section .hr-warning-thresholds-table td:nth-child(2) input[type="time"] {
-  width: 5.0em;
-  padding: 0;
-  text-align: center;
+	width: 5.0em;
+	padding: 0;
+	text-align: center;
 }
 
-#hr-notifications-section .hr-notifications-table td:nth-child(3) span {
-  display: inline-block;
-  width: 4em;
-  text-align: left;
-}
-
+#hr-notifications-section .hr-notifications-table td:nth-child(3) span,
 #hr-warning-thresholds-section .hr-warning-thresholds-table td:nth-child(2) span {
-  display: inline-block;
-  width: 4em;
-  text-align: left;
+	display: inline-block;
+	width: 4em;
+	text-align: left;
 }

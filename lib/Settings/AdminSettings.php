@@ -10,104 +10,119 @@ use OCP\IGroupManager;
 
 class AdminSettings implements ISettings {
 
-  private const DEFAULT_RULE_SETTINGS = [
-    'priority' => 1,
-    'breakShortMinutes' => 30,
-    'breakShortHours' => 6,
-    'breakLongMinutes' => 45,
-    'breakLongHours' => 9,
-    'maxHours' => 10,
-  ];
+	private const DEFAULT_RULE_SETTINGS = [
+		'priority' => 1,
+		'breakShortMinutes' => 30,
+		'breakShortHours' => 6,
+		'breakLongMinutes' => 45,
+		'breakLongHours' => 9,
+		'maxHours' => 10,
+	];
 
-  public function __construct(
-    private IAppConfig $appConfig,
-    private IGroupManager $groupManager,
-    private string $appName,
-  ) {}
+	public function __construct(
+		private IAppConfig $appConfig,
+		private IGroupManager $groupManager,
+		private string $appName,
+	) {
+	}
 
-  public function getForm(): TemplateResponse {
-    Util::addScript($this->appName, 'admin');
+	public function getForm(): TemplateResponse {
+		Util::addScript($this->appName, 'admin');
 
-    $allGroups = [];
-    foreach ($this->groupManager->search('') as $g) {
-      $allGroups[] = $g->getGID();
-    }
-    sort($allGroups, SORT_NATURAL | SORT_FLAG_CASE);
+		$allGroups = [];
+		foreach ($this->groupManager->search('') as $group) {
+			$allGroups[] = $group->getGID();
+		}
+		sort($allGroups, SORT_NATURAL | SORT_FLAG_CASE);
 
-    $rules = $this->loadRules();
-    
-    return new TemplateResponse($this->appName, 'settings-admin', [
-        'allGroups'     => $allGroups,
-        'hrAccessRules' => $rules,
-    ]);
-  }
+		$accessRules = $this->loadRules();
 
-  private function loadRules(): array {
-    $raw = (string)$this->appConfig->getAppValueString('hr_access_rules');
-    if (trim($raw) === '') return [];
-    $rules = json_decode($raw, true);
-    if (!is_array($rules)) return [];
-    return $this->sanitizeRules($rules);
-  }
+		return new TemplateResponse($this->appName, 'settings-admin', [
+			'allGroups'     => $allGroups,
+			'hrAccessRules' => $accessRules,
+		]);
+	}
 
-  private function sanitizeRules(array $rules): array {
-    $out = [];
-    foreach ($rules as $r) {
-      if (!is_array($r)) continue;
-      
-      $id = isset($r['id']) ? trim((string)$r['id']) : '';
-      if ($id === '') continue;
+	private function loadRules(): array {
+		$rulesJson = (string)$this->appConfig->getAppValueString('hr_access_rules');
+		if (trim($rulesJson) === '') {
+			return [];
+		}
+		$decodedRules = json_decode($rulesJson, true);
+		if (!is_array($decodedRules)) {
+			return [];
+		}
+		return $this->sanitizeRules($decodedRules);
+	}
 
-      $hrGroups = isset($r['hrGroups']) && is_array($r['hrGroups']) ? $r['hrGroups'] : [];
-      $userGroups = isset($r['userGroups']) && is_array($r['userGroups']) ? $r['userGroups'] : [];
+	private function sanitizeRules(array $rules): array {
+		$sanitizedRules = [];
+		foreach ($rules as $rule) {
+			if (!is_array($rule)) {
+				continue;
+			}
 
-      $hrGroups = array_values(array_unique(array_values(array_filter(array_map('trim', $hrGroups), fn($v) => $v !== ''))));
-      $userGroups = array_values(array_unique(array_values(array_filter(array_map('trim', $userGroups), fn($v) => $v !== ''))));
+			$ruleId = isset($rule['id']) ? trim((string)$rule['id']) : '';
+			if ($ruleId === '') {
+				continue;
+			}
 
-      $out[] = array_merge([
-        'id' => $id,
-        'hrGroups' => $hrGroups,
-        'userGroups' => $userGroups,
-      ], $this->sanitizeRuleThresholds($r));
-    }
-    return $out;
-  }
+			$hrGroups = isset($rule['hrGroups']) && is_array($rule['hrGroups']) ? $rule['hrGroups'] : [];
+			$userGroups = isset($rule['userGroups']) && is_array($rule['userGroups']) ? $rule['userGroups'] : [];
 
-  /**
-   * @param array $item
-   * @return array<string, int|float>
-   */
-  private function sanitizeRuleThresholds(array $item): array {
-    $d = self::DEFAULT_RULE_SETTINGS;
+			$hrGroups = array_values(array_unique(array_values(array_filter(array_map('trim', $hrGroups), fn($groupId) => $groupId !== ''))));
+			$userGroups = array_values(array_unique(array_values(array_filter(array_map('trim', $userGroups), fn($groupId) => $groupId !== ''))));
 
-    return [
-      'priority'               => $this->clampInt($item['priority']               ?? $d['priority'],          0, 9999),
-      'breakShortMinutes'      => $this->clampInt($item['breakShortMinutes']      ?? $d['breakShortMinutes'], 0, 600),
-      'breakShortHours'        => $this->clampFloat($item['breakShortHours']      ?? $d['breakShortHours'],   0, 24),
-      'breakLongMinutes'       => $this->clampInt($item['breakLongMinutes']       ?? $d['breakLongMinutes'],  0, 600),
-      'breakLongHours'         => $this->clampFloat($item['breakLongHours']       ?? $d['breakLongHours'],    0, 24),
-      'maxHours'               => $this->clampFloat($item['maxHours']             ?? $d['maxHours'],          0, 24),
-    ];
-  }
+			$sanitizedRules[] = array_merge([
+				'id' => $ruleId,
+				'hrGroups' => $hrGroups,
+				'userGroups' => $userGroups,
+			], $this->sanitizeRuleThresholds($rule));
+		}
+		return $sanitizedRules;
+	}
 
-  private function clampInt($value, int $min, int $max): int {
-    if (!is_numeric($value)) return $min;
-    $v = (int)$value;
-    return max($min, min($max, $v));
-  }
+	/**
+	 * @param array $item
+	 * @return array<string, int|float>
+	 */
+	private function sanitizeRuleThresholds(array $item): array {
+		$defaults = self::DEFAULT_RULE_SETTINGS;
 
-  private function clampFloat($value, float $min, float $max): float {
-    if (!is_numeric($value)) return $min;
-    $v = (float)$value;
-    if (is_nan($v) || is_infinite($v)) return $min;
-    return max($min, min($max, round($v, 2)));
-  }
+		return [
+			'priority' => $this->clampInt($item['priority'] ?? $defaults['priority'], 0, 9999),
+			'breakShortMinutes' => $this->clampInt($item['breakShortMinutes'] ?? $defaults['breakShortMinutes'], 0, 600),
+			'breakShortHours' => $this->clampFloat($item['breakShortHours'] ?? $defaults['breakShortHours'], 0, 24),
+			'breakLongMinutes' => $this->clampInt($item['breakLongMinutes'] ?? $defaults['breakLongMinutes'], 0, 600),
+			'breakLongHours' => $this->clampFloat($item['breakLongHours'] ?? $defaults['breakLongHours'], 0, 24),
+			'maxHours' => $this->clampFloat($item['maxHours'] ?? $defaults['maxHours'], 0, 24),
+		];
+	}
 
-  public function getSection(): string {
-    return 'timesheet';
-  }
+	private function clampInt($value, int $min, int $max): int {
+		if (!is_numeric($value)) {
+			return $min;
+		}
+		$numericValue = (int)$value;
+		return max($min, min($max, $numericValue));
+	}
 
-  public function getPriority(): int {
-    return 50;
-  }
+	private function clampFloat($value, float $min, float $max): float {
+		if (!is_numeric($value)) {
+			return $min;
+		}
+		$numericValue = (float)$value;
+		if (is_nan($numericValue) || is_infinite($numericValue)) {
+			return $min;
+		}
+		return max($min, min($max, round($numericValue, 2)));
+	}
+
+	public function getSection(): string {
+		return 'timesheet';
+	}
+
+	public function getPriority(): int {
+		return 50;
+	}
 }

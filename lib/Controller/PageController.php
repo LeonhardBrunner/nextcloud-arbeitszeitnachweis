@@ -26,6 +26,7 @@ class PageController extends Controller {
 		Util::addScript('core', 'l10n');
 		Util::addTranslations('timesheet');
 
+		// Load modules in dependency order.
 		Util::addScript('timesheet', 'timesheet-core');
 		Util::addScript('timesheet', 'timesheet-entries');
 		Util::addScript('timesheet', 'timesheet-hr');

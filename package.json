@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check:javascript": "node tools/check-javascript.mjs"
+    "check:javascript": "node tools/check-javascript.mjs",
+    "test:javascript": "node --test tests/readability/javascript-behavior.test.mjs"
   }
 }

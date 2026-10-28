@@ -32,49 +32,49 @@ use OCP\AppFramework\Db\Entity;
  * @method void setUpdatedAt(int $updatedAt)
  */
 class MonthlyBalance extends Entity implements JsonSerializable {
-  protected $userId;
-  protected $year;
-  protected $month;
-  protected $openingBalanceMinutes = 0;
-  protected $targetMinutes = 0;
-  protected $actualMinutes = 0;
-  protected $deltaMinutes = 0;
-  protected $closingBalanceMinutes = 0;
-  protected $isClosed = false;
-  protected $needsRecalculation = false;
-  protected $calculatedAt;
-  protected $updatedAt;
+	protected $userId;
+	protected $year;
+	protected $month;
+	protected $openingBalanceMinutes = 0;
+	protected $targetMinutes = 0;
+	protected $actualMinutes = 0;
+	protected $deltaMinutes = 0;
+	protected $closingBalanceMinutes = 0;
+	protected $isClosed = false;
+	protected $needsRecalculation = false;
+	protected $calculatedAt;
+	protected $updatedAt;
 
-  public function __construct() {
-    $this->addType('id', 'integer');
-    $this->addType('year', 'integer');
-    $this->addType('month', 'integer');
-    $this->addType('openingBalanceMinutes', 'integer');
-    $this->addType('targetMinutes', 'integer');
-    $this->addType('actualMinutes', 'integer');
-    $this->addType('deltaMinutes', 'integer');
-    $this->addType('closingBalanceMinutes', 'integer');
-    $this->addType('isClosed', 'boolean');
-    $this->addType('needsRecalculation', 'boolean');
-    $this->addType('calculatedAt', 'integer');
-    $this->addType('updatedAt', 'integer');
-  }
+	public function __construct() {
+		$this->addType('id', 'integer');
+		$this->addType('year', 'integer');
+		$this->addType('month', 'integer');
+		$this->addType('openingBalanceMinutes', 'integer');
+		$this->addType('targetMinutes', 'integer');
+		$this->addType('actualMinutes', 'integer');
+		$this->addType('deltaMinutes', 'integer');
+		$this->addType('closingBalanceMinutes', 'integer');
+		$this->addType('isClosed', 'boolean');
+		$this->addType('needsRecalculation', 'boolean');
+		$this->addType('calculatedAt', 'integer');
+		$this->addType('updatedAt', 'integer');
+	}
 
-  public function jsonSerialize(): array {
-    return [
-      'id' => $this->getId(),
-      'userId' => $this->userId,
-      'year' => $this->year,
-      'month' => $this->month,
-      'openingBalanceMinutes' => $this->openingBalanceMinutes,
-      'targetMinutes' => $this->targetMinutes,
-      'actualMinutes' => $this->actualMinutes,
-      'deltaMinutes' => $this->deltaMinutes,
-      'closingBalanceMinutes' => $this->closingBalanceMinutes,
-      'isClosed' => (bool)$this->isClosed,
-      'needsRecalculation' => (bool)$this->needsRecalculation,
-      'calculatedAt' => $this->calculatedAt,
-      'updatedAt' => $this->updatedAt,
-    ];
-  }
+	public function jsonSerialize(): array {
+		return [
+			'id' => $this->getId(),
+			'userId' => $this->userId,
+			'year' => $this->year,
+			'month' => $this->month,
+			'openingBalanceMinutes' => $this->openingBalanceMinutes,
+			'targetMinutes' => $this->targetMinutes,
+			'actualMinutes' => $this->actualMinutes,
+			'deltaMinutes' => $this->deltaMinutes,
+			'closingBalanceMinutes' => $this->closingBalanceMinutes,
+			'isClosed' => (bool)$this->isClosed,
+			'needsRecalculation' => (bool)$this->needsRecalculation,
+			'calculatedAt' => $this->calculatedAt,
+			'updatedAt' => $this->updatedAt,
+		];
+	}
 }

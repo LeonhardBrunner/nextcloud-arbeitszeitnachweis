@@ -7,90 +7,91 @@ use OCA\Timesheet\Db\EntryMapper;
 use OCP\IUserSession;
 
 class EntryService {
-  public function __construct(
-    private EntryMapper $mapper,
-    private IUserSession $userSession,
-    private MonthlyBalanceService $monthlyBalanceService,
-  ) {}
+	public function __construct(
+		private EntryMapper $mapper,
+		private IUserSession $userSession,
+		private MonthlyBalanceService $monthlyBalanceService,
+	) {
+	}
 
-  public function create(array $data, ?string $forceUserId = null): Entry {
-    $userId = $forceUserId ?? $this->userSession->getUser()->getUID();
-    $workDate = (string)$data['workDate'];
+	public function create(array $data, ?string $forceUserId = null): Entry {
+		$userId = $forceUserId ?? $this->userSession->getUser()->getUID();
+		$workDate = (string)$data['workDate'];
 
-    $existing = $this->mapper->findByUserAndDate($userId, $workDate);
-    if ($existing) {
-      throw new \DomainException('Entry already exists', 409);
-    }
+		$existingEntry = $this->mapper->findByUserAndDate($userId, $workDate);
+		if ($existingEntry) {
+			throw new \DomainException('Entry already exists', 409);
+		}
 
-    $entry = new Entry();
+		$entry = new Entry();
 
-    $entry->setUserId($userId);
-    $entry->setWorkDate($workDate);
-    $entry->setStartMin(array_key_exists('startMin', $data) ? $data['startMin'] : null);
-    $entry->setEndMin(array_key_exists('endMin', $data) ? $data['endMin'] : null);
-    $entry->setBreakMinutes((int)($data['breakMinutes'] ?? 0));
-    $entry->setComment($data['comment'] ?? null);
-    $entry->setCreatedAt(time());
-    $entry->setUpdatedAt(time());
+		$entry->setUserId($userId);
+		$entry->setWorkDate($workDate);
+		$entry->setStartMin(array_key_exists('startMin', $data) ? $data['startMin'] : null);
+		$entry->setEndMin(array_key_exists('endMin', $data) ? $data['endMin'] : null);
+		$entry->setBreakMinutes((int)($data['breakMinutes'] ?? 0));
+		$entry->setComment($data['comment'] ?? null);
+		$entry->setCreatedAt(time());
+		$entry->setUpdatedAt(time());
 
-    $created = $this->mapper->insert($entry);
-    $this->monthlyBalanceService->markDirtyFromDate($userId, $workDate);
-    return $created;
-  }
+		$createdEntry = $this->mapper->insert($entry);
+		$this->monthlyBalanceService->markDirtyFromDate($userId, $workDate);
+		return $createdEntry;
+	}
 
-  public function upsertCommentOnly(string $userId, string $workDate, string $comment): Entry {
-    $entry = $this->mapper->upsertCommentOnly($userId, $workDate, $comment);
-    $this->monthlyBalanceService->markDirtyFromDate($userId, $workDate);
-    return $entry;
-  }
+	public function upsertCommentOnly(string $userId, string $workDate, string $comment): Entry {
+		$entry = $this->mapper->upsertCommentOnly($userId, $workDate, $comment);
+		$this->monthlyBalanceService->markDirtyFromDate($userId, $workDate);
+		return $entry;
+	}
 
-  public function update(int $id, array $data, bool $isHr = false): Entry {
-    /** @var Entry $entry */
-    $entry = $this->mapper->findById($id);
-    $oldWorkDate = (string)$entry->getWorkDate();
+	public function update(int $id, array $data, bool $isHr = false): Entry {
+		/** @var Entry $entry */
+		$entry = $this->mapper->findById($id);
+		$oldWorkDate = (string)$entry->getWorkDate();
 
-    $currentUser = $this->userSession->getUser()->getUID();
-    if (!$isHr && $entry->getUserId() !== $currentUser) {
-      throw new \RuntimeException('Not allowed');
-    }
+		$currentUserId = $this->userSession->getUser()->getUID();
+		if (!$isHr && $entry->getUserId() !== $currentUserId) {
+			throw new \RuntimeException('Not allowed');
+		}
 
-    if (array_key_exists('workDate', $data)) {
-      $newWorkDate = (string)$data['workDate'];
-      if ($newWorkDate !== '' && $newWorkDate !== $entry->getWorkDate()) {
-        $existing = $this->mapper->findByUserAndDate($entry->getUserId(), $newWorkDate);
-        if ($existing && $existing->getId() !== $entry->getId()) {
-          throw new \DomainException('Entry already exists', 409);
-        }
-      }
-    }
+		if (array_key_exists('workDate', $data)) {
+			$newWorkDate = (string)$data['workDate'];
+			if ($newWorkDate !== '' && $newWorkDate !== $entry->getWorkDate()) {
+				$conflictingEntry = $this->mapper->findByUserAndDate($entry->getUserId(), $newWorkDate);
+				if ($conflictingEntry && $conflictingEntry->getId() !== $entry->getId()) {
+					throw new \DomainException('Entry already exists', 409);
+				}
+			}
+		}
 
-    foreach (['workDate', 'startMin', 'endMin', 'breakMinutes', 'comment'] as $k) {
-      if (array_key_exists($k, $data)) {
-        $setter = 'set'.ucfirst($k);
-        $entry->$setter($data[$k]);
-      }
-    }
-    $entry->setUpdatedAt(time());
+		foreach (['workDate', 'startMin', 'endMin', 'breakMinutes', 'comment'] as $fieldName) {
+			if (array_key_exists($fieldName, $data)) {
+				$setterMethod = 'set'.ucfirst($fieldName);
+				$entry->$setterMethod($data[$fieldName]);
+			}
+		}
+		$entry->setUpdatedAt(time());
 
-    $updated = $this->mapper->update($entry);
-    $newWorkDate = (string)$updated->getWorkDate();
-    $dirtyFrom = ($newWorkDate !== '' && $newWorkDate < $oldWorkDate) ? $newWorkDate : $oldWorkDate;
-    $this->monthlyBalanceService->markDirtyFromDate($updated->getUserId(), $dirtyFrom);
+		$updatedEntry = $this->mapper->update($entry);
+		$newWorkDate = (string)$updatedEntry->getWorkDate();
+		$recalculateFromDate = ($newWorkDate !== '' && $newWorkDate < $oldWorkDate) ? $newWorkDate : $oldWorkDate;
+		$this->monthlyBalanceService->markDirtyFromDate($updatedEntry->getUserId(), $recalculateFromDate);
 
-    return $updated;
-  }
+		return $updatedEntry;
+	}
 
-  public function delete(int $id, bool $isHr = false): void {
-    /** @var Entry $entry */
-    $entry = $this->mapper->findById($id);
-    $currentUser = $this->userSession->getUser()->getUID();
-    if (!$isHr && $entry->getUserId() !== $currentUser) {
-      throw new \RuntimeException('Not allowed');
-    }
+	public function delete(int $id, bool $isHr = false): void {
+		/** @var Entry $entry */
+		$entry = $this->mapper->findById($id);
+		$currentUserId = $this->userSession->getUser()->getUID();
+		if (!$isHr && $entry->getUserId() !== $currentUserId) {
+			throw new \RuntimeException('Not allowed');
+		}
 
-    $userId = $entry->getUserId();
-    $workDate = (string)$entry->getWorkDate();
-    $this->mapper->delete($entry);
-    $this->monthlyBalanceService->markDirtyFromDate($userId, $workDate);
-  }
+		$userId = $entry->getUserId();
+		$workDate = (string)$entry->getWorkDate();
+		$this->mapper->delete($entry);
+		$this->monthlyBalanceService->markDirtyFromDate($userId, $workDate);
+	}
 }

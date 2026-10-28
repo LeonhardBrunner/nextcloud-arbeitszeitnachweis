@@ -10,11 +10,11 @@ require_once $projectRoot . '/vendor-bin/cs-fixer/vendor/autoload.php';
 $config = new Config();
 $config->setCacheFile($projectRoot . '/.php-cs-fixer.cache');
 $config->getFinder()
-    ->notPath('build')
-    ->notPath('l10n')
-    ->notPath('node_modules')
-    ->notPath('vendor')
-    ->notPath('vendor-bin')
-    ->in($projectRoot);
+	->notPath('build')
+	->notPath('l10n')
+	->notPath('node_modules')
+	->notPath('vendor')
+	->notPath('vendor-bin')
+	->in($projectRoot);
 
 return $config;

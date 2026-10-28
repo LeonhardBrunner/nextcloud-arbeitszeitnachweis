@@ -2,555 +2,338 @@
 
 namespace OCA\Timesheet\Controller;
 
-use OCP\AppFramework\Controller;
-use OCP\AppFramework\Db\DoesNotExistException;
-use OCP\AppFramework\Http\DataResponse;
-use OCP\AppFramework\Http\DataDownloadResponse;
-use OCP\AppFramework\Http\Attribute\NoAdminRequired;
-use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
-
 use OCA\Timesheet\Db\EntryMapper;
-use OCA\Timesheet\Db\UserConfigMapper;
 use OCA\Timesheet\Service\EntryService;
 use OCA\Timesheet\Service\HrService;
-use OCA\Timesheet\Service\HolidayService;
-
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Shared\Date;
-use PhpOffice\PhpSpreadsheet\Style\Alignment;
-
-use OC\ForbiddenException;
+use OCA\Timesheet\Service\TimesheetXlsxExporter;
+use OCP\AppFramework\Controller;
+use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
+use OCP\AppFramework\Http\DataDownloadResponse;
+use OCP\AppFramework\Http\DataResponse;
+use OCP\IL10N;
 use OCP\IRequest;
 use OCP\IUserSession;
-use OCP\IL10N;
+use OC\ForbiddenException;
 
 class EntryController extends Controller {
 
-  public function __construct(
-    string $appName,
-    IRequest $request,
-    private EntryMapper $entryMapper,
-    private UserConfigMapper $userConfigMapper,
-    private EntryService $service,
-    private IUserSession $userSession,
-    private IL10N $l10n,
-    private HrService $hrService,
-    private HolidayService $holidayService,
-  ) {
-    parent::__construct($appName, $request);
-  }
+	public function __construct(
+		string $appName,
+		IRequest $request,
+		private EntryMapper $entryMapper,
+		private EntryService $entryService,
+		private IUserSession $userSession,
+		private IL10N $l10n,
+		private HrService $hrService,
+		private TimesheetXlsxExporter $xlsxExporter,
+	) {
+		parent::__construct($appName, $request);
+	}
 
-  #[NoAdminRequired]
-  public function index(?string $from = null, ?string $to = null, ?string $user = null): DataResponse {
-    $from ??= date('Y-m-01');
-    $to ??= date('Y-m-t');
+	#[NoAdminRequired]
+	public function index(?string $from = null, ?string $to = null, ?string $user = null): DataResponse {
+		$from ??= date('Y-m-01');
+		$to ??= date('Y-m-t');
 
-    $currentUser = $this->userSession->getUser()->getUID();
+		$currentUserId = $this->userSession->getUser()->getUID();
 
-    if ($user !== null && $this->hrService->isHr()) {
-      $rows = $this->entryMapper->findByUserAndRange($user, $from, $to);
-      return new DataResponse($rows);
-    }
+		if ($user !== null && $this->hrService->isHr()) {
+			$entries = $this->entryMapper->findByUserAndRange($user, $from, $to);
+			return new DataResponse($entries);
+		}
 
-    $rows = $this->entryMapper->findByUserAndRange($currentUser, $from, $to);
-    return new DataResponse($rows);
-  }
+		$entries = $this->entryMapper->findByUserAndRange($currentUserId, $from, $to);
+		return new DataResponse($entries);
+	}
 
-  #[NoAdminRequired]
-  public function create(string $workDate, ?string $start = null, ?string $end = null, int $breakMinutes = 0, ?string $comment = null): DataResponse {
-    $current = $this->userSession->getUser();
-    if (!$current) {
-      return new DataResponse(['error' => 'Unauthorized'], 401);
-    }
-    $currentUid = $current->getUID();
-    $targetUid = $currentUid;
-    $userParam = $this->request->getParam('user');
-    if ($userParam !== null && $this->hrService->isHr($currentUid)) {
-      $targetUid = $userParam;
-    }
+	#[NoAdminRequired]
+	public function create(string $workDate, ?string $start = null, ?string $end = null, int $breakMinutes = 0, ?string $comment = null): DataResponse {
+		$currentUser = $this->userSession->getUser();
+		if (!$currentUser) {
+			return new DataResponse(['error' => 'Unauthorized'], 401);
+		}
+		$currentUserId = $currentUser->getUID();
+		$targetUserId = $currentUserId;
+		$userParameter = $this->request->getParam('user');
+		if ($userParameter !== null && $this->hrService->isHr($currentUserId)) {
+			$targetUserId = $userParameter;
+		}
 
-    if ($comment === null) { $c = $this->request->getParam('comment'); if ($c !== null) $comment = (String)$c; }
-    if ($start === null)   { $s = $this->request->getParam('start');   if ($s !== null) $start = (String)$s; }
-    if ($end === null)     { $e = $this->request->getParam('end');     if ($e !== null) $end = (String)$e; }
+		if ($comment === null) {
+			$commentParameter = $this->request->getParam('comment');
+			if ($commentParameter !== null) {
+				$comment = (string)$commentParameter;
+			}
+		}
+		if ($start === null) {
+			$startParameter = $this->request->getParam('start');
+			if ($startParameter !== null) {
+				$start = (string)$startParameter;
+			}
+		}
+		if ($end === null) {
+			$endParameter = $this->request->getParam('end');
+			if ($endParameter !== null) {
+				$end = (string)$endParameter;
+			}
+		}
 
-    $commentOnly = ((int)$this->request->getParam('commentOnly', 0) === 1);
-    $commentTrim = trim((string)($comment ?? ''));
+		$commentOnly = ((int)$this->request->getParam('commentOnly', 0) === 1);
+		$trimmedComment = trim((string)($comment ?? ''));
 
-    $startRaw = trim((string)($start ?? ''));
-    $endRaw = trim((string)($end ?? ''));
+		$startString = trim((string)($start ?? ''));
+		$endString = trim((string)($end ?? ''));
 
-    $startMin = self::hmToMinNullable($start);
-    $endMin   = self::hmToMinNullable($end);
+		$startMinutes = self::parseOptionalTimeMinutes($start);
+		$endMinutes = self::parseOptionalTimeMinutes($end);
 
-    if ($startRaw !== '' && $startMin === null) {
-      return new DataResponse(['error' => 'Invalid start time'], 400);
-    }
-    if ($endRaw !== '' && $endMin === null) {
-      return new DataResponse(['error' => 'Invalid end time'], 400);
-    }
+		if ($startString !== '' && $startMinutes === null) {
+			return new DataResponse(['error' => 'Invalid start time'], 400);
+		}
+		if ($endString !== '' && $endMinutes === null) {
+			return new DataResponse(['error' => 'Invalid end time'], 400);
+		}
 
-    $hasStart = ($startMin !== null);
-    $hasEnd = ($endMin !== null);
+		$hasStart = ($startMinutes !== null);
+		$hasEnd = ($endMinutes !== null);
 
-    if ($commentOnly || (!$hasStart && !$hasEnd && $commentTrim !== '')) {
-      $entry = $this->service->upsertCommentOnly($targetUid, $workDate, $commentTrim);
-      return new DataResponse($entry);
-    }
+		if ($commentOnly || (!$hasStart && !$hasEnd && $trimmedComment !== '')) {
+			$entry = $this->entryService->upsertCommentOnly($targetUserId, $workDate, $trimmedComment);
+			return new DataResponse($entry);
+		}
 
-    if (!$hasStart && !$hasEnd) {
-      return new DataResponse(['error' => 'Time incomplete'], 400);
-    }
+		if (!$hasStart && !$hasEnd) {
+			return new DataResponse(['error' => 'Time incomplete'], 400);
+		}
 
-    $payload = [
-      'workDate' => $workDate,
-      'startMin' => $startMin,
-      'endMin' => $endMin,
-      'breakMinutes' => $breakMinutes,
-      'comment' => $comment,
-    ];
+		$payload = [
+			'workDate' => $workDate,
+			'startMin' => $startMinutes,
+			'endMin' => $endMinutes,
+			'breakMinutes' => $breakMinutes,
+			'comment' => $comment,
+		];
 
-    try {
-      $entry = $this->service->create($payload, $targetUid);
-    } catch (\DomainException $e) {
-      if ($e->getCode() === 409) {
-        return new DataResponse(['error' => 'Entry already exists'], 409);
-      }
-      throw $e;
-    }
-    return new DataResponse($entry);
-  }
+		try {
+			$entry = $this->entryService->create($payload, $targetUserId);
+		} catch (\DomainException $exception) {
+			if ($exception->getCode() === 409) {
+				return new DataResponse(['error' => 'Entry already exists'], 409);
+			}
+			throw $exception;
+		}
+		return new DataResponse($entry);
+	}
 
-  #[NoAdminRequired]
-  public function update(int $id, ?string $workDate = null, ?string $start = null, ?string $end = null, ?int $breakMinutes = null, ?string $comment = null): DataResponse {
-    if ($comment === null)  { $c  = $this->request->getParam('comment');  if ($c !== null) $comment = (String)$c; }
-    if ($start === null)    { $s  = $this->request->getParam('start');    if ($s !== null) $start = (String)$s; }
-    if ($end === null)      { $e  = $this->request->getParam('end');      if ($e !== null) $end = (String)$e; }
-    if ($workDate === null) { $wd = $this->request->getParam('workDate'); if ($wd !== null) $workDate = (String)$wd; }
-    if ($breakMinutes === null) {
-      $bm = $this->request->getParam('breakMinutes');
-      if ($bm !== null && $bm !== '') $breakMinutes = (int)$bm;
-    }
+	#[NoAdminRequired]
+	public function update(int $id, ?string $workDate = null, ?string $start = null, ?string $end = null, ?int $breakMinutes = null, ?string $comment = null): DataResponse {
+		if ($comment === null) {
+			$commentParameter = $this->request->getParam('comment');
+			if ($commentParameter !== null) {
+				$comment = (string)$commentParameter;
+			}
+		}
+		if ($start === null) {
+			$startParameter = $this->request->getParam('start');
+			if ($startParameter !== null) {
+				$start = (string)$startParameter;
+			}
+		}
+		if ($end === null) {
+			$endParameter = $this->request->getParam('end');
+			if ($endParameter !== null) {
+				$end = (string)$endParameter;
+			}
+		}
+		if ($workDate === null) {
+			$workDateParameter = $this->request->getParam('workDate');
+			if ($workDateParameter !== null) {
+				$workDate = (string)$workDateParameter;
+			}
+		}
+		if ($breakMinutes === null) {
+			$breakMinutesParameter = $this->request->getParam('breakMinutes');
+			if ($breakMinutesParameter !== null && $breakMinutesParameter !== '') {
+				$breakMinutes = (int)$breakMinutesParameter;
+			}
+		}
 
-    $commentOnly = ((int)$this->request->getParam('commentOnly', 0) === 1);
-    $commentTrim = trim((string)($comment ?? ''));
+		$commentOnly = ((int)$this->request->getParam('commentOnly', 0) === 1);
+		$trimmedComment = trim((string)($comment ?? ''));
 
-    $data = [];
-    if ($workDate !== null) $data['workDate'] = $workDate;
+		$changes = [];
+		if ($workDate !== null) {
+			$changes['workDate'] = $workDate;
+		}
 
-    // If comment only flag is set, clear times and set comment only
-    if ($commentOnly) {
-      $data['startMin'] = null;
-      $data['endMin'] = null;
-      $data['breakMinutes'] = 0;
-      $data['comment'] = $commentTrim;
-      return $this->updateEntryWithConflictHandling($id, $data);
-    }
+		// Comment-only updates explicitly clear times; omitted fields otherwise remain unchanged.
+		if ($commentOnly) {
+			$changes['startMin'] = null;
+			$changes['endMin'] = null;
+			$changes['breakMinutes'] = 0;
+			$changes['comment'] = $trimmedComment;
+			return $this->updateEntryWithConflictHandling($id, $changes);
+		}
 
-    if ($start !== null) {
-      $startTrim = trim((string)$start);
-      if ($startTrim === '') {
-        $data['startMin'] = null;
-      } else {
-        $startMin = self::hmToMinNullable($startTrim);
-        if ($startMin === null) return new DataResponse(['error' => 'Invalid start time'], 400);
-        $data['startMin'] = $startMin;
-      }
-    }
-    if ($end !== null) {
-      $endTrim = trim((string)$end);
-      if ($endTrim === '') {
-        $data['endMin'] = null;
-      } else {
-        $endMin = self::hmToMinNullable($endTrim);
-        if ($endMin === null) return new DataResponse(['error' => 'Invalid end time'], 400);
-        $data['endMin'] = $endMin;
-      }
-    }
-    if ($breakMinutes !== null) $data['breakMinutes'] = $breakMinutes;
-    if ($comment !== null) $data['comment'] = $comment;
+		if ($start !== null) {
+			$trimmedStart = trim((string)$start);
+			if ($trimmedStart === '') {
+				$changes['startMin'] = null;
+			} else {
+				$startMinutes = self::parseOptionalTimeMinutes($trimmedStart);
+				if ($startMinutes === null) {
+					return new DataResponse(['error' => 'Invalid start time'], 400);
+				}
+				$changes['startMin'] = $startMinutes;
+			}
+		}
+		if ($end !== null) {
+			$trimmedEnd = trim((string)$end);
+			if ($trimmedEnd === '') {
+				$changes['endMin'] = null;
+			} else {
+				$endMinutes = self::parseOptionalTimeMinutes($trimmedEnd);
+				if ($endMinutes === null) {
+					return new DataResponse(['error' => 'Invalid end time'], 400);
+				}
+				$changes['endMin'] = $endMinutes;
+			}
+		}
+		if ($breakMinutes !== null) {
+			$changes['breakMinutes'] = $breakMinutes;
+		}
+		if ($comment !== null) {
+			$changes['comment'] = $comment;
+		}
 
-    return $this->updateEntryWithConflictHandling($id, $data);
-  }
+		return $this->updateEntryWithConflictHandling($id, $changes);
+	}
 
-  private function updateEntryWithConflictHandling(int $id, array $data): DataResponse {
-    try {
-      $entry = $this->service->update($id, $data, $this->hrService->isHr());
-    } catch (\DomainException $e) {
-      if ($e->getCode() === 409) {
-        return new DataResponse(['error' => 'Entry already exists'], 409);
-      }
-      throw $e;
-    }
-    return new DataResponse($entry);
-  }
+	private function updateEntryWithConflictHandling(int $id, array $changes): DataResponse {
+		try {
+			$entry = $this->entryService->update($id, $changes, $this->hrService->isHr());
+		} catch (\DomainException $exception) {
+			if ($exception->getCode() === 409) {
+				return new DataResponse(['error' => 'Entry already exists'], 409);
+			}
+			throw $exception;
+		}
+		return new DataResponse($entry);
+	}
 
-  #[NoAdminRequired]
-  public function delete(int $id): DataResponse {
-    $this->service->delete($id, $this->hrService->isHr());
-    return new DataResponse(['ok' => true]);
-  }
+	#[NoAdminRequired]
+	public function delete(int $id): DataResponse {
+		$this->entryService->delete($id, $this->hrService->isHr());
+		return new DataResponse(['ok' => true]);
+	}
 
-  private static function hmToMinNullable(?string $hm): ?int {
-    $hm = trim((string)($hm ?? ''));
-    if ($hm === '') return null;
+	private static function parseOptionalTimeMinutes(?string $timeString): ?int {
+		$timeString = trim((string)($timeString ?? ''));
+		if ($timeString === '') {
+			return null;
+		}
 
-    if (!preg_match('/^([01]?\d|2[0-3]):([0-5]\d)$/', $hm, $matches)) {
-      return null;
-    }
+		if (!preg_match('/^([01]?\d|2[0-3]):([0-5]\d)$/', $timeString, $matches)) {
+			return null;
+		}
 
-    return ((int)$matches[1]) * 60 + ((int)$matches[2]);
-  }
+		return ((int)$matches[1]) * 60 + ((int)$matches[2]);
+	}
 
-  private static function hmToMinStrict(string $hm): int {
-    $min = self::hmToMinNullable($hm);
-    if ($min === null) {
-      throw new \InvalidArgumentException('Invalid time format: ' . $hm);
-    }
-    return $min;
-  }
+	private static function parseTimeMinutes(string $timeString): int {
+		$minutes = self::parseOptionalTimeMinutes($timeString);
+		if ($minutes === null) {
+			throw new \InvalidArgumentException('Invalid time format: ' . $timeString);
+		}
+		return $minutes;
+	}
 
-  private static function parseMonthStart(?string $monthStr, \DateTimeZone $tz): \DateTimeImmutable {
-    $m = trim((string)($monthStr ?? ''));
-    if ($m === '') {
-      $m = (new \DateTimeImmutable('now', $tz))->format('Y-m');
-    }
+	private static function parseMonthStart(?string $monthString, \DateTimeZone $timeZone): \DateTimeImmutable {
+		$normalizedMonth = trim((string)($monthString ?? ''));
+		if ($normalizedMonth === '') {
+			$normalizedMonth = (new \DateTimeImmutable('now', $timeZone))->format('Y-m');
+		}
 
-    $dt = \DateTimeImmutable::createFromFormat('!Y-m-d', $m . '-01', $tz);
-    if (!$dt) {
-      $dt = new \DateTimeImmutable('first day of this month', $tz);
-      $dt = $dt->setDate((int)$dt->format('Y'), (int)$dt->format('m'), 1);
-    }
+		$monthStart = \DateTimeImmutable::createFromFormat('!Y-m-d', $normalizedMonth . '-01', $timeZone);
+		if (!$monthStart) {
+			$monthStart = new \DateTimeImmutable('first day of this month', $timeZone);
+			$monthStart = $monthStart->setDate((int)$monthStart->format('Y'), (int)$monthStart->format('m'), 1);
+		}
 
-    return $dt->setTime(0, 0, 0);
-  }
+		return $monthStart->setTime(0, 0, 0);
+	}
 
-  private function resolveUserLocale(?string $override = null): string {
-    $loc = trim((string)($override ?? ''));
+	private function resolveUserLocale(?string $override = null): string {
+		$locale = trim((string)($override ?? ''));
 
-    if ($loc === '') {
-      if (method_exists($this->l10n, 'getLocaleCode')) {
-        $loc = (string)$this->l10n->getLocaleCode();
-      } elseif (method_exists($this->l10n, 'getLanguageCode')) {
-        $loc = (string)$this->l10n->getLanguageCode();
-      }
-    }
+		if ($locale === '') {
+			if (method_exists($this->l10n, 'getLocaleCode')) {
+				$locale = (string)$this->l10n->getLocaleCode();
+			} elseif (method_exists($this->l10n, 'getLanguageCode')) {
+				$locale = (string)$this->l10n->getLanguageCode();
+			}
+		}
 
-    if ($loc === '') {
-      $al = (string)$this->request->getHeader('Accept-Language');
-      if ($al !== '') {
-        $first = trim(explode(',', $al)[0]);
-        $loc = trim(explode(';', $first)[0]);
-      }
-    }
+		if ($locale === '') {
+			$acceptLanguage = (string)$this->request->getHeader('Accept-Language');
+			if ($acceptLanguage !== '') {
+				$firstLanguage = trim(explode(',', $acceptLanguage)[0]);
+				$locale = trim(explode(';', $firstLanguage)[0]);
+			}
+		}
 
-    $loc = str_replace('-', '_', $loc);
-    return $loc !== '' ? $loc : 'en';
-  }
+		$locale = str_replace('-', '_', $locale);
+		return $locale !== '' ? $locale : 'en';
+	}
 
-  private function sheetTitleForMonth(\DateTimeImmutable $monthStart, string $locale): string {
-    $raw = '';
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	public function exportXlsx(?string $from = null, ?string $to = null, ?string $user = null): DataDownloadResponse {
+		$timeZone = new \DateTimeZone('Europe/Berlin');
 
-    if (class_exists(\IntlDateFormatter::class)) {
-      $fmt = new \IntlDateFormatter(
-        $locale,
-        \IntlDateFormatter::NONE,
-        \IntlDateFormatter::NONE,
-        $monthStart->getTimezone()->getName(),
-        \IntlDateFormatter::GREGORIAN,
-        'LLLL yyyy'
-      );
-      if ($fmt) {
-        $raw = (string)$fmt->format($monthStart);
-      }
-    }
+		$currentUser = $this->userSession->getUser();
+		if (!$currentUser) {
+			throw new ForbiddenException();
+		}
+		$currentUserId = $currentUser->getUID();
 
-    if ($raw === '') {
-      $raw = $monthStart->format('MMMM yyyy');
-    }
+		$targetUserId = $currentUserId;
+		if ($user !== null && $user !== '') {
+			if (!$this->hrService->isHr()) {
+				throw new ForbiddenException();
+			}
+			$targetUserId = $user;
+		}
 
-    $title = preg_replace('/[\\\\\\/\\?\\*\\:\\[\\]]/', ' ', $raw);
-    $title = trim(preg_replace('/\\s+/', ' ', (string)$title));
-    if ($title === '') $title = $monthStart->format('MMMM yyyy');
+		// The legacy month parameter is used only when both range endpoints are empty.
+		if (trim((string)($from ?? '')) === '' && trim((string)($to ?? '')) == '') {
+			$legacyMonth = $this->request->getParam('month');
+			if (is_string($legacyMonth) && trim($legacyMonth) !== '') {
+				$from = $legacyMonth;
+				$to = $legacyMonth;
+			}
+		}
+		if (trim((string)($from ?? '')) === '' && trim((string)($to ?? '')) !== '') {
+			$from = trim((string)$to);
+		}
+		if (trim((string)($to ?? '')) === '' && trim((string)($from ?? '')) !== '') {
+			$to = trim((string)$from);
+		}
 
-    return function_exists('mb_substr') ? mb_substr($title, 0, 31, 'UTF-8') : substr($title, 0, 31);
-  }
+		$fromMonth = self::parseMonthStart($from, $timeZone);
+		$toMonth = self::parseMonthStart($to, $timeZone);
+		if ($fromMonth > $toMonth) {
+			[$fromMonth, $toMonth] = [$toMonth, $fromMonth];
+		}
 
-  #[NoAdminRequired]
-  #[NoCSRFRequired]
-  public function exportXlsx(?string $from = null, ?string $to = null, ?string $user = null): DataDownloadResponse {
-    $tz = new \DateTimeZone('Europe/Berlin');
+		$locale = $this->resolveUserLocale($this->request->getParam('locale'));
+		$download = $this->xlsxExporter->export($targetUserId, $fromMonth, $toMonth, $locale, $this->l10n);
 
-    // 1. determine current user
-    $currentUser = $this->userSession->getUser();
-    if (!$currentUser) {
-      throw new ForbiddenException();
-    }
-    $currentUid = $currentUser->getUID();
-
-    // 2. determine target user
-    $targetUid = $currentUid;
-    if ($user !== null && $user !== '') {
-      if (!$this->hrService->isHr()) {
-        throw new ForbiddenException();
-      }
-      $targetUid = $user;
-    }
-
-    // 3. parse month
-    if (trim((string)($from ?? '')) === '' && trim((string)($to ?? '')) == '') {
-      $legacyMonth = $this->request->getParam('month');
-      if (is_string($legacyMonth) && trim($legacyMonth) !== '') {
-        $from = $legacyMonth;
-        $to = $legacyMonth;
-      }
-    }
-    if (trim((string)($from ?? '')) === '' && trim((string)($to ?? '')) !== '') {
-      $from = trim((string)$to);
-    }
-    if (trim((string)($to ?? '')) === '' && trim((string)($from ?? '')) !== '') {
-      $to = trim((string)$from);
-    }
-
-    $fromMonth = self::parseMonthStart($from, $tz);
-    $toMonth = self::parseMonthStart($to, $tz);
-    if ($fromMonth > $toMonth) {
-      [$fromMonth, $toMonth] = [$toMonth, $fromMonth];
-    }
-
-    // 4. load user config
-    try {
-      $cfg = $this->userConfigMapper->findByUser($targetUid);
-    } catch (DoesNotExistException $e) {
-      $cfg = null;
-    }
-    $dailyMinMinutes = $cfg?->getWorkMinutes() ?? 480; // default 8 hours
-    $state = $cfg?->getState() ?? '';
-
-    // 5. export timestamp
-    $exportDate = new \DateTimeImmutable('now', $tz);
-    $exportLabel = $this->l10n->t('Exported: %s', [$exportDate->format('d.m.Y H:i T')]);
-
-    // 6. build workbook
-    $spreadsheet = new Spreadsheet();
-    $holidaysByYear = [];
-    $sheetIndex = 0;
-
-    $locale = $this->resolveUserLocale($this->request->getParam('locale'));
-    for ($monthStart = $fromMonth; $monthStart <= $toMonth; $monthStart = $monthStart->modify('+1 month')) {
-      $start = $monthStart;
-      $end   = $start->modify('last day of this month');
-      $fromDate = $start->format('Y-m-d');
-      $toDate   = $end->format('Y-m-d');
-
-      // load entries for month
-      $entries = $this->entryMapper->findByUserAndRange($targetUid, $fromDate, $toDate);
-      $entriesByDate = [];
-      foreach ($entries as $entry) {
-        $entriesByDate[$entry->getWorkDate()] = $entry;
-      }
-
-      // load holidays for month
-      $holidays = [];
-      if ($state !== '') {
-        $year = (int)$start->format('Y');
-        if (!array_key_exists($year, $holidaysByYear)) {
-          $holidaysByYear[$year] = $this->holidayService->getHolidays($year, $state);
-        }
-        $holidays = $holidaysByYear[$year];
-      }
-      
-      // create sheet
-      $sheet = ($sheetIndex === 0) ? $spreadsheet->getActiveSheet() : $spreadsheet->createSheet($sheetIndex);
-      $sheet->setTitle($this->sheetTitleForMonth($start, $locale));
-      $sheetIndex++;
-      
-      $row = 1;
-      
-      // Header
-      $sheet->setCellValue("A{$row}", $this->l10n->t('Employee'));
-      $sheet->mergeCells("A{$row}:B{$row}");
-      $sheet->setCellValue("C{$row}", $targetUid);
-      $row++;
-      
-      $sheet->setCellValue("A{$row}", $this->l10n->t('Worked Hours'));
-      $sheet->mergeCells("A{$row}:B{$row}");
-      $workedHoursRow = $row;
-      $row++;
-      
-      $sheet->setCellValue("A{$row}", $this->l10n->t('Overtime'));
-      $sheet->mergeCells("A{$row}:B{$row}");
-      $overtimeRow = $row;
-      $row++;
-      
-      $sheet->setCellValue("A{$row}", $this->l10n->t('Daily working time'));
-      $sheet->mergeCells("A{$row}:B{$row}");
-      $sheet->setCellValue("C{$row}", $dailyMinMinutes / 1440);
-      $sheet->getStyle("C{$row}")
-      ->getNumberFormat()->setFormatCode('[HH]:MM');
-      $dailyRow = $row;
-      
-      $sheet->getStyle("A1:C{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-      $row += 2;
-      
-      // Table header
-      $headerRow = $row;
-      
-      $sheet->setCellValue("A{$row}", $this->l10n->t('Date'));
-      $sheet->mergeCells("A{$row}:B{$row}");
-      // empty for weekday
-      $sheet->setCellValue("C{$row}", $this->l10n->t('Status'));
-      $sheet->setCellValue("D{$row}", $this->l10n->t('Start'));
-      $sheet->setCellValue("E{$row}", $this->l10n->t('Break (min)'));
-      $sheet->setCellValue("F{$row}", $this->l10n->t('End'));
-      $sheet->setCellValue("G{$row}", $this->l10n->t('Duration'));
-      $sheet->setCellValue("H{$row}", $this->l10n->t('Difference'));
-      $sheet->setCellValue("I{$row}", $this->l10n->t('Comment'));
-      $sheet->setCellValue("J{$row}", $this->l10n->t('Warning'));
-
-      $sheet->getStyle("A{$row}:J{$row}")->getFont()->setBold(true);
-      $sheet->getStyle("A{$row}:J{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('EEEEEE');
-      $sheet->getStyle("A{$row}:J{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-
-      $row++; 
-      $firstDataRow = $row;
-      
-      // Fill data rows
-      for ($d = $start; $d <= $end; $d = $d->modify('+1 day')) {
-        $dateStr = $d->format('Y-m-d');
-        $entry = $entriesByDate[$dateStr] ?? null;
-        
-        $sheet->setCellValue("A{$row}", Date::PHPToExcel($d->setTime(0,0,0)));
-        $sheet->getStyle("A{$row}")->getNumberFormat()->setFormatCode('DD.MM.YYYY');
-
-        $dayIndex = (int)$d->format('w');
-        $weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        $weekdayKey = $weekdays[$dayIndex] ?? '';
-        $weekday = $weekdayKey !== '' ? $this->l10n->t($weekdayKey) : '';
-        $sheet->setCellValue("B{$row}", $weekday);
-        
-        $isWeekend = ($dayIndex === 0 || $dayIndex === 6);
-        $isHoliday = isset($holidays[$dateStr]);
-        
-        $status = '';
-        if ($isHoliday) {
-          $status = $this->l10n->t('Holiday');
-        } elseif ($isWeekend) {
-          $status = $this->l10n->t('Weekend');
-        }
-        $sheet->setCellValue("C{$row}", $status);
-        
-        $startMin = null;
-        $endMin = null;
-        $breakMin = 0;
-        $comment = '';
-        
-        if ($entry) {
-          $startMin = $entry->getStartMin();
-          $endMin = $entry->getEndMin();
-          $breakMin = $entry->getBreakMinutes() ?? 0;
-          $comment = (string)$entry->getComment();
-        }
-        
-        if ($startMin !== null && $endMin !== null) {
-          $sheet->setCellValue("D{$row}", $startMin / 1440);
-          $sheet->setCellValue("F{$row}", $endMin / 1440);
-        } else {
-          $sheet->setCellValue("D{$row}", null);
-          $sheet->setCellValue("F{$row}", null);
-        }
-        
-        // Break in minutes
-        $sheet->setCellValue("E{$row}", $breakMin);
-        
-        // Duration formula
-        $durationFormula = '=IF(AND(D' . $row . '<>"",F' . $row . '<>""),(F' . $row . '-D' . $row . '-E' . $row . '/1440),"")';
-        $sheet->setCellValue("G{$row}", $durationFormula);
-        
-        // Difference formula
-        $diffFormula = 
-        '=IF(G' . $row . '="","",' .
-        'IF(G' . $row . '<$C$' . $dailyRow .
-        ',"-"&TEXT($C$' . $dailyRow . '-G' . $row . ',"hh:mm"),' .
-        'TEXT(G' . $row . '-$C$' . $dailyRow . ',"hh:mm")' .
-        '))';
-        $sheet->setCellValue("H{$row}", $diffFormula);
-        
-        // Comment
-        $sheet->setCellValue("I{$row}", $comment);
-        
-        // Warning formula
-        $breakExpr = 'IF(G' . $row . '>TIME(9,0,0),IF(E' . $row . '<45,"Break too short",""),IF(G' . $row . '>TIME(6,0,0),IF(E' . $row . '<30,"Break too short",""),""))';
-        $warningFormula = 
-        '=IF(G' . $row . '="","",TEXTJOIN(", ",TRUE,' .
-        'IF(G' . $row . '>TIME(10,0,0),"Above maximum time",""),' .
-        $breakExpr . ',' .
-        'IF(AND(WEEKDAY(A' . $row . ',2)=7,G' . $row . '>0),"Sunday work not allowed",""),' .
-        'IF(C' . $row . '="Holiday","Holiday work not allowed","")' .
-        '))';
-        $sheet->setCellValue("J{$row}", $warningFormula);
-        
-        // Highlight weekends and holidays
-        if ($isWeekend || $isHoliday) {
-          $sheet->getStyle("A{$row}:J{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F9F9F9');
-        }
-        
-        $sheet->getStyle("A{$row}:H{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-        $row++;
-      }
-      
-      $lastDataRow = $row - 1;
-
-      $durSum = "SUM(G{$firstDataRow}:G{$lastDataRow})";
-      $days = "COUNT(G{$firstDataRow}:G{$lastDataRow})";
-      $exp = "(\$C\${$dailyRow}*{$days})";
-      $diff = "({$durSum}-{$exp})";
-      
-      // Set worked hours and overtime values
-      $sheet->setCellValue("C{$workedHoursRow}", "=SUM(G{$firstDataRow}:G{$lastDataRow})");
-      $sheet->setCellValue("C{$overtimeRow}", "=IF({$days}=0,\"\",IF({$diff}<0,\"-\"&TEXT(-{$diff},\"[hh]:mm\"),TEXT({$diff},\"[hh]:mm\")))");
-      $sheet->getStyle("C{$workedHoursRow}:C{$overtimeRow}")->getNumberFormat()->setFormatCode('[HH]:MM');
-      
-      // Set number formats
-      $sheet->getStyle("A" . ($headerRow + 1) . ":A" . ($lastDataRow))->getNumberFormat()->setFormatCode('DD.MM.YYYY');
-      $sheet->getStyle("D" . $firstDataRow . ":F" . $lastDataRow)->getNumberFormat()->setFormatCode('HH:MM');
-      $sheet->getStyle("E" . $firstDataRow . ":E" . $lastDataRow)->getNumberFormat()->setFormatCode('0');
-      $sheet->getStyle("G" . $firstDataRow . ":H" . $lastDataRow)->getNumberFormat()->setFormatCode('[HH]:MM');
-      
-      // Export timestamp
-      $row++;
-      $sheet->setCellValue("A{$row}", $exportLabel);
-      $sheet->mergeCells("A{$row}:C{$row}");
-      
-      // Auto size columns
-      foreach (range('A', 'H') as $col) {
-        $sheet->getColumnDimension($col)->setAutoSize(true);
-      }
-      $sheet->getColumnDimension('I')->setWidth(40);
-      $sheet->getColumnDimension('J')->setWidth(50);
-      $sheet->getStyle("I{$firstDataRow}:J{$lastDataRow}")->getAlignment()->setWrapText(true);
-    }
-
-    $spreadsheet->setActiveSheetIndex(0);
-
-    // 7. save to temp file
-    $writer = new Xlsx($spreadsheet);
-    ob_start();
-    $writer->save('php://output');
-    $binary = ob_get_clean();
-
-    $fromLabel = $fromMonth->format('Y-m');
-    $toLabel = $toMonth->format('Y-m');
-    $fileName = ($fromLabel === $toLabel)
-      ? sprintf($this->l10n->t('Timesheet_%s_%s.xlsx', [$targetUid, $fromLabel]))
-      : sprintf($this->l10n->t('Timesheet_%s_%s_to_%s.xlsx', [$targetUid, $fromLabel, $toLabel]));
-
-    // 8. return response
-    return new DataDownloadResponse(
-      $binary,
-      $fileName,
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    );
-  }
+		return new DataDownloadResponse(
+			$download['content'],
+			$download['fileName'],
+			'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+		);
+	}
 }

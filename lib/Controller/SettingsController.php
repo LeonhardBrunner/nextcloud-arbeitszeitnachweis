@@ -14,223 +14,238 @@ use OCP\IUserSession;
 
 class SettingsController extends Controller {
 
-  private const GROUP_DEFAULTS = [
-    'priority' => 1,
-    'breakShortMinutes' => 30,
-    'breakShortHours' => 6,
-    'breakLongMinutes' => 45,
-    'breakLongHours' => 9,
-    'maxHours' => 10,
-  ];
+	private const GROUP_DEFAULTS = [
+		'priority' => 1,
+		'breakShortMinutes' => 30,
+		'breakShortHours' => 6,
+		'breakLongMinutes' => 45,
+		'breakLongHours' => 9,
+		'maxHours' => 10,
+	];
 
-  public function __construct(
-    string $appName,
-    IRequest $request,
-    private IAppConfig $appConfig,
-    private IGroupManager $groupManager,
-    private IUserSession $userSession,
-    private \OCA\Timesheet\Service\MonthlyBalanceService $monthlyBalanceService,
-  ) {
-    parent::__construct($appName, $request);
-  }
+	public function __construct(
+		string $appName,
+		IRequest $request,
+		private IAppConfig $appConfig,
+		private IGroupManager $groupManager,
+		private IUserSession $userSession,
+		private \OCA\Timesheet\Service\MonthlyBalanceService $monthlyBalanceService,
+	) {
+		parent::__construct($appName, $request);
+	}
 
-  /**
-   * @AdminRequired
-   * @CSRFCheck
-   */
-  public function saveAdmin(string $hrGroups, string $hrUserGroup): DataResponse {
-    $hrGroups = trim($hrGroups);
-    $hrUserGroup = trim($hrUserGroup);
-    
-    $this->appConfig->setAppValueString('hr_groups', $hrGroups);
-    $this->appConfig->setAppValueString('hr_user_group', $hrUserGroup);
+	/**
+	 * @AdminRequired
+	 * @CSRFCheck
+	 */
+	public function saveAdmin(string $hrGroups, string $hrUserGroup): DataResponse {
+		$hrGroups = trim($hrGroups);
+		$hrUserGroup = trim($hrUserGroup);
 
-    return new DataResponse(['status' => 'success'], Http::STATUS_OK);
-  }
+		$this->appConfig->setAppValueString('hr_groups', $hrGroups);
+		$this->appConfig->setAppValueString('hr_user_group', $hrUserGroup);
 
-  public function updateHrGroups(): DataResponse {
-    $group = $this->request->getParam('group');
-    $remove = $this->request->getParam('remove') === '1';
-    $json = $this->appConfig->getAppValueString('hr_groups');
-    $groups = json_decode($json, true) ?: [];
+		return new DataResponse(['status' => 'success'], Http::STATUS_OK);
+	}
 
-    if ($remove) {
-      $groups = array_values(array_filter($groups, fn($g) => $g !== $group));
-    } else {
-      if (!in_array($group, $groups, true)) {
-        $groups[] = $group;
-      }
-    }
-    $this->appConfig->setAppValueString('hr_groups', json_encode($groups));
-    
-    return new DataResponse(['hr_groups' => $groups]);
-  }
+	public function updateHrGroups(): DataResponse {
+		$groupId = $this->request->getParam('group');
+		$removeGroup = $this->request->getParam('remove') === '1';
+		$groupsJson = $this->appConfig->getAppValueString('hr_groups');
+		$groupIds = json_decode($groupsJson, true) ?: [];
 
-  public function updateHrUserGroups(): DataResponse {
-    $group = $this->request->getParam('group');
-    $remove = $this->request->getParam('remove') === '1';
-    $json = $this->appConfig->getAppValueString('hr_user_groups');
-    $groups = json_decode($json, true) ?: [];
+		if ($removeGroup) {
+			$groupIds = array_values(array_filter($groupIds, fn($existingGroupId) => $existingGroupId !== $groupId));
+		} else {
+			if (!in_array($groupId, $groupIds, true)) {
+				$groupIds[] = $groupId;
+			}
+		}
+		$this->appConfig->setAppValueString('hr_groups', json_encode($groupIds));
 
-    if ($remove) {
-      $groups = array_values(array_filter($groups, fn($g) => $g !== $group));
-    } else {
-      if (!in_array($group, $groups, true)) {
-        $groups[] = $group;
-      }
-    }
-    $this->appConfig->setAppValueString('hr_user_groups', json_encode($groups));
+		return new DataResponse(['hr_groups' => $groupIds]);
+	}
 
-    return new DataResponse(['hr_user_groups' => $groups]);
-  }
+	public function updateHrUserGroups(): DataResponse {
+		$groupId = $this->request->getParam('group');
+		$removeGroup = $this->request->getParam('remove') === '1';
+		$groupsJson = $this->appConfig->getAppValueString('hr_user_groups');
+		$groupIds = json_decode($groupsJson, true) ?: [];
 
-  public function saveHrAccessRules(): DataResponse {
-    $user = $this->userSession->getUser();
-    $uid = $user?->getUID();
-    if (!$uid || !$this->groupManager->isAdmin($uid)) {
-      return new DataResponse(['message' => 'Forbidden'], 403);
-    }
+		if ($removeGroup) {
+			$groupIds = array_values(array_filter($groupIds, fn($existingGroupId) => $existingGroupId !== $groupId));
+		} else {
+			if (!in_array($groupId, $groupIds, true)) {
+				$groupIds[] = $groupId;
+			}
+		}
+		$this->appConfig->setAppValueString('hr_user_groups', json_encode($groupIds));
 
-    $raw = (string)$this->request->getParam('rules', '[]');
-    $decoded = json_decode($raw, true);
-    if (!is_array($decoded)) {
-      return new DataResponse(['message' => 'Invalid rules'], 400);
-    }
+		return new DataResponse(['hr_user_groups' => $groupIds]);
+	}
 
-    $clean = $this->sanitizeRules($decoded);
-    $dupes = $this->findDuplicateUserGroups($clean);
-    if (!empty($dupes)) {
-      return new DataResponse([
-        'message' => 'Duplicate employee groups in rules',
-        'groups' => array_values($dupes),
-      ], 400);
-    }
+	public function saveHrAccessRules(): DataResponse {
+		$currentUser = $this->userSession->getUser();
+		$currentUserId = $currentUser?->getUID();
+		if (!$currentUserId || !$this->groupManager->isAdmin($currentUserId)) {
+			return new DataResponse(['message' => 'Forbidden'], 403);
+		}
 
-    $this->appConfig->setAppValueString('hr_access_rules', json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+		$rulesJson = (string)$this->request->getParam('rules', '[]');
+		$submittedRules = json_decode($rulesJson, true);
+		if (!is_array($submittedRules)) {
+			return new DataResponse(['message' => 'Invalid rules'], 400);
+		}
 
-    return new DataResponse(['rules' => $clean]);
-  }
+		$sanitizedRules = $this->sanitizeRules($submittedRules);
+		// Each employee group may belong to only one access rule.
+		$duplicateGroupIds = $this->findDuplicateUserGroups($sanitizedRules);
+		if (!empty($duplicateGroupIds)) {
+			return new DataResponse([
+				'message' => 'Duplicate employee groups in rules',
+				'groups' => array_values($duplicateGroupIds),
+			], 400);
+		}
 
-  private function sanitizeRules(array $rules): array {
-    $out = [];
-    foreach ($rules as $r) {
-      if (!is_array($r)) continue;
-      
-      $id = isset($r['id']) ? trim((string)$r['id']) : '';
-      if ($id === '') continue;
+		$this->appConfig->setAppValueString('hr_access_rules', json_encode($sanitizedRules, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-      $hrGroups = isset($r['hrGroups']) && is_array($r['hrGroups']) ? $r['hrGroups'] : [];
-      $userGroups = isset($r['userGroups']) && is_array($r['userGroups']) ? $r['userGroups'] : [];
+		return new DataResponse(['rules' => $sanitizedRules]);
+	}
 
-      $hrGroups = $this->cleanGroupList($hrGroups);
-      $userGroups = $this->cleanGroupList($userGroups);
+	private function sanitizeRules(array $rules): array {
+		$sanitizedRules = [];
+		foreach ($rules as $rule) {
+			if (!is_array($rule)) {
+				continue;
+			}
 
-      $out[] = array_merge([
-        'id' => $id,
-        'hrGroups' => $hrGroups,
-        'userGroups' => $userGroups,
-      ], $this->sanitizeRuleThresholds($r));
-    }
-    return $out;
-  }
+			$ruleId = isset($rule['id']) ? trim((string)$rule['id']) : '';
+			if ($ruleId === '') {
+				continue;
+			}
 
-  /**
-   * @param array $item
-   * @return array<string, int|float>
-   */
-  private function sanitizeRuleThresholds(array $item): array {
-    $d = self::GROUP_DEFAULTS;
+			$hrGroups = isset($rule['hrGroups']) && is_array($rule['hrGroups']) ? $rule['hrGroups'] : [];
+			$userGroups = isset($rule['userGroups']) && is_array($rule['userGroups']) ? $rule['userGroups'] : [];
 
-    return [
-      'priority'               => $this->clampInt($item['priority']               ?? $d['priority'],          0, 9999),
-      'breakShortMinutes'      => $this->clampInt($item['breakShortMinutes']      ?? $d['breakShortMinutes'], 0, 600),
-      'breakShortHours'        => $this->clampFloat($item['breakShortHours']      ?? $d['breakShortHours'],   0, 24),
-      'breakLongMinutes'       => $this->clampInt($item['breakLongMinutes']       ?? $d['breakLongMinutes'],  0, 600),
-      'breakLongHours'         => $this->clampFloat($item['breakLongHours']       ?? $d['breakLongHours'],    0, 24),
-      'maxHours'               => $this->clampFloat($item['maxHours']             ?? $d['maxHours'],          0, 24),
-    ];
-  }
+			$hrGroups = $this->cleanGroupList($hrGroups);
+			$userGroups = $this->cleanGroupList($userGroups);
 
-  private function cleanGroupList(array $groups): array {
-    $groups = array_values(array_filter(array_map(fn($g) => trim((string)$g), $groups), fn($v) => $v !== ''));
-    $groups = array_values(array_unique($groups));
+			$sanitizedRules[] = array_merge([
+				'id' => $ruleId,
+				'hrGroups' => $hrGroups,
+				'userGroups' => $userGroups,
+			], $this->sanitizeRuleThresholds($rule));
+		}
+		return $sanitizedRules;
+	}
 
-    $final = [];
-    foreach ($groups as $g) {
-      if ($this->groupManager->groupExists($g)) $final[] = $g;
-    }
-    return $final;
-  }
+	/**
+	 * @param array $item
+	 * @return array<string, int|float>
+	 */
+	private function sanitizeRuleThresholds(array $item): array {
+		$defaults = self::GROUP_DEFAULTS;
 
-  /**
-   * @param array<int, array<string, mixed>> $rules
-   * @return string[]
-   */
-  private function findDuplicateUserGroups(array $rules): array {
-    $seen = [];
-    $dupes = [];
-    foreach ($rules as $rule) {
-      $userGroups = isset($rule['userGroups']) && is_array($rule['userGroups']) ? $rule['userGroups'] : [];
-      foreach ($userGroups as $g) {
-        $key = (string)$g;
-        if ($key === '') continue;
-        if (isset($seen[$key])) {
-          $dupes[$key] = $key;
-        } else {
-          $seen[$key] = true;
-        }
-      }
-    }
-    return array_values($dupes);
-  }
+		return [
+			'priority' => $this->clampInt($item['priority'] ?? $defaults['priority'], 0, 9999),
+			'breakShortMinutes' => $this->clampInt($item['breakShortMinutes'] ?? $defaults['breakShortMinutes'], 0, 600),
+			'breakShortHours' => $this->clampFloat($item['breakShortHours'] ?? $defaults['breakShortHours'], 0, 24),
+			'breakLongMinutes' => $this->clampInt($item['breakLongMinutes'] ?? $defaults['breakLongMinutes'], 0, 600),
+			'breakLongHours' => $this->clampFloat($item['breakLongHours'] ?? $defaults['breakLongHours'], 0, 24),
+			'maxHours' => $this->clampFloat($item['maxHours'] ?? $defaults['maxHours'], 0, 24),
+		];
+	}
 
-  /**
-   * @AdminRequired
-   * @CSRFCheck
-   */
-  public function saveSpecialDaysCheck(): DataResponse {
-    $user = $this->userSession->getUser();
-    $uid = $user?->getUID();
-    if (!$uid || !$this->groupManager->isAdmin($uid)) {
-      return new DataResponse(['message' => 'Forbidden'], 403);
-    }
+	private function cleanGroupList(array $groups): array {
+		$groups = array_values(array_filter(array_map(fn($groupId) => trim((string)$groupId), $groups), fn($trimmedGroupId) => $trimmedGroupId !== ''));
+		$groups = array_values(array_unique($groups));
 
-    $raw = (string)$this->request->getParam('specialDaysCheck', 'false');
-    $checked = filter_var($raw, FILTER_VALIDATE_BOOLEAN);
+		$existingGroupIds = [];
+		foreach ($groups as $groupId) {
+			if ($this->groupManager->groupExists($groupId)) {
+				$existingGroupIds[] = $groupId;
+			}
+		}
+		return $existingGroupIds;
+	}
 
-    $old = $this->appConfig->getAppValueString('specialdays_check', '0') === '1';
-    $this->appConfig->setAppValueString('specialdays_check', $checked ? '1' : '0');
-    if ($old !== $checked) {
-      $this->monthlyBalanceService->markAllDirty();
-    }
+	/**
+	 * @param array<int, array<string, mixed>> $rules
+	 * @return string[]
+	 */
+	private function findDuplicateUserGroups(array $rules): array {
+		$seenGroupIds = [];
+		$duplicateGroupIds = [];
+		foreach ($rules as $rule) {
+			$userGroups = isset($rule['userGroups']) && is_array($rule['userGroups']) ? $rule['userGroups'] : [];
+			foreach ($userGroups as $groupId) {
+				$groupKey = (string)$groupId;
+				if ($groupKey === '') {
+					continue;
+				}
+				if (isset($seenGroupIds[$groupKey])) {
+					$duplicateGroupIds[$groupKey] = $groupKey;
+				} else {
+					$seenGroupIds[$groupKey] = true;
+				}
+			}
+		}
+		return array_values($duplicateGroupIds);
+	}
 
-    return new DataResponse(['check' => $checked]);
-  }
+	/**
+	 * @AdminRequired
+	 * @CSRFCheck
+	 */
+	public function saveSpecialDaysCheck(): DataResponse {
+		$currentUser = $this->userSession->getUser();
+		$currentUserId = $currentUser?->getUID();
+		if (!$currentUserId || !$this->groupManager->isAdmin($currentUserId)) {
+			return new DataResponse(['message' => 'Forbidden'], 403);
+		}
 
-  #[NoAdminRequired]
-  #[NoCSRFRequired]
-  public function loadSpecialDaysCheck(): DataResponse {
-    $user = $this->userSession->getUser();
-    if (!$user) {
-      return new DataResponse(['message' => 'Unauthorized'], 401);
-    }
+		$requestedValue = (string)$this->request->getParam('specialDaysCheck', 'false');
+		$isEnabled = filter_var($requestedValue, FILTER_VALIDATE_BOOLEAN);
 
-    $raw = $this->appConfig->getAppValueString('specialdays_check', '0');
-    $checked = $raw === '1';
+		$wasEnabled = $this->appConfig->getAppValueString('specialdays_check', '0') === '1';
+		$this->appConfig->setAppValueString('specialdays_check', $isEnabled ? '1' : '0');
+		if ($wasEnabled !== $isEnabled) {
+			$this->monthlyBalanceService->markAllDirty();
+		}
 
-    return new DataResponse(['check' => $checked]);
-  }
+		return new DataResponse(['check' => $isEnabled]);
+	}
 
-  private function clampInt($value, int $min, int $max): int {
-    if (!is_numeric($value)) return $min;
-    $v = (int)$value;
-    return max($min, min($max, $v));
-  }
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	public function loadSpecialDaysCheck(): DataResponse {
+		$currentUser = $this->userSession->getUser();
+		if (!$currentUser) {
+			return new DataResponse(['message' => 'Unauthorized'], 401);
+		}
 
-  private function clampFloat($value, float $min, float $max): float {
-    if (!is_numeric($value)) return $min;
-    $v = (float)$value;
-    if (is_nan($v) || is_infinite($v)) return $min;
-    return max($min, min($max, round($v, 2)));
-  }
+		$savedValue = $this->appConfig->getAppValueString('specialdays_check', '0');
+		$isEnabled = $savedValue === '1';
+
+		return new DataResponse(['check' => $isEnabled]);
+	}
+
+	private function clampInt($value, int $min, int $max): int {
+		if (!is_numeric($value)) {
+			return $min;
+		}
+		$numericValue = (int)$value;
+		return max($min, min($max, $numericValue));
+	}
+
+	private function clampFloat($value, float $min, float $max): float {
+		if (!is_numeric($value)) {
+			return $min;
+		}
+		$numericValue = (float)$value;
+		if (is_nan($numericValue) || is_infinite($numericValue)) {
+			return $min;
+		}
+		return max($min, min($max, round($numericValue, 2)));
+	}
 }

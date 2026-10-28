@@ -1,255 +1,277 @@
 (function () {
-  "use strict";
+	"use strict";
 
-  const TS = window.Timesheet;
-  if (!TS) {
-    console.error('Timesheet: core not loaded');
-    return;
-  }
+	const timesheet = window.Timesheet;
+	if (!timesheet) {
+		console.error('Timesheet: core not loaded');
+		return;
+	}
+	const appState = timesheet.state;
+	const utils = timesheet.util;
+	timesheet.main = timesheet.main || {};
+	const mainModule = timesheet.main;
 
-  const S = TS.state;
-  const U = TS.util;
-  const EN = TS.entries;
+	// Update month display
+	function updateMonthDisplay() {
+		const monthDisplay = document.getElementById('month-display');
+		if (monthDisplay) {
+			monthDisplay.textContent = utils.monthLabel(appState.currentMonth);
+		}
+	}
 
-  TS.main = TS.main || {};
-  const MAIN = TS.main;
+	// Update HR month display
+	function updateHrMonthDisplay() {
+		const hrMonthDisplay = document.getElementById('hr-month-display');
+		if (hrMonthDisplay) {
+			hrMonthDisplay.textContent = utils.monthLabel(appState.hrCurrentMonth);
+		}
+	}
 
-  // Update month display
-  function updateMonthDisplay() {
-    const el = document.getElementById('month-display');
-    if (el) el.textContent = U.monthLabel(S.currentMonth);
-  }
+	// Expose functions
+	mainModule.updateMonthDisplay = updateMonthDisplay;
+	mainModule.updateHrMonthDisplay = updateHrMonthDisplay;
 
-  // Update HR month display
-  function updateHrMonthDisplay() {
-    const el = document.getElementById('hr-month-display');
-    if (el) el.textContent = U.monthLabel(S.hrCurrentMonth);
-  }
+	// Bind month navigation buttons
+	function bindMonthNavigation() {
+		// Previous month button
+		timesheet.$('#month-prev')?.addEventListener('click', () => {
+			appState.currentMonth.setMonth(appState.currentMonth.getMonth() - 1);
+			updateMonthDisplay();
+			timesheet.entries.loadUserEntries(null, appState.currentMonth);
+		});
 
-  // Expose functions
-  MAIN.updateMonthDisplay = updateMonthDisplay;
-  MAIN.updateHrMonthDisplay = updateHrMonthDisplay;
+		// Next month button
+		timesheet.$('#month-next')?.addEventListener('click', () => {
+			appState.currentMonth.setMonth(appState.currentMonth.getMonth() + 1);
+			updateMonthDisplay();
+			timesheet.entries.loadUserEntries(null, appState.currentMonth);
+		});
 
-  // Bind month navigation buttons
-  function bindMonthNavigation() {
-    // Previous month button
-    TS.$('#month-prev')?.addEventListener('click', () => {
-      S.currentMonth.setMonth(S.currentMonth.getMonth() - 1);
-      updateMonthDisplay();
-      TS.entries.loadUserEntries(null, S.currentMonth);
-    });
+		// Previous month button for HR view
+		timesheet.$('#hr-month-prev')?.addEventListener('click', () => {
+			appState.hrCurrentMonth.setMonth(appState.hrCurrentMonth.getMonth() - 1);
+			updateHrMonthDisplay();
+			const targetUserId = timesheet.dom.hrUserTitle?.querySelector('span')?.textContent;
+			if (targetUserId) {
+				timesheet.entries.loadUserEntries(targetUserId, appState.hrCurrentMonth);
+			}
+		});
 
-    // Next month button
-    TS.$('#month-next')?.addEventListener('click', () => {
-      S.currentMonth.setMonth(S.currentMonth.getMonth() + 1);
-      updateMonthDisplay();
-      TS.entries.loadUserEntries(null, S.currentMonth);
-    });
+		// Next month button for HR view
+		timesheet.$('#hr-month-next')?.addEventListener('click', () => {
+			appState.hrCurrentMonth.setMonth(appState.hrCurrentMonth.getMonth() + 1);
+			updateHrMonthDisplay();
+			const targetUserId = timesheet.dom.hrUserTitle?.querySelector('span')?.textContent;
+			if (targetUserId) {
+				timesheet.entries.loadUserEntries(targetUserId, appState.hrCurrentMonth);
+			}
+		});
 
-    // Previous month button for HR view
-    TS.$('#hr-month-prev')?.addEventListener('click', () => {
-      S.hrCurrentMonth.setMonth(S.hrCurrentMonth.getMonth() - 1);
-      updateHrMonthDisplay();
-      const uid = TS.dom.hrUserTitle?.querySelector('span')?.textContent;
-      if (uid) TS.entries.loadUserEntries(uid, S.hrCurrentMonth);
-    });
+		// Month display click to go to current month
+		timesheet.$('#month-display')?.addEventListener('click', () => {
+			const today = new Date();
+			if (appState.currentMonth.getFullYear() === today.getFullYear() && appState.currentMonth.getMonth() === today.getMonth()) {
+				return;
+			}
+			appState.currentMonth = today;
+			updateMonthDisplay();
+			timesheet.entries.loadUserEntries(null, appState.currentMonth);
+		});
 
-    // Next month button for HR view
-    TS.$('#hr-month-next')?.addEventListener('click', () => {
-      S.hrCurrentMonth.setMonth(S.hrCurrentMonth.getMonth() + 1);
-      updateHrMonthDisplay();
-      const uid = TS.dom.hrUserTitle?.querySelector('span')?.textContent;
-      if (uid) TS.entries.loadUserEntries(uid, S.hrCurrentMonth);
-    });
+		// HR month display click to go to current month
+		timesheet.$('#hr-month-display')?.addEventListener('click', () => {
+			const today = new Date();
+			if (appState.hrCurrentMonth.getFullYear() === today.getFullYear() && appState.hrCurrentMonth.getMonth() === today.getMonth()) {
+				return;
+			}
+			appState.hrCurrentMonth = today;
+			updateHrMonthDisplay();
+			const targetUserId = timesheet.dom.hrUserTitle?.querySelector('span')?.textContent;
+			if (targetUserId) {
+				timesheet.entries.loadUserEntries(targetUserId, appState.hrCurrentMonth);
+			}
+		});
+	}
 
-    // Month display click to go to current month
-    TS.$('#month-display')?.addEventListener('click', () => {
-      const today = new Date();
-      if (S.currentMonth.getFullYear() === today.getFullYear() && S.currentMonth.getMonth() === today.getMonth()) return;
-      S.currentMonth = today;
-      updateMonthDisplay();
-      TS.entries.loadUserEntries(null, S.currentMonth);
-    });
+	// Bind tab switching
+	function bindTabSwitching() {
+		timesheet.$$('.ts-tab').forEach(tabButton => {
+			tabButton.addEventListener('click', () => {
+				timesheet.$$('.ts-tab').forEach(tabButton => tabButton.classList.remove('active'));
+				timesheet.$$('.ts-tabview').forEach(view => view.classList.remove('active'));
+				tabButton.classList.add('active');
+				const targetView = document.getElementById(`tab-${tabButton.dataset.tab}`);
+				if (targetView) {
+					targetView.classList.add('active');
+				}
+				if (tabButton.dataset.tab === 'hr') {
+					timesheet.hr.loadHrUserList();
+				}
+			});
+		});
+	}
 
-    // HR month display click to go to current month
-    TS.$('#hr-month-display')?.addEventListener('click', () => {
-      const today = new Date();
-      if (S.hrCurrentMonth.getFullYear() === today.getFullYear() && S.hrCurrentMonth.getMonth() === today.getMonth()) return;
-      S.hrCurrentMonth = today;
-      updateHrMonthDisplay();
-      const uid = TS.dom.hrUserTitle?.querySelector('span')?.textContent;
-      if (uid) TS.entries.loadUserEntries(uid, S.hrCurrentMonth);
-    });
-  }
+	// Bind auto-save on input blur and Enter key
+	function bindAutoSave() {
+		// Handle blur event for saving
+		document.addEventListener('blur', async event => {
+			const targetElement = event.target;
+			if (!(targetElement instanceof HTMLElement)) {
+				return;
+			}
+			if (
+				!targetElement.classList.contains('startTime')
+				&& !targetElement.classList.contains('endTime')
+				&& !targetElement.classList.contains('breakMinutes')
+				&& !targetElement.classList.contains('commentInput')
+			) {
+				return;
+			}
+			const row = targetElement.closest('tr');
+			if (!row) {
+				return;
+			}
+			await timesheet.entries.saveRowIfNeeded(row);
+		}, true);
 
-  // Bind tab switching
-  function bindTabSwitching() {
-    TS.$$('.ts-tab').forEach(tabButton => {
-      tabButton.addEventListener('click', () => {
-        TS.$$('.ts-tab').forEach(btn => btn.classList.remove('active'));
-        TS.$$('.ts-tabview').forEach(view => view.classList.remove('active'));
+		// Handle Enter key for saving
+		document.addEventListener('keydown', async event => {
+			if (event.key !== 'Enter' || event.shiftKey) {
+				return;
+			}
+			const targetElement = event.target;
+			if (
+				!targetElement.classList.contains('startTime')
+				&& !targetElement.classList.contains('endTime')
+				&& !targetElement.classList.contains('breakMinutes')
+				&& !targetElement.classList.contains('commentInput')
+			) {
+				return;
+			}
+			event.preventDefault();
+			const row = targetElement.closest('tr');
+			if (!row) {
+				return;
+			}
+			await timesheet.entries.saveRowIfNeeded(row);
+		});
+	}
 
-        tabButton.classList.add('active');
-        const targetView = document.getElementById(`tab-${tabButton.dataset.tab}`);
-        if (targetView) targetView.classList.add('active');
+	// Bind export buttons
+	function bindExportButtons() {
+		document.getElementById('export-mine-xlsx')?.addEventListener('click', () => timesheet.export.handleExportClick('mine'));
+		document.getElementById('export-hr-xlsx')?.addEventListener('click', () => timesheet.export.handleExportClick('hr'));
+	}
 
-        if (tabButton.dataset.tab === 'hr') {
-          TS.hr.loadHrUserList();
-        }
-      });
-    });
-  }
+	// Bind auto-grow for comment textareas
+	function bindCommentTextareaGrowth() {
+		document.addEventListener('input', event => {
+			const targetElement = event.target;
+			if (targetElement && targetElement.matches('textarea.commentInput')) {
+				resizeCommentTextarea(targetElement);
+			}
+		});
+	}
 
-  // Bind auto-save on input blur and Enter key
-  function bindAutoSave() {
-    // Handle blur event for saving
-    document.addEventListener('blur', async (e) => {
-      const el = e.target;
-      if (!(el instanceof HTMLElement)) return;
+	// Break input format and its matching controls.
+	function normalizeBreakMode(mode) {
+		return mode === 'hours' ? 'hours' : 'minutes';
+	}
 
-      if (
-        !el.classList.contains('startTime') &&
-        !el.classList.contains('endTime') &&
-        !el.classList.contains('breakMinutes') &&
-        !el.classList.contains('commentInput')
-      ) return;
+	function updateBreakInputs(mode) {
+		const usesHoursFormat = mode === 'hours';
+		document.querySelectorAll('input.breakMinutes').forEach(input => {
+			const parsedMinutes = utils.parseBreakMinutesInput(input.value);
+			if (parsedMinutes == null) {
+				return;
+			}
+			input.type = usesHoursFormat ? 'time' : 'text';
+			if (usesHoursFormat) {
+				input.removeAttribute('inputmode');
+				input.removeAttribute('pattern');
+			} else {
+				input.setAttribute('inputmode', 'text');
+				input.setAttribute('pattern', '^-?\\d+(?::\\d+)?$');
+			}
+			input.value = utils.formatBreakValue(parsedMinutes, mode);
+		});
+	}
 
-      const row = el.closest('tr');
-      if (!row) return;
+	function updateBreakToggleUI(mode) {
+		const usesHoursFormat = mode === 'hours';
+		document.querySelectorAll('.ts-break-toggle').forEach(toggle => {
+			const switchInput = toggle.querySelector('.ts-break-toggle-switch');
+			if (switchInput) {
+				switchInput.checked = usesHoursFormat;
+				switchInput.setAttribute('aria-checked', usesHoursFormat ? 'true' : 'false');
+			}
+			toggle.querySelectorAll('.ts-break-mode-option').forEach(label => {
+				const active = label.dataset.breakModeLabel === mode;
+				label.classList.toggle('is-active', active);
+			});
+		});
+	}
 
-      await TS.entries.saveRowIfNeeded(row);
-    }, true);
+	function setBreakMode(mode) {
+		const normalizedMode = normalizeBreakMode(mode);
+		appState.breakInputMode = normalizedMode;
+		updateBreakInputs(normalizedMode);
+		updateBreakToggleUI(normalizedMode);
+	}
 
-    // Handle Enter key for saving
-    document.addEventListener('keydown', async (e) => {
-      if (e.key !== 'Enter' || e.shiftKey) return;
+	function bindBreakToggle() {
+		document.addEventListener('change', event => {
+			const targetElement = event.target;
+			if (!(targetElement instanceof Element)) {
+				return;
+			}
+			const input = targetElement.closest('.ts-break-toggle-switch');
+			if (!input) {
+				return;
+			}
+			const mode = input.checked ? input.dataset.breakModeOn || 'hours' : input.dataset.breakModeOff || 'minutes';
+			setBreakMode(mode);
+		});
+		setBreakMode(appState.breakInputMode || 'minutes');
+	}
 
-      const el = e.target;
-      if (
-        !el.classList.contains('startTime') &&
-        !el.classList.contains('endTime') &&
-        !el.classList.contains('breakMinutes') &&
-        !el.classList.contains('commentInput')
-      ) return;
+	// Auto-grow textarea function
+	function resizeCommentTextarea(textarea) {
+		textarea.style.height = '21px';
+		textarea.style.height = `${textarea.scrollHeight}px`;
+	}
 
-      e.preventDefault();
-      const row = el.closest('tr');
-      if (!row) return;
+	// Application startup: keep configuration, rules and entries in this order.
+	async function initializeApplication() {
+		timesheet.dom.refresh();
+		timesheet.copy.init();
+		timesheet.hr.init();
+		timesheet.config.init();
+		bindMonthNavigation();
+		bindTabSwitching();
+		bindAutoSave();
+		bindExportButtons();
+		bindCommentTextareaGrowth();
+		bindBreakToggle();
+		updateMonthDisplay();
+		updateHrMonthDisplay();
+		const userConfigReady = appState.currentUserId ? timesheet.config.loadUserConfig(appState.currentUserId) : Promise.resolve();
+		const ruleThresholdsReady = timesheet.entries.loadRuleThresholds();
+		await ruleThresholdsReady;
+		await timesheet.entries.loadUserEntries(null, appState.currentMonth);
+		await userConfigReady;
+		await timesheet.entries.refreshOvertimeTotal(appState.currentUserId, document);
+		document.querySelectorAll('textarea.commentInput').forEach(resizeCommentTextarea);
+		const initialRow = document.querySelector('#ts-body tr');
+		if (initialRow) {
+			timesheet.entries.updateWorkedHours(initialRow);
+		}
+	}
 
-      await TS.entries.saveRowIfNeeded(row);
-    });
-  }
-
-  // Bind export buttons
-  function bindExportButtons() {
-    document.getElementById('export-mine-xlsx')?.addEventListener('click', () => TS.export.handleExportClick('mine'));;
-    document.getElementById('export-hr-xlsx')?.addEventListener('click', () => TS.export.handleExportClick('hr'));
-  }
-
-  // Bind auto-grow for comment textareas
-  function bindAutoGrowTextareas() {
-    document.addEventListener('input', (e) => {
-      const el = e.target;
-      if (el && el.matches('textarea.commentInput')) autogrowTextarea(el);
-    });
-  }
-
-  function normalizeBreakMode(mode) {
-    return mode === 'hours' ? 'hours' : 'minutes';
-  }
-
-  function updateBreakInputs(mode) {
-    const isHours = mode === 'hours';
-    document.querySelectorAll('input.breakMinutes').forEach(input => {
-      const parsed = U.parseBreakMinutesInput(input.value);
-      if (parsed == null) return;
-      input.type = isHours ? 'time' : 'text';
-      if (isHours) {
-        input.removeAttribute('inputmode');
-        input.removeAttribute('pattern');
-      } else {
-        input.setAttribute('inputmode', 'text');
-        input.setAttribute('pattern', '^-?\\d+(?::\\d+)?$');
-      }
-      input.value = U.formatBreakValue(parsed, mode);
-    });
-  }
-  function updateBreakToggleUI(mode) {
-    const isHours = mode === 'hours';
-    document.querySelectorAll('.ts-break-toggle').forEach(toggle => {
-      const switchInput = toggle.querySelector('.ts-break-toggle-switch');
-      if (switchInput) {
-        switchInput.checked = isHours;
-        switchInput.setAttribute('aria-checked', isHours ? 'true' : 'false');
-      }
-
-      toggle.querySelectorAll('.ts-break-mode-option').forEach(label => {
-        const active = label.dataset.breakModeLabel === mode;
-        label.classList.toggle('is-active', active);
-      });
-    });
-  }
-
-  function setBreakMode(mode) {
-    const normalized = normalizeBreakMode(mode);
-    S.breakInputMode = normalized;
-    updateBreakInputs(normalized);
-    updateBreakToggleUI(normalized);
-  }
-
-  function bindBreakToggle() {
-    document.addEventListener('change', (e) => {
-      const el = e.target;
-      if (!(el instanceof Element)) return;
-
-      const input = el.closest('.ts-break-toggle-switch');
-      if (!input) return;
-
-      const mode = input.checked
-        ? (input.dataset.breakModeOn || 'hours')
-        : (input.dataset.breakModeOff || 'minutes');
-      setBreakMode(mode);
-    });
-
-    setBreakMode(S.breakInputMode || 'minutes');
-  }
-  // Auto-grow textarea function
-  function autogrowTextarea(textarea) {
-    textarea.style.height = '21px';
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }
-
-  // Initialize main module
-  async function init() {
-    TS.dom.refresh();
-
-    TS.copy.init();
-    TS.hr.init();
-    TS.config.init();
-
-    bindMonthNavigation();
-    bindTabSwitching();
-    bindAutoSave();
-    bindExportButtons();
-    bindAutoGrowTextareas();
-    bindBreakToggle();
-    updateMonthDisplay();
-    updateHrMonthDisplay();
-
-    const cfgReady = S.currentUserId ? TS.config.loadUserConfig(S.currentUserId) : Promise.resolve();
-    const rulesReady = TS.entries.loadRuleThresholds();
-
-    await rulesReady;
-    await TS.entries.loadUserEntries(null, S.currentMonth);
-    await cfgReady;
-    await TS.entries.refreshOvertimeTotal(S.currentUserId, document);
-    document.querySelectorAll('textarea.commentInput').forEach(autogrowTextarea);
-
-    const initRow = document.querySelector('#ts-body tr');
-    if (initRow) TS.entries.updateWorkedHours(initRow);
-  }
-
-  // Start initialization on DOM ready
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
+	// Start initialization on DOM ready
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', initializeApplication);
+	} else {
+		initializeApplication();
+	}
 })();

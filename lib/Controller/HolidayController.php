@@ -9,34 +9,34 @@ use OCP\IRequest;
 use OCA\Timesheet\Service\HolidayService;
 
 /**
-* Controller-Klasse mit öffentlichem Endpunkt zum Abrufen der Feiertage.
-*/
+ * Serves the public holiday lookup endpoint.
+ */
 class HolidayController extends Controller {
-  private HolidayService $holidayService;
+	private HolidayService $holidayService;
 
-  public function __construct(string $appName, IRequest $request, HolidayService $holidayService) {
-    parent::__construct($appName, $request);
-    $this->holidayService = $holidayService;
-  }
+	public function __construct(string $appName, IRequest $request, HolidayService $holidayService) {
+		parent::__construct($appName, $request);
+		$this->holidayService = $holidayService;
+	}
 
-  /**
-  * @NoAdminRequired
-  * @NoCSRFRequired
-  */
-  public function getHolidays(int $year, string $state): JSONResponse {
-    try {
-      $holidays = $this->holidayService->getHolidays($year, $state);
-      // Erfolg: gebe Feiertage als JSON zurück
-      return new JSONResponse($holidays);
-    } catch (\Throwable $e) {
-      // Fehlerfall: Fehlermeldung mit HTTP 500 zurückgeben
-      return new JSONResponse(
-        [
-          'error'  => 'Feiertage konnten nicht abgerufen werden.',
-          'detail' => $e->getMessage(), // zum Debuggen einschalten
-        ],
-        Http::STATUS_INTERNAL_SERVER_ERROR
-      );
-    }
-  }
+	/**
+	 * @NoAdminRequired
+	 * @NoCSRFRequired
+	 */
+	public function getHolidays(int $year, string $state): JSONResponse {
+		try {
+			$holidays = $this->holidayService->getHolidays($year, $state);
+			// Return the holiday lookup result.
+			return new JSONResponse($holidays);
+		} catch (\Throwable $exception) {
+			// Include the lookup failure in the HTTP 500 response.
+			return new JSONResponse(
+				[
+					'error'  => 'Feiertage konnten nicht abgerufen werden.',
+					'detail' => $exception->getMessage(), // Diagnostic detail.
+				],
+				Http::STATUS_INTERNAL_SERVER_ERROR
+			);
+		}
+	}
 }

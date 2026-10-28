@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace OCA\Timesheet\Db;
 
@@ -7,110 +7,112 @@ use OCP\IDBConnection;
 use OCP\DB\QueryBuilder\IQueryBuilder;
 
 class UserConfigMapper extends QBMapper {
-  public function __construct(IDBConnection $db) {
-    parent::__construct($db, 'ts_user_config', UserConfig::class);
-  }
+	public function __construct(IDBConnection $db) {
+		parent::__construct($db, 'ts_user_config', UserConfig::class);
+	}
 
-  /**
-   * @return array{dailyMin: int|null, state: string|null}
-   */
-  public function getConfigData(string $userId): array {
-    $qb = $this->db->getQueryBuilder();
-    $qb->select('work_minutes', 'state')
-      ->from('ts_user_config')
-      ->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId, IQueryBuilder::PARAM_STR)));
+	/**
+	 * @return array{dailyMin: int|null, state: string|null}
+	 */
+	public function getConfigData(string $userId): array {
+		$queryBuilder = $this->db->getQueryBuilder();
+		$queryBuilder->select('work_minutes', 'state')
+			->from('ts_user_config')
+			->where($queryBuilder->expr()->eq('user_id', $queryBuilder->createNamedParameter($userId, IQueryBuilder::PARAM_STR)));
 
-    $row = $qb->executeQuery()->fetch();
+		$configRow = $queryBuilder->executeQuery()->fetch();
 
-    if ($row === false) {
-      return ['dailyMin' => null, 'state' => null];
-    }
+		if ($configRow === false) {
+			return ['dailyMin' => null, 'state' => null];
+		}
 
-    return [
-      'dailyMin' => (int)$row['work_minutes'],
-      'state'    => $row['state'],
-    ];
-  }
+		return [
+			'dailyMin' => (int)$configRow['work_minutes'],
+			'state'    => $configRow['state'],
+		];
+	}
 
-  public function upsertConfigData(string $userId, int $dailyMin, string $state): array {
-    // Try to update
-    $qb = $this->db->getQueryBuilder();
-    $qb->update('ts_user_config')
-      ->set('work_minutes', $qb->createNamedParameter($dailyMin, IQueryBuilder::PARAM_INT))
-      ->set('state', $qb->createNamedParameter($state, IQueryBuilder::PARAM_STR))
-      ->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId, IQueryBuilder::PARAM_STR)));
+	public function upsertConfigData(string $userId, int $dailyMin, string $state): array {
+		// Update the existing configuration first.
+		$queryBuilder = $this->db->getQueryBuilder();
+		$queryBuilder->update('ts_user_config')
+			->set('work_minutes', $queryBuilder->createNamedParameter($dailyMin, IQueryBuilder::PARAM_INT))
+			->set('state', $queryBuilder->createNamedParameter($state, IQueryBuilder::PARAM_STR))
+			->where($queryBuilder->expr()->eq('user_id', $queryBuilder->createNamedParameter($userId, IQueryBuilder::PARAM_STR)));
 
-    $affectedRows = $qb->executeStatement();
+		$affectedRows = $queryBuilder->executeStatement();
 
-    // If no rows were affected -> insert new
-    if ($affectedRows === 0) {
-      $qbInsert = $this->db->getQueryBuilder();
-      $qbInsert->insert('ts_user_config')
-        ->values([
-          'user_id'      => $qbInsert->createNamedParameter($userId, IQueryBuilder::PARAM_STR),
-          'work_minutes' => $qbInsert->createNamedParameter($dailyMin, IQueryBuilder::PARAM_INT),
-          'state'        => $qbInsert->createNamedParameter($state, IQueryBuilder::PARAM_STR),
-        ]);
-      
-      $qbInsert->executeStatement();
-    }
+		// Insert a configuration when the update affected no rows.
+		if ($affectedRows === 0) {
+			$insertQueryBuilder = $this->db->getQueryBuilder();
+			$insertQueryBuilder->insert('ts_user_config')
+				->values([
+					'user_id'      => $insertQueryBuilder->createNamedParameter($userId, IQueryBuilder::PARAM_STR),
+					'work_minutes' => $insertQueryBuilder->createNamedParameter($dailyMin, IQueryBuilder::PARAM_INT),
+					'state'        => $insertQueryBuilder->createNamedParameter($state, IQueryBuilder::PARAM_STR),
+				]);
 
-    return ['dailyMin' => $dailyMin, 'state' => $state];
-  }
+			$insertQueryBuilder->executeStatement();
+		}
 
-  /**
-   * @param string[] $userIds
-   * @return array<string, array{dailyMin: int|null, state: string|null}>
-   */
-  public function getConfigDataForUsers(array $userIds): array {
-    if ($userIds === []) {
-      return [];
-    }
+		return ['dailyMin' => $dailyMin, 'state' => $state];
+	}
 
-    $qb = $this->db->getQueryBuilder();
-    $qb->select('user_id', 'work_minutes', 'state')
-      ->from('ts_user_config')
-      ->where($qb->expr()->in('user_id', $qb->createNamedParameter($userIds, IQueryBuilder::PARAM_STR_ARRAY)));
+	/**
+	 * @param string[] $userIds
+	 * @return array<string, array{dailyMin: int|null, state: string|null}>
+	 */
+	public function getConfigDataForUsers(array $userIds): array {
+		if ($userIds === []) {
+			return [];
+		}
 
-    $rows = $qb->executeQuery()->fetchAll();
-    if (!$rows) {
-      return [];
-    }
+		$queryBuilder = $this->db->getQueryBuilder();
+		$queryBuilder->select('user_id', 'work_minutes', 'state')
+			->from('ts_user_config')
+			->where($queryBuilder->expr()->in('user_id', $queryBuilder->createNamedParameter($userIds, IQueryBuilder::PARAM_STR_ARRAY)));
 
-    $out = [];
-    foreach ($rows as $row) {
-      $uid = (string)($row['user_id'] ?? '');
-      if ($uid === '') continue;
-      $out[$uid] = [
-        'dailyMin' => isset($row['work_minutes']) ? (int)$row['work_minutes'] : null,
-        'state' => $row['state'] ?? null,
-      ];
-    }
-    return $out;
-  }
+		$configRows = $queryBuilder->executeQuery()->fetchAll();
+		if (!$configRows) {
+			return [];
+		}
 
-  /**
-  * Find the config entry for a given user.
-  * @throws \OCP\AppFramework\Db\DoesNotExistException if not found
-  */
-  public function findByUser(string $userId): UserConfig {
-    $qb = $this->db->getQueryBuilder();
-    $qb->select('*')
-      ->from('ts_user_config')
-      ->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
-    return $this->findEntity($qb);
-  }
+		$configByUser = [];
+		foreach ($configRows as $configRow) {
+			$userId = (string)($configRow['user_id'] ?? '');
+			if ($userId === '') {
+				continue;
+			}
+			$configByUser[$userId] = [
+				'dailyMin' => isset($configRow['work_minutes']) ? (int)$configRow['work_minutes'] : null,
+				'state' => $configRow['state'] ?? null,
+			];
+		}
+		return $configByUser;
+	}
 
-  /**
-  * Create or update a user's config (upsert style).
-  */
-  public function save(UserConfig $config): UserConfig {
-    if ($config->getId() !== null) {
-      // Existing entry (has an ID) – update it
-      return $this->update($config);
-    } else {
-      // New entry – insert it
-      return $this->insert($config);
-    }
-  }
+	/**
+	 * Find the config entry for a given user.
+	 * @throws \OCP\AppFramework\Db\DoesNotExistException if not found
+	 */
+	public function findByUser(string $userId): UserConfig {
+		$queryBuilder = $this->db->getQueryBuilder();
+		$queryBuilder->select('*')
+			->from('ts_user_config')
+			->where($queryBuilder->expr()->eq('user_id', $queryBuilder->createNamedParameter($userId)));
+		return $this->findEntity($queryBuilder);
+	}
+
+	/**
+	 * Create or update a user's config (upsert style).
+	 */
+	public function save(UserConfig $config): UserConfig {
+		if ($config->getId() !== null) {
+			// Update an existing configuration.
+			return $this->update($config);
+		} else {
+			// Insert a new configuration.
+			return $this->insert($config);
+		}
+	}
 }
