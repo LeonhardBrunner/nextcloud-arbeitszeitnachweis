@@ -5,11 +5,11 @@
 <details open>
 <summary>Deutsch</summary>
 
-## 1. Worum es hier geht
+## 1. Übersicht
 
 Timesheet läuft innerhalb von Nextcloud. PHP verarbeitet und speichert die Daten. JavaScript steuert die Bedienung im Browser. Die App-ID und der Installationsordner heißen `timesheet`.
 
-Dieses Projekt baut auf Version 1.2.0 von David Gun (Repa1253) auf. Die maßgebliche App-Version steht in `appinfo/info.xml`. Dort sind Nextcloud 30–33 und PHP 8.2–8.5 als vorgesehene Versionen eingetragen; eine vollständige praktische Prüfung aller Kombinationen steht aus.
+Dieses Projekt baut auf Version 1.2.0 von David Gun (Repa1253) auf. Die maßgebliche App-Version steht in `appinfo/info.xml`. Dort sind Nextcloud 30–33 und PHP 8.2–8.5 als vorgesehene Versionen eingetragen.
 
 ## 2. Die Ordner und Dateien
 
@@ -20,18 +20,16 @@ Dieses Projekt baut auf Version 1.2.0 von David Gun (Repa1253) auf. Die maßgebl
 | `templates/` | Aufbau der App-Seite und der Verwaltungsseite. |
 | `js/` | JavaScript für Zeiteinträge, Export, HR-Ansicht und Einstellungen. |
 | `css/` und `img/` | Gestaltung und App-Symbole. |
-| `l10n/` | Übersetzungen. Nextcloud erwartet diesen Ordnernamen. `de.json` enthält deutsche Texte für PHP, `de.js` für den Browser. Beide Dateien haben eine eigene Aufgabe. |
+| `l10n/` | Übersetzungen. Nextcloud erwartet diesen Ordnernamen. `de.json` enthält deutsche Texte für PHP, `de.js` für den Browser. |
 | `vendor/` | Installierte PHP-Bibliotheken, unter anderem für den Excelexport. Composer erzeugt diesen Ordner; er gehört zur vollständigen Installation. |
 | `tools/` | Kleine Programme für die Prüfung des Codes. Die Einstellungen der PHP-Werkzeuge liegen gemeinsam in `tools/php/`. |
 | `vendor-bin/` | Angaben und Abhängigkeiten der zusätzlichen PHP-Prüfwerkzeuge. |
-| `tests/` | Vorbereitung für Tests innerhalb einer Nextcloud-Testumgebung. Eigentliche Testfälle fehlen bisher. |
-| `docs/TECHNICAL_GUIDE.md` | Diese Anleitung für Entwicklung und Veröffentlichung. |
-
-Die kurzen Namen der App-Ordner gehören zur Nextcloud-Struktur und bleiben erhalten. Die PHP-Dateinamen sind außerdem mit ihren Klassen und Aufrufen verbunden. Eine Umbenennung allein würde diese Verbindungen unterbrechen.
+| `tests/` | Vorbereitung für Tests innerhalb einer Nextcloud-Testumgebung. Testfälle ausstehend. |
+| `docs/TECHNICAL_GUIDE.md` | Anleitung für Entwicklung und Veröffentlichung. |
 
 Im Hauptordner stehen die Einstellungen für Composer und npm. `composer.json` und `composer.lock` legen die PHP-Bibliotheken fest. `package.json` enthält nur den JavaScript-Prüfbefehl, keine zusätzlichen npm-Pakete. `.nvmrc` nennt Node 22 als gemeinsame Ausgangsversion; der Prüfbefehl unterstützt Node ab Version 22. `README.md` beschreibt die App, `CHANGELOG.md` die Versionsgeschichte und `LICENSE` die Lizenz.
 
-## 3. Änderungen an der richtigen Stelle
+## 3. Dateien und Aufgaben
 
 | Änderung | Einstieg |
 | --- | --- |
@@ -49,7 +47,7 @@ Neue Verbindungen zwischen Browser und PHP werden in `appinfo/routes.php` einget
 
 ## 4. Die App lokal ausprobieren
 
-Eine lokale Demo ist eine getrennte Nextcloud mit Datenbank und Testkonten. Dieses Repository enthält noch keine eigene Docker-Konfiguration. Der folgende Ablauf setzt deshalb eine bereits eingerichtete Demo voraus. Die [Nextcloud-Entwicklerdokumentation](https://docs.nextcloud.com/server/33/developer_manual/) beschreibt den Rahmen dafür.
+Eine lokale Demo ist eine getrennte Nextcloud mit Datenbank und Testkonten. Dieses Repository enthält noch keine eigene Docker-Konfiguration. Der folgende Ablauf setzt deshalb eine bereits eingerichtete Demo voraus. Siehe [Nextcloud-Entwicklerdokumentation](https://docs.nextcloud.com/server/33/developer_manual/) für weitere Informationen.
 
 Für die Beispiele heißt der Docker-Dienst `nextcloud`. Nextcloud liegt im Container unter `/var/www/html`; PHP und Composer sind vorhanden. Der Fork ist als beschreibbarer Ordner unter `/var/www/html/custom_apps/timesheet` eingebunden. Browseradresse und Testzugang gehören zur jeweiligen Demo.
 
@@ -88,7 +86,7 @@ Feiertagsdaten benötigen ausgehenden HTTPS-Zugriff auf `get.api-feiertage.de`, 
 
 ## 5. Änderungen prüfen
 
-Im Hauptordner des Repositorys prüft folgender Befehl die Schreibweise aller JavaScript-Dateien unter `js/` und `l10n/`. Node ab Version 22 reicht aus; `npm install` ist dafür nicht nötig.
+Im Hauptordner des Repositorys prüft folgender Befehl die Schreibweise aller JavaScript-Dateien unter `js/` und `l10n/`.
 
 ```powershell
 npm run check:javascript
@@ -139,22 +137,21 @@ Die [Nextcloud-Anleitung zur App-Signatur](https://docs.nextcloud.com/server/sta
 ## 7. Noch offen
 
 - Eine eigene, auf einem frischen Rechner erprobte Demo-Konfiguration fehlt.
-- `composer.json` und `composer.lock` enthalten unterschiedliche PHP-Anforderungen. Die Bibliotheksversionen wurden bei der Ordnerbereinigung nicht geändert; eine saubere Installation und die Einrichtung der zusätzlichen PHP-Werkzeuge stehen aus.
+- `composer.json` und `composer.lock` enthalten unterschiedliche PHP-Anforderungen. Eine saubere Installation und die Einrichtung der zusätzlichen PHP-Werkzeuge stehen aus.
 - HR-Zugriffsprüfungen unterscheiden sich zwischen einzelnen Anfragen. Die Trennung zwischen Mitarbeitergruppen braucht praktische Prüffälle.
 - Unvollständige Einträge, Tagesziel null und bestehende Saldoüberträge brauchen nachvollziehbare Berechnungsbeispiele. Ob Altdaten ungewöhnliche oder negative Pausenwerte für Überträge enthalten, ist anhand der tatsächlichen Daten zu klären.
 - Ein vollständiger Veröffentlichungslauf mit geprüftem Archiv und Datenerhalt steht aus.
-- Anton entscheidet fachlich und nimmt ab. Technisches Review, Zusammenführen von Änderungen sowie GitHub-, Store- und Signierzuständigkeiten sind noch eindeutig zuzuordnen.
 
 </details>
 
 <details>
 <summary>English</summary>
 
-## 1. Purpose
+## 1. Overview
 
 Timesheet runs inside Nextcloud. PHP processes and stores data. JavaScript handles browser interaction. The app ID and installation directory are both `timesheet`.
 
-This project builds on version 1.2.0 by David Gun (Repa1253). The authoritative app version is in `appinfo/info.xml`. It declares Nextcloud 30–33 and PHP 8.2–8.5 as intended versions; a complete practical compatibility check is still outstanding.
+This project builds on version 1.2.0 by David Gun (Repa1253). The authoritative app version is in `appinfo/info.xml`. It declares Nextcloud 30–33 and PHP 8.2–8.5 as intended versions.
 
 ## 2. Directories and files
 
@@ -165,14 +162,12 @@ This project builds on version 1.2.0 by David Gun (Repa1253). The authoritative 
 | `templates/` | Structure of the app page and administration page. |
 | `js/` | JavaScript for time entries, exports, the HR view and settings. |
 | `css/` and `img/` | Styling and app icons. |
-| `l10n/` | Translations. Nextcloud expects this directory name. `de.json` contains German text for PHP and `de.js` for the browser. Each file has its own purpose. |
+| `l10n/` | Translations. Nextcloud expects this directory name. `de.json` contains German text for PHP and `de.js` for the browser. |
 | `vendor/` | Installed PHP libraries, including those for Excel exports. Composer creates this directory; it belongs to a complete installation. |
 | `tools/` | Small programs for checking the code. PHP tool settings are grouped in `tools/php/`. |
 | `vendor-bin/` | Configuration and dependencies for the additional PHP checking tools. |
-| `tests/` | Setup for tests inside a Nextcloud test environment. Actual test cases are still missing. |
+| `tests/` | Setup for tests inside a Nextcloud test environment. Actual tests are yet missing. |
 | `docs/TECHNICAL_GUIDE.md` | This guide to development and publishing. |
-
-The short app directory names belong to the Nextcloud structure and remain unchanged. PHP filenames are also connected to their classes and callers. Renaming them alone would break those connections.
 
 Composer and npm settings are in the repository root. `composer.json` and `composer.lock` define PHP libraries. `package.json` contains only the JavaScript check command, with no additional npm packages. `.nvmrc` names Node 22 as a shared starting version; the check supports Node 22 and later. `README.md` describes the app, `CHANGELOG.md` the release history, and `LICENSE` the license.
 
@@ -288,6 +283,5 @@ The [Nextcloud app signing guide](https://docs.nextcloud.com/server/stable/devel
 - HR access checks differ between individual requests. Separation between employee groups needs practical checks.
 - Incomplete entries, a zero daily target and existing balance carryovers need reproducible calculation examples. Actual data is needed to establish whether old carryovers use unusual or negative break values.
 - A complete publishing run with a verified archive and preserved data remains outstanding.
-- Anton makes product decisions and accepts the result. Technical review, merging changes, and GitHub, Store and signing responsibilities still need clear assignment.
 
 </details>
