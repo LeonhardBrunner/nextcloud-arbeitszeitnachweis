@@ -11,6 +11,9 @@ use OCP\AppFramework\Services\IAppConfig;
 use OCP\IRequest;
 use OCP\IGroupManager;
 use OCP\IUserSession;
+use OCP\AppFramework\Utility\ITimeFactory;
+use OCA\Timesheet\Service\MissingEntryReminderSettings;
+use OCA\Timesheet\Service\MissingEntryReminderService;
 
 class SettingsController extends Controller {
 
@@ -30,6 +33,8 @@ class SettingsController extends Controller {
 		private IGroupManager $groupManager,
 		private IUserSession $userSession,
 		private \OCA\Timesheet\Service\MonthlyBalanceService $monthlyBalanceService,
+		private MissingEntryReminderService $missingEntryReminderService,
+		private ITimeFactory $timeFactory,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -96,7 +101,25 @@ class SettingsController extends Controller {
 		if (!is_array($submittedRules)) {
 			return new DataResponse(['message' => 'Invalid rules'], 400);
 		}
+		// Stable rule IDs identify enrollment; two rules must never share that state.
+		$submittedRuleIds = [];
+		foreach ($submittedRules as $rule) {
+			$ruleId = is_array($rule) ? trim((string)($rule['id'] ?? '')) : '';
+			if ($ruleId !== '' && isset($submittedRuleIds[$ruleId])) {
+				return new DataResponse(['message' => 'Duplicate rule identifiers'], 400);
+			}
+			$submittedRuleIds[$ruleId] = true;
+		}
 
+		$previousRulesJson = $this->appConfig->getAppValueString('hr_access_rules');
+		$previousRules = json_decode($previousRulesJson, true);
+		$previousRules = is_array($previousRules) ? $this->sanitizeRules($previousRules) : [];
+
+		try {
+			$submittedRules = $this->validateReminderSettings($submittedRules, $previousRules);
+		} catch (\InvalidArgumentException $invalidSettings) {
+			return new DataResponse(['message' => $invalidSettings->getMessage()], 400);
+		}
 		$sanitizedRules = $this->sanitizeRules($submittedRules);
 		// Each employee group may belong to only one access rule.
 		$duplicateGroupIds = $this->findDuplicateUserGroups($sanitizedRules);
@@ -107,9 +130,38 @@ class SettingsController extends Controller {
 			], 400);
 		}
 
-		$this->appConfig->setAppValueString('hr_access_rules', json_encode($sanitizedRules, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+		// Record the initial membership before an enabled rule becomes visible to the job.
+		try {
+			$this->missingEntryReminderService->prepareRuleChanges($previousRules, $sanitizedRules);
+			$this->appConfig->setAppValueString('hr_access_rules', json_encode($sanitizedRules, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+		} catch (\Throwable $saveError) {
+			return new DataResponse(['message' => 'Saving reminder settings failed'], 500);
+		}
 
 		return new DataResponse(['rules' => $sanitizedRules]);
+	}
+
+	/** @return array<int, mixed> */
+	private function validateReminderSettings(array $rules, array $previousRules): array {
+		$previousSettingsByRule = [];
+		foreach ($previousRules as $previousRule) {
+			$previousSettingsByRule[$previousRule['id']] = $previousRule['missingEntryReminders'];
+		}
+		$todayDate = $this->timeFactory->getDateTime('today', new \DateTimeZone('Europe/Berlin'))->format('Y-m-d');
+
+		foreach ($rules as &$rule) {
+			if (!is_array($rule) || trim((string)($rule['id'] ?? '')) === '') {
+				continue;
+			}
+			$ruleId = trim((string)$rule['id']);
+			$rule['missingEntryReminders'] = MissingEntryReminderSettings::validateForSave(
+				$rule['missingEntryReminders'] ?? null,
+				$todayDate,
+				$previousSettingsByRule[$ruleId] ?? null
+			);
+		}
+		unset($rule);
+		return $rules;
 	}
 
 	private function sanitizeRules(array $rules): array {
@@ -134,6 +186,7 @@ class SettingsController extends Controller {
 				'id' => $ruleId,
 				'hrGroups' => $hrGroups,
 				'userGroups' => $userGroups,
+				'missingEntryReminders' => MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null),
 			], $this->sanitizeRuleThresholds($rule));
 		}
 		return $sanitizedRules;

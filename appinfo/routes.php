@@ -20,6 +20,9 @@ return [
 		['name' => 'balance#getMonth', 'url' => '/api/balances/{userId}/{year}/{month}', 'verb' => 'GET'],
 
 		// REST: User config
+		['name' => 'preferences#setBreakInputMode', 'url' => '/api/preferences/break-input-mode', 'verb' => 'PUT'],
+		['name' => 'tour#complete', 'url' => '/api/preferences/tour/complete', 'verb' => 'POST'],
+
 		['name' => 'config#getUserConfig', 'url' => '/api/hr/config/{userId}', 'verb' => 'GET'],
 		['name' => 'config#setUserConfig', 'url' => '/api/hr/config/{userId}', 'verb' => 'PUT'],
 

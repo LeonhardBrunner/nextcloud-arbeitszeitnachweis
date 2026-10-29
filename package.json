@@ -9,6 +9,7 @@
   },
   "scripts": {
     "check:javascript": "node tools/check-javascript.mjs",
-    "test:javascript": "node --test tests/readability/javascript-behavior.test.mjs"
+    "test:javascript": "node --test tests/readability/javascript-behavior.test.mjs tests/reminders/admin-behavior.test.mjs tests/preferences/break-mode.test.mjs tests/tour/guided-tour.test.mjs tests/tour/translations.test.mjs",
+    "test:tour": "node --test tests/tour/guided-tour.test.mjs tests/tour/translations.test.mjs"
   }
 }

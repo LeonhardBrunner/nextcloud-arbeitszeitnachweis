@@ -87,6 +87,13 @@ class HolidayService {
 		return $holidays;
 	}
 
+	/** Checks reminder eligibility without changing the existing holiday lookup behavior. */
+	public function isSupportedState(string $state): bool {
+		return in_array($this->normalizeState($state), [
+			'bw', 'by', 'be', 'bb', 'hb', 'hh', 'he', 'mv', 'ni', 'nw', 'rp', 'sl', 'sn', 'st', 'sh', 'th',
+		], true);
+	}
+
 	private function normalizeState(string $state): string {
 		$stateCodes = [
 			'Baden-Württemberg'      => 'bw',

@@ -34,18 +34,34 @@ class GroupRuleService {
 	 * @return array<string, int|float>
 	 */
 	public function getEffectiveRules(?string $userId = null): array {
+		$rule = $this->findEffectiveRule($userId);
+		return $rule === null ? self::DEFAULTS : $this->extractThresholds($rule);
+	}
+
+	/** @return array<string, mixed>|null */
+	public function getMissingEntryReminderPolicy(string $userId): ?array {
+		return $this->findEffectiveRule($userId);
+	}
+
+	/** @return array<int, array<string, mixed>> */
+	public function getReminderRules(): array {
+		return $this->loadRules();
+	}
+
+	/** @return array<string, mixed>|null */
+	private function findEffectiveRule(?string $userId): ?array {
 		$resolvedUserId = $userId;
 		if ($resolvedUserId === null) {
 			$currentUser = $this->userSession->getUser();
 			if (!$currentUser) {
-				return self::DEFAULTS;
+				return null;
 			}
 			$resolvedUserId = $currentUser->getUID();
 		}
 
 		$user = $this->userManager->get($resolvedUserId);
 		if (!$user) {
-			return self::DEFAULTS;
+			return null;
 		}
 
 		if (method_exists($this->groupManager, 'getUserGroupIds')) {
@@ -57,12 +73,12 @@ class GroupRuleService {
 			);
 		}
 		if (!$userGroupIds) {
-			return self::DEFAULTS;
+			return null;
 		}
 
 		$rules = $this->loadRules();
 		if (!$rules) {
-			return self::DEFAULTS;
+			return null;
 		}
 
 		// The lowest priority wins; ties retain the first matching rule.
@@ -82,15 +98,11 @@ class GroupRuleService {
 			}
 		}
 
-		if ($bestRule !== null) {
-			return $this->extractThresholds($bestRule);
-		}
-
-		return self::DEFAULTS;
+		return $bestRule;
 	}
 
 	/**
-	 * @return array<int, array{id:string,hrGroups:string[],userGroups:string[],priority:int}>
+	 * @return array<int, array<string, mixed>>
 	 */
 	private function loadRules(): array {
 		$rulesJson = (string)$this->appConfig->getAppValueString('hr_access_rules');
@@ -134,6 +146,7 @@ class GroupRuleService {
 				'id' => $ruleId,
 				'hrGroups' => $hrGroups,
 				'userGroups' => $userGroups,
+				'missingEntryReminders' => MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null),
 			], $this->sanitizeRuleThresholds($rule));
 		}
 

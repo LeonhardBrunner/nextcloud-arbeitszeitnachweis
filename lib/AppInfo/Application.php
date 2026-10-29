@@ -11,6 +11,7 @@ use OCP\INavigationManager;
 use OCP\IURLGenerator;
 use OCP\L10N\IFactory;
 use OCA\Timesheet\BackgroundJob\HrNotificationJob;
+use OCA\Timesheet\BackgroundJob\MissingEntryReminderJob;
 
 class Application extends App implements IBootstrap {
 	public const APP_ID = 'timesheet';
@@ -48,13 +49,11 @@ class Application extends App implements IBootstrap {
 
 		/** @var IJobList $jobList */
 		$jobList = $serverContainer->get(IJobList::class);
-		$jobClass = HrNotificationJob::class;
-
-		if (method_exists($jobList, 'has')) {
-			if (!$jobList->has($jobClass, null)) {
+		// Register both jobs for existing installations as well as app updates.
+		foreach ([HrNotificationJob::class, MissingEntryReminderJob::class] as $jobClass) {
+			if (method_exists($jobList, 'has') && !$jobList->has($jobClass, null)) {
 				$jobList->add($jobClass, null);
 			}
-			return;
 		}
 	}
 }

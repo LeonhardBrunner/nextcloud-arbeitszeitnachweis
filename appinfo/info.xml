@@ -49,5 +49,6 @@ Die Zielzeit ist ein einheitlicher Tageswert, wodurch sie sich besonders für kl
 
 	<background-jobs>
 		<job>OCA\Timesheet\BackgroundJob\HrNotificationJob</job>
+		<job>OCA\Timesheet\BackgroundJob\MissingEntryReminderJob</job>
 	</background-jobs>
 </info>

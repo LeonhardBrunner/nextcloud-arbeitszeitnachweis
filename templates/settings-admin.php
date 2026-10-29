@@ -169,6 +169,25 @@
 			max-width: 420px;
 		}
 
+		/* Missing-entry reminder controls */
+		.ts-reminder-toggle,
+		.ts-reminder-weekday {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+		}
+
+		.ts-reminder-weekdays {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 8px 16px;
+			margin-top: 8px;
+		}
+
+		.ts-reminder-settings input[type="number"] {
+			width: 100px;
+		}
+
 		/* General settings */
 		.ts-divider {
 			margin: 18px 0 14px;

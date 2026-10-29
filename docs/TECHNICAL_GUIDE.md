@@ -20,7 +20,7 @@ Dieses Projekt baut auf Version 1.2.0 von David Gun (Repa1253) auf. Die maßgebl
 | `templates/` | Aufbau der App-Seite und der Verwaltungsseite. |
 | `js/` | JavaScript für Zeiteinträge, Export, HR-Ansicht und Einstellungen. |
 | `css/` und `img/` | Gestaltung und App-Symbole. |
-| `l10n/` | Übersetzungen. Nextcloud erwartet diesen Ordnernamen. `de.json` enthält deutsche Texte für PHP, `de.js` für den Browser. |
+| `l10n/` | Übersetzungen. Nextcloud erwartet diesen Ordnernamen. JSON-Dateien werden von PHP, JS-Dateien vom Browser verwendet. Die Tourtexte stehen in den angebotenen Kontosprachen bereit. `de` und `de_DE` enthalten die persönliche und die förmliche deutsche Sprachfassung. |
 | `vendor/` | Installierte PHP-Bibliotheken, unter anderem für den Excelexport. Composer erzeugt diesen Ordner; er gehört zur vollständigen Installation. |
 | `tools/` | Kleine Programme für die Prüfung des Codes. Die Einstellungen der PHP-Werkzeuge liegen gemeinsam in `tools/php/`. |
 | `vendor-bin/` | Angaben und Abhängigkeiten der zusätzlichen PHP-Prüfwerkzeuge. |
@@ -39,6 +39,7 @@ Im Hauptordner stehen die Einstellungen für Composer und npm. `composer.json` u
 | Stundenstände und Monatswerte | `lib/Db/EntryMapper.php`, `lib/Service/MonthlyBalanceService.php`, `lib/Controller/BalanceController.php`. |
 | Monats- und Jahresexport | `js/timesheet-export.js` steuert die Auswahl; `lib/Service/TimesheetXlsxExporter.php` erstellt die Datei. `EntryController` prüft den Zugriff und liefert den Download. |
 | HR-Übersicht und Zuständigkeiten | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
+| Anzeigeeinstellungen | `PreferencesController` und `lib/Db/UserPreferencesStore.php` speichern die persönliche Pausenanzeige. `PageController` liefert die gespeicherte Auswahl beim Seitenaufruf mit. |
 | Einstellungen | `ConfigController` nimmt persönliche Einstellungen entgegen; `lib/Db/HrPreferencesStore.php` liest und speichert HR-E-Mail- und Warnungseinstellungen. Gruppenregeln liegen bei `SettingsController`, `templates/settings-admin.php` und `js/admin.js`. |
 | E-Mails und Feiertage | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
 | Gemeinsame Browserfunktionen | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
@@ -92,6 +93,36 @@ Gespeicherte Änderungen an den eingebundenen Dateien erscheinen nach dem Neulad
 
 Feiertagsdaten benötigen ausgehenden HTTPS-Zugriff auf `get.api-feiertage.de`, sofern keine gültigen gespeicherten Daten vorhanden sind. HR-E-Mails setzen persönliche Benachrichtigungseinstellungen, eine Empfängeradresse, funktionierenden Nextcloud-Mailversand und Hintergrundaufgaben voraus. Der vorhandene Job versendet regulär montags. Test-E-Mails gehören in ein Testpostfach.
 
+### Persönliche Pausenanzeige
+
+Der Schalter **Pause: Minuten – Stunden** speichert seine Auswahl automatisch im angemeldeten Nextcloud-Konto. Die Auswahl bleibt nach Neuladen und erneutem Anmelden erhalten und gilt für die eigene Zeiterfassung sowie die HR-Ansicht. Beim Betrachten fremder Einträge gilt die Anzeigeeinstellung der betrachtenden Person. Gespeicherte Pausenwerte und Berechnungen bleiben unverändert.
+
+### Geführte Tour
+
+Das Kompasssymbol zwischen Suche und Glocke öffnet eine Einführung in Timesheet. Für Nextcloud-Administratorkonten ist die Tour derzeit ausgeschaltet; dort werden weder Symbol noch Einladung angezeigt. `js/timesheet-tour.js` enthält Ablauf und Erklärungen; `js/timesheet-tour-header.js` verbindet das Symbol mit der Nextcloud-Kopfzeile. Die Darstellung liegt in `css/timesheet-tour.css`. Fehlt die erwartete Kopfzeile, erscheint der Zugang innerhalb von Timesheet.
+
+Die Tour wird nach dem Laden der App angeboten. **Später** verschiebt die Einladung bis zum nächsten Aufruf. Ein Abschluss wird je Konto gespeichert, getrennt für den allgemeinen Teil und die HR-Erweiterung. `TourController` nimmt den Abschluss entgegen; `lib/Db/TourProgressStore.php` speichert ausschließlich die beiden Tourstände. Neue HR-Rechte führen zur zusätzlichen HR-Einführung. Eine manuell gestartete Tour zeigt alle aktuell verfügbaren Schritte.
+
+Vor den HR-Funktionen erklärt ein eigener Schritt die Umschaltung zwischen Arbeitszeitnachweis und HR-Übersicht. Der Kommentarschritt beschreibt bereits den vorgesehenen HR-Freigabeablauf für „Urlaub“ und „Stundenausgleich“. Die technische Genehmigungsfunktion bleibt ein eigener Featureauftrag; diese Touränderung ergänzt ausschließlich die Erklärung.
+
+Erklärungen lesen vorhandene Ansichten und öffnen bei Bedarf Menüs. Die Tour erstellt keine Zeiteinträge, ändert keine Einstellungen und startet keine Downloads. Die vorhandenen Leseaufrufe können berechnete Monatsstände zwischenspeichern, wie beim normalen Öffnen der HR-Ansicht. Nach ihrem Ende wird die zuvor geöffnete Ansicht wiederhergestellt. **Hilfe & Datenschutz** führt zur allgemeinen Nextcloud-Hilfe.
+
+Die Kontosprache bestimmt die Tourtexte. Änderungen an Erklärungen werden in allen zugehörigen Sprachdateien gepflegt. Die Vollständigkeitsprüfung unter `tests/tour/` kontrolliert Texte, Platzhalter und die Übereinstimmung von JSON- und JS-Dateien. Sie ersetzt keine sprachliche Prüfung durch Muttersprachler. Zusätzliche Tourprüfungen laufen mit `npm run test:tour`; der getrennte PHP-Aufruf lautet `php tests/tour/progress.php`.
+
+### Erinnerungen für einzelne offene Tage
+
+Die Verwaltungsseite enthält in jeder Gruppenregel den Bereich **Erinnerungen an fehlende Zeiten**. Die Funktion ist nach der Installation ausgeschaltet. Einstellbar sind die Wartefrist von 1 bis 365 Kalendertagen (Voreinstellung 14), die erwarteten Wochentage (Voreinstellung Montag bis Freitag) und der Prüfstart. Beim ersten Einschalten wird das aktuelle Datum vorgeschlagen; ein rückwirkender Beginn ist möglich.
+
+Die tägliche Prüfung findet auch einzelne ältere Lücken, wenn danach bereits weitere Zeiten eingetragen wurden. Fehlende Start- oder Endzeiten werden ebenfalls gemeldet. Bei Tagen ohne beide Zeitangaben verhindern ausschließlich die vollständigen Kommentare **Urlaub** und **Stundenausgleich** eine Erinnerung. Groß-/Kleinschreibung und Leerzeichen am Anfang oder Ende werden ignoriert. Andere Kommentare oder Zusätze genügen nicht. Bei nur einer Zeitangabe bleibt die Erinnerung auch mit einem dieser Kommentare bestehen. Die HR-Übersicht enthält denselben Hinweis.
+
+Feiertage des persönlichen Bundeslands bleiben ausgenommen. Ohne Bundesland oder bei nicht verfügbaren Feiertagsdaten erhält die betroffene Person zunächst keine Erinnerung; zuständiges HR bekommt einen Hinweis. Die ausgewählten Wochentage gelten auch bei einer täglichen Sollzeit von null.
+
+Beim ersten Aktivieren werden bestehende Gruppenmitglieder mit dem gewählten Prüfstart vorgemerkt. Später hinzugekommene Personen starten frühestens am Tag ihrer ersten Erkennung. Speichern und erneutes Einschalten setzen diese Zuordnung nicht zurück. Bei mehreren passenden Gruppenregeln entscheidet wie bisher die niedrigste Prioritätszahl; auch eine dort ausgeschaltete Erinnerung bleibt maßgeblich.
+
+Mitarbeitende erhalten nur ihre eigenen offenen Tage. HR bekommt eine getrennte Übersicht ausschließlich für aktuell zugeordnete Personen. Eine erfolgreiche E-Mail startet eine Wartefrist von sieben Tagen je Versandart; neue Lücken verkürzen diese Frist nicht. Ohne offene Tage wird keine Erinnerung verschickt. Bisherige HR-Mails bleiben zusätzlich bestehen. Die Erkennung liegt in `MissingEntryDetector`, der Ablauf in `MissingEntryReminderService`, der Mailversand in `MissingEntryReminderMailer` und die gespeicherte Zuordnung in `MissingEntryReminderStore`. Die neue tägliche Aufgabe heißt `MissingEntryReminderJob`; ihre Ausführung benötigt funktionierende Nextcloud-Hintergrundaufgaben. Das Speichern einer Gruppenregel verschickt keine E-Mail.
+
+Zum Ausprobieren dienen ausschließlich Testkonten und ein lokales Testpostfach, beispielsweise Mailpit unter `http://localhost:8025` in der vorhandenen Demo. Ein geeigneter Fall ist ein leerer Montag mit vollständigen Einträgen am Dienstag und Mittwoch. Nach Ablauf der gewählten Frist erscheint Montag in der Erinnerung. Ergänzte Zeiten verschwinden beim nächsten Versand aus der Liste. Die Versandbegrenzung und die Ausnahmen werden zusätzlich mit festen Datumswerten in den Verhaltenstests geprüft. Echte Mitarbeiteradressen gehören nicht in diese Versandtests.
+
 ## 5. Änderungen prüfen
 
 Im Hauptordner des Repositorys prüft folgender Befehl die Schreibweise aller JavaScript-Dateien unter `js/` und `l10n/`.
@@ -105,6 +136,19 @@ Die Verhaltenstests prüfen unter anderem Zeitformate, Warnregeln, Speichervorg�
 ```powershell
 npm run test:javascript
 ```
+
+Die PHP-Tests für Erinnerungen und persönliche Anzeigeeinstellungen laufen jeweils als eigener Aufruf, ohne eine Nextcloud-Installation zu laden:
+
+```powershell
+php tests/reminders/detector.php
+php tests/reminders/group-policy-test.php
+php tests/reminders/state.php
+php tests/reminders/mailer.php
+php tests/preferences/user-preferences.php
+php tests/tour/progress.php
+```
+
+`tests/reminders/integration.php` prüft den gesamten Ablauf einschließlich Versand in einer eigenen Nextcloud-Testinstanz. Er erzeugt Testkonten und Einträge und ersetzt dort die Gruppenregeln. Deshalb startet er ausschließlich mit `REMINDER_TEST_ENVIRONMENT=1`, der Datenbank `timesheet_reminders_test`, einem gesetzten `REMINDER_TEST_PASSWORD` und Mailpit als Versandziel. Er gehört nicht in die normale Demo oder eine produktive Installation. Der vorhandene PHPUnit-Aufbau bleibt davon getrennt.
 
 Mit lokal verfügbarem PHP prüft dieser Befehl alle PHP-Dateien der App und ihrer Prüfprogramme:
 
@@ -176,7 +220,7 @@ This project builds on version 1.2.0 by David Gun (Repa1253). The authoritative 
 | `templates/` | Structure of the app page and administration page. |
 | `js/` | JavaScript for time entries, exports, the HR view and settings. |
 | `css/` and `img/` | Styling and app icons. |
-| `l10n/` | Translations. Nextcloud expects this directory name. `de.json` contains German text for PHP and `de.js` for the browser. |
+| `l10n/` | Translations. Nextcloud expects this directory name. PHP uses JSON files; the browser uses JS files. Tour text is supplied in the offered account languages. `de` and `de_DE` provide the informal and formal German variants. |
 | `vendor/` | Installed PHP libraries, including those for Excel exports. Composer creates this directory; it belongs to a complete installation. |
 | `tools/` | Small programs for checking the code. PHP tool settings are grouped in `tools/php/`. |
 | `vendor-bin/` | Configuration and dependencies for the additional PHP checking tools. |
@@ -195,6 +239,7 @@ Composer and npm settings are in the repository root. `composer.json` and `compo
 | Balances and monthly values | `lib/Db/EntryMapper.php`, `lib/Service/MonthlyBalanceService.php`, `lib/Controller/BalanceController.php`. |
 | Monthly and yearly exports | `js/timesheet-export.js` handles the selection; `lib/Service/TimesheetXlsxExporter.php` creates the file. `EntryController` checks access and returns the download. |
 | HR overview and responsibilities | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
+| Display preferences | `PreferencesController` and `lib/Db/UserPreferencesStore.php` store the personal break display. `PageController` includes the saved selection when rendering the page. |
 | Settings | `ConfigController` receives personal settings; `lib/Db/HrPreferencesStore.php` reads and saves HR email and warning preferences. Group rules belong to `SettingsController`, `templates/settings-admin.php` and `js/admin.js`. |
 | Emails and public holidays | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
 | Shared browser functions | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
@@ -248,6 +293,36 @@ Saved changes to mounted files appear after a reload; a GitHub upload is not req
 
 Public holiday data requires outbound HTTPS access to `get.api-feiertage.de` unless valid cached data is available. HR emails require personal notification settings, a recipient address, working Nextcloud mail delivery and background jobs. The existing job normally sends on Mondays. Test emails belong in a test mailbox.
 
+### Personal break display
+
+The **Break: Minutes – Hours** switch saves its selection automatically in the signed-in Nextcloud account. The selection survives reloads and signing in again and applies to both personal entries and the HR view. When viewing another employee, the viewer’s display preference applies. Stored break values and calculations remain unchanged.
+
+### Guided tour
+
+The compass between search and notifications opens the Timesheet introduction. The tour is currently disabled for Nextcloud administrator accounts, which receive neither its button nor its invitation. `js/timesheet-tour.js` contains its flow and explanations; `js/timesheet-tour-header.js` connects the button to the Nextcloud header. Styling lives in `css/timesheet-tour.css`. A visible entry point inside Timesheet is used if the expected header is unavailable.
+
+The tour is offered after the app has loaded. **Later** defers the invitation until the next visit. Completion is stored per account, separately for the general introduction and the HR extension. `TourController` accepts completion; `lib/Db/TourProgressStore.php` stores only these two completion versions. Newly granted HR access offers the additional introduction. A manually started tour includes all steps currently available.
+
+A separate step explains switching between the personal timesheet and the HR overview before entering the HR features. The comments step already describes the planned HR approval process for “Urlaub” and “Stundenausgleich”. Implementing approval remains a separate feature task; this tour change adds only the explanation.
+
+Explanations read existing views and open menus when needed. The tour creates no time entries, changes no settings and starts no downloads. Existing read calls can cache calculated monthly balances, just as opening the HR view normally does. The tour restores the previous view when it ends. **Help & privacy** leads to general Nextcloud help.
+
+The account language determines the tour text. Changes to explanations are maintained in all corresponding language files. Coverage checks under `tests/tour/` verify messages, placeholders and matching JSON/JS catalogs. They do not replace linguistic review by native speakers. Tour checks run with `npm run test:tour`; the separate PHP command is `php tests/tour/progress.php`.
+
+### Reminders for individual open dates
+
+Each group rule on the administration page has a **Missing time entry reminders** section. The feature is disabled after installation. Settings cover a delay from 1 to 365 calendar days (default 14), expected weekdays (default Monday to Friday), and the date from which entries are checked. The current date is suggested on first enablement; an earlier start can be chosen.
+
+The daily check finds individual older gaps even when later dates already have entries. A missing start or end time also triggers a reminder. When both times are absent, only a whole comment matching **Urlaub** or **Stundenausgleich** prevents a reminder. Letter case and surrounding spaces are ignored. Other comments or added words do not qualify. An entry with only one time remains incomplete even with one of these comments. The HR overview displays the same guidance. These two accepted German terms remain unchanged in the English interface.
+
+Public holidays in the employee's configured German state are excluded. Without a state or when holiday data cannot be obtained, the employee's check is suspended and responsible HR receives a notice. The selected weekdays apply even when the daily target is zero.
+
+On first activation, existing group members are enrolled using the chosen start date. Later members are checked no earlier than their first detection date. Saving and re-enabling preserve this enrollment. Where several group rules match, the lowest priority number still wins, including a rule with reminders disabled.
+
+Employees receive only their own open dates. HR receives a separate summary limited to currently assigned employees. A successful email starts a seven-day waiting period for that message type; additional gaps do not shorten it. No reminder is sent without open dates. Existing HR emails continue separately. Detection lives in `MissingEntryDetector`, coordination in `MissingEntryReminderService`, email delivery in `MissingEntryReminderMailer`, and stored enrollment in `MissingEntryReminderStore`. The new daily task is `MissingEntryReminderJob` and requires working Nextcloud background jobs. Saving a group rule never sends an email.
+
+Use test accounts and a local test inbox, such as Mailpit at `http://localhost:8025` in the existing demo. One useful case has an empty Monday followed by complete Tuesday and Wednesday entries. Once the selected delay expires, Monday appears in the reminder. Filling the gap removes it from the next message. Fixed-date behavior tests also cover delivery intervals and exceptions. Real employee addresses do not belong in these delivery tests.
+
 ## 5. Checking changes
 
 From the repository root, this command checks the syntax of every JavaScript file under `js/` and `l10n/`. Node 22 or later is sufficient; `npm install` is not needed.
@@ -261,6 +336,19 @@ Behavior tests cover time formats, warning rules, saves and HR rule cards, among
 ```powershell
 npm run test:javascript
 ```
+
+The PHP tests for reminders and personal display preferences run as separate commands without loading a Nextcloud installation:
+
+```powershell
+php tests/reminders/detector.php
+php tests/reminders/group-policy-test.php
+php tests/reminders/state.php
+php tests/reminders/mailer.php
+php tests/preferences/user-preferences.php
+php tests/tour/progress.php
+```
+
+`tests/reminders/integration.php` checks the full workflow and delivery in a dedicated Nextcloud test instance. It creates synthetic accounts and entries and replaces that instance's group rules. It therefore runs only with `REMINDER_TEST_ENVIRONMENT=1`, database `timesheet_reminders_test`, a configured `REMINDER_TEST_PASSWORD`, and Mailpit as the mail destination. It does not belong in the normal demo or a production installation. The existing PHPUnit setup remains separate.
 
 With PHP available locally, this command checks all PHP files in the app and its checking tools:
 

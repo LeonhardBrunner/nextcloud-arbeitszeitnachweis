@@ -7,6 +7,7 @@ use OCP\AppFramework\Services\IAppConfig;
 use OCP\Settings\ISettings;
 use OCP\Util;
 use OCP\IGroupManager;
+use OCA\Timesheet\Service\MissingEntryReminderSettings;
 
 class AdminSettings implements ISettings {
 
@@ -77,6 +78,7 @@ class AdminSettings implements ISettings {
 				'id' => $ruleId,
 				'hrGroups' => $hrGroups,
 				'userGroups' => $userGroups,
+				'missingEntryReminders' => MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null),
 			], $this->sanitizeRuleThresholds($rule));
 		}
 		return $sanitizedRules;

@@ -174,8 +174,73 @@
 	}
 
 	// Break input format and its matching controls.
+	let savedBreakMode = 'minutes';
+	let savedBreakRevision = '';
+	let breakModeSaveQueue = Promise.resolve();
+	let breakModeChangeVersion = 0;
+	let breakModePageActive = true;
+
 	function normalizeBreakMode(mode) {
 		return mode === 'hours' ? 'hours' : 'minutes';
+	}
+
+	function pendingBreakModeStorageKey() {
+		return appState.currentUserId ? `timesheet:pending-break-input-mode:${encodeURIComponent(appState.currentUserId)}` : null;
+	}
+
+	function readPendingBreakMode() {
+		const storageKey = pendingBreakModeStorageKey();
+		if (!storageKey) {
+			return null;
+		}
+		try {
+			const pendingPreference = JSON.parse(window.sessionStorage.getItem(storageKey) || 'null');
+			if (
+				(pendingPreference?.mode === 'hours' || pendingPreference?.mode === 'minutes')
+				&& typeof pendingPreference.changeId === 'string'
+			) {
+				return pendingPreference;
+			}
+		} catch {
+			// Server persistence remains available when browser storage is restricted.
+		}
+		return null;
+	}
+
+	function rememberPendingBreakMode(pendingPreference) {
+		const storageKey = pendingBreakModeStorageKey();
+		if (!storageKey) {
+			return;
+		}
+		try {
+			window.sessionStorage.setItem(storageKey, JSON.stringify(pendingPreference));
+		} catch {
+			// The temporary reload bridge is optional; saving continues on the server.
+		}
+	}
+
+	function clearPendingBreakMode(changeId) {
+		if (readPendingBreakMode()?.changeId !== changeId) {
+			return;
+		}
+		try {
+			window.sessionStorage.removeItem(pendingBreakModeStorageKey());
+		} catch {
+			// Restricted storage must not interrupt the preference update.
+		}
+	}
+
+	function initializeBreakModePreference() {
+		const applicationRoot = document.getElementById('timesheet-app');
+		const savedMode = applicationRoot?.dataset.breakInputMode;
+		savedBreakMode = normalizeBreakMode(savedMode ?? appState.breakInputMode);
+		savedBreakRevision = applicationRoot?.dataset.breakInputRevision || '';
+		const pendingPreference = readPendingBreakMode();
+		appState.breakInputMode = pendingPreference?.mode ?? savedBreakMode;
+		if (pendingPreference) {
+			// A reload can finish before the previous page's request reaches the server.
+			saveBreakModePreference(pendingPreference.mode);
+		}
 	}
 
 	function updateBreakInputs(mode) {
@@ -219,8 +284,96 @@
 		updateBreakToggleUI(normalizedMode);
 	}
 
+	function isBreakModePreference(preference) {
+		return preference
+			&& (preference.breakInputMode === 'hours' || preference.breakInputMode === 'minutes')
+			&& typeof preference.revision === 'string'
+			&& /^[a-f0-9]{64}$/i.test(preference.revision);
+	}
+
+	function readBreakModeConflict(saveError) {
+		try {
+			const conflict = JSON.parse(saveError.message);
+			return conflict?.code === 'preference_conflict' && isBreakModePreference(conflict) ? conflict : null;
+		} catch {
+			return null;
+		}
+	}
+
+	async function persistBreakModeChoice(mode, changeVersion, changeId) {
+		const maximumConflictRetries = 3;
+		let conflictRetries = 0;
+		while (breakModePageActive) {
+			try {
+				const preference = await timesheet.api('/api/preferences/break-input-mode', {
+					method: 'PUT',
+					body: JSON.stringify({ breakInputMode: mode, revision: savedBreakRevision }),
+					keepalive: true
+				});
+				if (!isBreakModePreference(preference)) {
+					throw new Error('Invalid break display preference response');
+				}
+				savedBreakMode = preference.breakInputMode;
+				savedBreakRevision = preference.revision;
+				if (changeVersion === breakModeChangeVersion) {
+					clearPendingBreakMode(changeId);
+				}
+				return;
+			} catch (saveError) {
+				const conflict = readBreakModeConflict(saveError);
+				if (conflict) {
+					savedBreakMode = conflict.breakInputMode;
+					savedBreakRevision = conflict.revision;
+					if (!breakModePageActive || changeVersion !== breakModeChangeVersion) {
+						return;
+					}
+					// Rebase only the latest choice when another page saved first.
+					if (conflictRetries < maximumConflictRetries) {
+						const retryDelayMilliseconds = 25 * (2 ** conflictRetries);
+						conflictRetries++;
+						await new Promise(resolve => window.setTimeout(resolve, retryDelayMilliseconds));
+						if (!breakModePageActive || changeVersion !== breakModeChangeVersion) {
+							return;
+						}
+						continue;
+					}
+				}
+				if (!breakModePageActive) {
+					return;
+				}
+				console.warn('Could not save break display preference:', saveError);
+				if (changeVersion === breakModeChangeVersion) {
+					setBreakMode(savedBreakMode);
+					clearPendingBreakMode(changeId);
+				}
+				timesheet.notify(t(appState.appName, 'Could not save the break display setting. Please try again.'));
+				return;
+			}
+		}
+	}
+
+	function saveBreakModePreference(mode) {
+		const normalizedMode = normalizeBreakMode(mode);
+		const changeVersion = ++breakModeChangeVersion;
+		const changeId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		rememberPendingBreakMode({ mode: normalizedMode, changeId });
+
+		// Preserve the order of quick changes without replacing a newer visible choice.
+		breakModeSaveQueue = breakModeSaveQueue.then(() => persistBreakModeChoice(normalizedMode, changeVersion, changeId));
+		return breakModeSaveQueue;
+	}
+
 	function bindBreakToggle() {
-		document.addEventListener('change', event => {
+		window.addEventListener('pagehide', () => { breakModePageActive = false; });
+		window.addEventListener('pageshow', event => {
+			breakModePageActive = true;
+			const pendingPreference = event.persisted ? readPendingBreakMode() : null;
+			if (pendingPreference) {
+				setBreakMode(pendingPreference.mode);
+				saveBreakModePreference(pendingPreference.mode);
+			}
+		});
+		document.addEventListener('change', async event => {
 			const targetElement = event.target;
 			if (!(targetElement instanceof Element)) {
 				return;
@@ -231,6 +384,7 @@
 			}
 			const mode = input.checked ? input.dataset.breakModeOn || 'hours' : input.dataset.breakModeOff || 'minutes';
 			setBreakMode(mode);
+			await saveBreakModePreference(mode);
 		});
 		setBreakMode(appState.breakInputMode || 'minutes');
 	}
@@ -243,6 +397,7 @@
 
 	// Application startup: keep configuration, rules and entries in this order.
 	async function initializeApplication() {
+		initializeBreakModePreference();
 		timesheet.dom.refresh();
 		timesheet.copy.init();
 		timesheet.hr.init();
@@ -266,6 +421,8 @@
 		if (initialRow) {
 			timesheet.entries.updateWorkedHours(initialRow);
 		}
+		// Offer guidance only after the existing application is ready.
+		await timesheet.tour?.init();
 	}
 
 	// Start initialization on DOM ready

@@ -22,6 +22,8 @@
 	const allGroups = readEmbeddedJson('timesheet-all-groups-data');
 	let accessRules = readEmbeddedJson('timesheet-hr-rules-data');
 	let notifiedDuplicateEmployeeGroups = false;
+	let ruleSaveQueue = Promise.resolve();
+	let ruleRevision = 0;
 	const rulesContainer = document.getElementById('timesheet-hr-rules');
 	const addRuleButton = document.getElementById('timesheet-add-hr-rule');
 	const specialDaysOvertime = document.getElementById('timesheet-specialdays-overtime');
@@ -71,11 +73,41 @@
 		return Math.min(maximumValue, Math.max(minimumValue, numericValue));
 	}
 
+	// Reminder settings stay separate from numeric time-rule thresholds.
+	function normalizeReminderSettings(inputSettings = {}) {
+		const settings = inputSettings && typeof inputSettings === 'object' ? inputSettings : {};
+		const graceDays = Number(settings.graceDays);
+		const weekdays = Array.isArray(settings.weekdays) ? settings.weekdays : [1, 2, 3, 4, 5];
+		return {
+			enabled: settings.enabled === true,
+			graceDays: Number.isInteger(graceDays) && graceDays >= 1 && graceDays <= 365 ? graceDays : 14,
+			weekdays: [...new Set(weekdays.filter(day => Number.isInteger(day) && day >= 1 && day <= 7))].sort((firstDay, secondDay) => firstDay - secondDay),
+			startDate: typeof settings.startDate === 'string' ? settings.startDate.trim() : ''
+		};
+	}
+
+	function currentReminderDate() {
+		const dateParts = new Intl.DateTimeFormat('en-CA', {
+			timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit'
+		}).formatToParts(new Date());
+		const values = Object.fromEntries(dateParts.map(part => [part.type, part.value]));
+		return `${values.year}-${values.month}-${values.day}`;
+	}
+
+	function isValidReminderDate(value) {
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+			return false;
+		}
+		const parsedDate = new Date(`${value}T00:00:00Z`);
+		return Number.isFinite(parsedDate.getTime()) && parsedDate.toISOString().slice(0, 10) === value;
+	}
+
 	function normalizeRuleSettings(inputRule = {}) {
 		const normalizedRule = {
 			id: String(inputRule.id || "").trim(),
 			hrGroups: Array.isArray(inputRule.hrGroups) ? inputRule.hrGroups : [],
-			userGroups: Array.isArray(inputRule.userGroups) ? inputRule.userGroups : []
+			userGroups: Array.isArray(inputRule.userGroups) ? inputRule.userGroups : [],
+			missingEntryReminders: normalizeReminderSettings(inputRule.missingEntryReminders)
 		};
 		Object.entries(defaultRuleSettings).forEach(([settingKey, defaultValue]) => {
 			const [minimumValue, maximumValue] = ruleValueRanges[settingKey];
@@ -205,9 +237,37 @@
 		return groupIds.map(groupId => {
 			return `
               <span class="ts-chip">${escapeHtml(groupId)}${' '}
-                <a href="#" class="ts-chip-remove" data-group="${escapeHtml(groupId)}" data-kind="${escapeHtml(groupField)}" title="${escapeHtml(t('timesheet', 'Remove'))}">×</a>
+                <a href="#" class="ts-chip-remove" data-group="${escapeHtml(groupId)}" data-kind="${escapeHtml(groupField)}" title="${escapeHtml(t('timesheet', 'Remove'))}" aria-label="${escapeHtml(t('timesheet', 'Remove'))}">&times;</a>
               </span>`;
 		}).join('');
+	}
+
+	function renderReminderSettings(rule) {
+		const settings = normalizeReminderSettings(rule.missingEntryReminders);
+		const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+		const weekdayInputs = weekdayNames.map((name, index) => {
+			const weekday = index + 1;
+			return `<label class="ts-reminder-weekday"><input type="checkbox" class="ts-reminder-input" data-reminder-day="${weekday}"${settings.weekdays.includes(weekday) ? ' checked' : ''}><span>${escapeHtml(t('timesheet', name))}</span></label>`;
+		}).join('');
+		return `
+			<div class="ts-rule-section ts-reminder-settings">
+				<div class="ts-rule-section-title">${escapeHtml(t('timesheet', 'Missing time entry reminders'))}</div>
+				<label class="ts-reminder-toggle"><input type="checkbox" class="ts-reminder-input" data-reminder-key="enabled"${settings.enabled ? ' checked' : ''}><span>${escapeHtml(t('timesheet', 'Send reminders to employees and responsible HR'))}</span></label>
+				<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Checks run daily. Open dates are collected in one email, with at least seven days between emails of the same kind.'))}</p>
+				<div class="ts-rule-grid ts-rule-grid-compact">
+					<div class="ts-rule-col">
+						<label>${escapeHtml(t('timesheet', 'Wait before the first reminder'))}
+							<span class="ts-inline"><input type="number" min="1" max="365" step="1" class="ts-reminder-input" data-reminder-key="graceDays" value="${settings.graceDays}"><span>${escapeHtml(t('timesheet', 'calendar days'))}</span></span>
+						</label>
+					</div>
+					<div class="ts-rule-col">
+						<label>${escapeHtml(t('timesheet', 'Check entries starting on'))}<input type="date" class="ts-reminder-input" data-reminder-key="startDate" value="${escapeHtml(settings.startDate)}"></label>
+					</div>
+				</div>
+				<div class="ts-setting-desc">${escapeHtml(t('timesheet', 'Days that require a time entry; public holidays in the employee state are excluded.'))}</div>
+				<div class="ts-reminder-weekdays">${weekdayInputs}</div>
+				<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Existing members use the chosen start date. Later members are checked from their first detection. A state is required for the holiday check.'))}</p>
+			</div>`;
 	}
 
 	function createRuleCard(rule, index, assignedEmployeeGroups) {
@@ -225,7 +285,7 @@
               <span>${escapeHtml(t("timesheet", "Priority"))}</span>
               <input type="number" min="0" max="9999" step="1" class="ts-rule-input ts-rule-priority-input" data-key="priority" value="${ruleSettings.priority}">
             </label>
-            <a href="#" class="ts-rule-delete" title="${escapeHtml(t("timesheet", "Delete rule"))}">×</a>
+            <a href="#" class="ts-rule-delete" title="${escapeHtml(t("timesheet", "Delete rule"))}" aria-label="${escapeHtml(t("timesheet", "Delete rule"))}">&times;</a>
           </div>
         </div>
 
@@ -272,6 +332,7 @@
             </div>
           </div>
         </div>
+		${renderReminderSettings(rule)}
       `;
 		return ruleCard;
 	}
@@ -310,17 +371,58 @@
 	}
 
 	async function saveAndRenderRules(nextRules) {
-		try {
-			const normalizedRules = normalizeRules(nextRules);
-			const uniqueGroupResult = removeDuplicateEmployeeGroups(normalizedRules);
-			accessRules = await saveRules(uniqueGroupResult.rules);
-			renderRules();
-		} catch (error) {
-			console.error('Failed to save HR access rules:', error);
-			notify(t('timesheet', 'Saving failed'));
-			renderRules();
-		}
+		const normalizedRules = normalizeRules(nextRules);
+		const uniqueGroupResult = removeDuplicateEmployeeGroups(normalizedRules);
+		accessRules = uniqueGroupResult.rules;
+		const saveRevision = ++ruleRevision;
+
+		// Persist changes in order; stale responses never replace more recent edits.
+		const pendingSave = ruleSaveQueue.then(async () => {
+			try {
+				const savedRules = await saveRules(uniqueGroupResult.rules);
+				if (saveRevision === ruleRevision) {
+					accessRules = savedRules;
+					renderRules();
+				}
+			} catch (error) {
+				console.error('Failed to save HR access rules:', error);
+				notify(t('timesheet', 'Saving failed'));
+			}
+		});
+		ruleSaveQueue = pendingSave;
+		await pendingSave;
 	}
+
+	function readReminderSettings(ruleCard, initializeStartDate = false) {
+		const enabledInput = ruleCard.querySelector('[data-reminder-key="enabled"]');
+		const graceDaysInput = ruleCard.querySelector('[data-reminder-key="graceDays"]');
+		const startDateInput = ruleCard.querySelector('[data-reminder-key="startDate"]');
+		const enabled = enabledInput.checked;
+		if (enabled && initializeStartDate && !startDateInput.value) {
+			startDateInput.value = currentReminderDate();
+		}
+		const settings = {
+			enabled,
+			graceDays: Number(graceDaysInput.value),
+			weekdays: Array.from(ruleCard.querySelectorAll('[data-reminder-day]:checked')).map(input => Number(input.dataset.reminderDay)),
+			startDate: startDateInput.value
+		};
+		if (!Number.isInteger(settings.graceDays) || settings.graceDays < 1 || settings.graceDays > 365) {
+			throw new Error(t('timesheet', 'The reminder delay must be a whole number from 1 to 365.'));
+		}
+		if (settings.enabled && settings.weekdays.length === 0) {
+			throw new Error(t('timesheet', 'Select at least one weekday for reminders.'));
+		}
+		if ((settings.enabled || settings.startDate !== '') && !isValidReminderDate(settings.startDate)) {
+			throw new Error(t('timesheet', 'Select a valid start date for reminders.'));
+		}
+		return settings;
+	}
+
+	// Protect in-progress input from a pending save response.
+	rulesContainer.addEventListener('input', () => {
+		ruleRevision++;
+	});
 	addRuleButton?.addEventListener('click', async () => {
 		const updatedRules = normalizeRules(accessRules);
 		const priority = nextPriorityValue(updatedRules);
@@ -409,6 +511,24 @@
 			return rule;
 		});
 		await saveAndRenderRules(accessRules);
+	});
+	rulesContainer.addEventListener('change', async event => {
+		const reminderInput = event.target.closest('.ts-reminder-input');
+		if (!reminderInput) {
+			return;
+		}
+		const ruleCard = reminderInput.closest('.ts-rule');
+		const ruleId = ruleCard?.dataset.ruleId;
+		if (!ruleId) {
+			return;
+		}
+		try {
+			const settings = readReminderSettings(ruleCard, reminderInput.dataset.reminderKey === 'enabled');
+			updateRule(ruleId, rule => ({ ...rule, missingEntryReminders: settings }));
+			await saveAndRenderRules(accessRules);
+		} catch (error) {
+			notify(error.message);
+		}
 	});
 	specialDaysOvertime?.addEventListener('change', async event => {
 		const checked = event.target.checked;

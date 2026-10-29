@@ -112,7 +112,7 @@
 			domCache.hrWarnOvertimeThreshold.value = utils.minToHm(settings?.overtimeThresholdMinutes ?? 600).replace('-', '');
 			domCache.hrWarnNegativeThreshold.value = utils.minToHm(settings?.negativeOvertimeThresholdMinutes ?? 600).replace('-', '');
 		} catch (error) {
-			console.warn('âš ï¸ Could not load HR warning thresholds', error);
+			console.warn('Could not load HR warning thresholds', error);
 		}
 	}
 
@@ -147,7 +147,7 @@
 				timesheet.hr.loadHrUserList();
 			}
 		} catch (error) {
-			console.error('âŒ Failed to save HR warning thresholds:', error);
+			console.error('Failed to save HR warning thresholds:', error);
 			timesheet.notify(t(appState.appName, 'Save failed'));
 		}
 	}

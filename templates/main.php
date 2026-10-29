@@ -1,4 +1,13 @@
-<section class="card">
+<?php $usesHoursFormat = ($_['breakInputMode'] ?? 'minutes') === 'hours'; ?>
+<section class="card" id="timesheet-app"
+	data-break-input-mode="<?php p($usesHoursFormat ? 'hours' : 'minutes'); ?>"
+	data-break-input-revision="<?php p($_['breakInputRevision'] ?? ''); ?>"
+	data-tour-enabled="<?php p(($_['tourEnabled'] ?? true) ? 'true' : 'false'); ?>"
+	data-tour-version="<?php p($_['tourProgress']['version'] ?? 1); ?>"
+	data-tour-employee-completed="<?php p(($_['tourProgress']['employeeCompleted'] ?? false) ? 'true' : 'false'); ?>"
+	data-tour-hr-completed="<?php p(($_['tourProgress']['hrCompleted'] ?? false) ? 'true' : 'false'); ?>"
+	data-tour-is-hr="<?php p(($_['tourProgress']['isHr'] ?? false) ? 'true' : 'false'); ?>"
+	data-tour-state-available="<?php p(($_['tourStateAvailable'] ?? false) ? 'true' : 'false'); ?>">
 	<!-- Tabs -->
 	<div class="ts-tabs">
 		<?php if ($_['isHR']): ?>
@@ -80,7 +89,7 @@
 		<!-- Break input format -->
 		<div class="ts-break-toggle" id="ts-break-toggle" role="group" aria-label="<?php p($l->t('Break input format')) ?>">
 			<span class="ts-break-toggle-label"><?php p($l->t('Break')) ?>:</span>
-			<span class="ts-break-mode-option is-active" data-break-mode-label="minutes"><?php p($l->t('Minutes')) ?></span>
+			<span class="ts-break-mode-option<?php p($usesHoursFormat ? '' : ' is-active'); ?>" data-break-mode-label="minutes"><?php p($l->t('Minutes')) ?></span>
 			<label class="ts-break-switch">
 				<input
 					type="checkbox"
@@ -89,11 +98,12 @@
 					data-break-mode-off="minutes"
 					data-break-mode-on="hours"
 					aria-label="<?php p($l->t('Break input format')) ?>"
-					aria-checked="false"
+					aria-checked="<?php p($usesHoursFormat ? 'true' : 'false'); ?>"
+					<?php if ($usesHoursFormat) { print_unescaped('checked'); } ?>
 				>
 				<span class="ts-break-switch-slider" aria-hidden="true"></span>
 			</label>
-			<span class="ts-break-mode-option" data-break-mode-label="hours"><?php p($l->t('Hours')) ?></span>
+			<span class="ts-break-mode-option<?php p($usesHoursFormat ? ' is-active' : ''); ?>" data-break-mode-label="hours"><?php p($l->t('Hours')) ?></span>
 		</div>
 	</div>
 
@@ -105,6 +115,9 @@
 				<div id="hr-infobox-section" class="ts-hr-section ts-infobox">
 					<p class="ts-infobox-text">
 						<?php p($l->t('If you would like to request changes to break durations, permitted daily hours or timesheets of other employees, please contact your Nextcloud admin.')) ?>
+					</p>
+					<p class="ts-infobox-text">
+						<?php p($l->t('For days without start and end times, only the exact comments "Urlaub" and "Stundenausgleich" prevent a reminder. Letter case and surrounding spaces are ignored. Entries with only one time remain incomplete.')) ?>
 					</p>
 				</div>
 
@@ -327,7 +340,7 @@
 				<!-- Break input format -->
 				<div class="ts-break-toggle" id="ts-break-toggle-hr" role="group" aria-label="<?php p($l->t('Break input format')) ?>">
 					<span class="ts-break-toggle-label"><?php p($l->t('Break')) ?>:</span>
-					<span class="ts-break-mode-option is-active" data-break-mode-label="minutes"><?php p($l->t('Minutes')) ?></span>
+					<span class="ts-break-mode-option<?php p($usesHoursFormat ? '' : ' is-active'); ?>" data-break-mode-label="minutes"><?php p($l->t('Minutes')) ?></span>
 					<label class="ts-break-switch">
 						<input
 							type="checkbox"
@@ -336,11 +349,12 @@
 							data-break-mode-off="minutes"
 							data-break-mode-on="hours"
 							aria-label="<?php p($l->t('Break input format')) ?>"
-							aria-checked="false"
+							aria-checked="<?php p($usesHoursFormat ? 'true' : 'false'); ?>"
+							<?php if ($usesHoursFormat) { print_unescaped('checked'); } ?>
 						>
 						<span class="ts-break-switch-slider" aria-hidden="true"></span>
 					</label>
-					<span class="ts-break-mode-option" data-break-mode-label="hours"><?php p($l->t('Hours')) ?></span>
+					<span class="ts-break-mode-option<?php p($usesHoursFormat ? ' is-active' : ''); ?>" data-break-mode-label="hours"><?php p($l->t('Hours')) ?></span>
 				</div>
 			</div>
 		</div>
