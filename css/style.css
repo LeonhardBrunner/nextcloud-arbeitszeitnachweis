@@ -4,6 +4,12 @@
 	overflow-x: auto;
 }
 
+/* Match the notification trigger to the other header controls. */
+#header .notifications-button > .header-menu__trigger:hover,
+#header .notifications-button > .header-menu__trigger:focus-visible {
+	background-color: color-mix(in srgb, var(--color-primary-element, #0082c9) 8%, transparent);
+}
+
 /* Shared table structure */
 #ts-table,
 #hr-user-table {

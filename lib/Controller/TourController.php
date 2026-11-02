@@ -27,31 +27,29 @@ class TourController extends Controller {
 		parent::__construct($appName, $request);
 	}
 
-	/** Completion belongs to the current account; HR completion also requires its current role. */
+	/** Completion belongs to the current ordinary employee account. */
 	#[NoAdminRequired]
 	public function complete(mixed $version = null, mixed $includeHr = false): DataResponse {
 		$currentUser = $this->userSession->getUser();
 		if ($currentUser === null || $currentUser->getUID() === '') {
 			return new DataResponse(['message' => 'Not logged in'], Http::STATUS_FORBIDDEN);
 		}
-		if (!is_int($version) || !is_bool($includeHr)) {
-			return new DataResponse(['message' => 'Invalid tour completion'], Http::STATUS_BAD_REQUEST);
-		}
-		if ($version !== TourProgressStore::VERSION) {
-			return new DataResponse(['code' => 'tour_version_changed'], Http::STATUS_CONFLICT);
-		}
-
 		try {
 			$userId = $currentUser->getUID();
-			if ($this->groupManager->isAdmin($userId)) {
+			if ($this->groupManager->isAdmin($userId) || $this->hrService->isHr($userId)) {
 				return new DataResponse(['code' => 'tour_unavailable'], Http::STATUS_FORBIDDEN);
 			}
-			$isHr = $this->hrService->isHr($userId);
-			if ($includeHr && !$isHr) {
-				return new DataResponse(['code' => 'hr_access_changed'], Http::STATUS_FORBIDDEN);
+			// Already open employee clients may still send the obsolete false flag.
+			if (!is_int($version) || !is_bool($includeHr) || $includeHr) {
+				return new DataResponse(['message' => 'Invalid tour completion'], Http::STATUS_BAD_REQUEST);
 			}
-			$this->tourProgressStore->markCompleted($userId, $includeHr);
-			return new DataResponse($this->tourProgressStore->getProgress($userId, $isHr), Http::STATUS_OK);
+			if ($version !== TourProgressStore::VERSION) {
+				return new DataResponse(['code' => 'tour_version_changed'], Http::STATUS_CONFLICT);
+			}
+			$this->tourProgressStore->markCompleted($userId);
+			$progress = $this->tourProgressStore->getProgress($userId);
+			// Keep obsolete response fields for employee clients opened before this update.
+			return new DataResponse($progress + ['hrCompleted' => false, 'isHr' => false], Http::STATUS_OK);
 		} catch (LockedException) {
 			return new DataResponse(['code' => 'preference_busy'], Http::STATUS_CONFLICT);
 		} catch (\Throwable $saveError) {

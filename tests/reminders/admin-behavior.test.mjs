@@ -6,11 +6,11 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const adminSource = readFileSync(resolve(repositoryRoot, 'js/admin.js'), 'utf8');
+const hrSettingsSource = readFileSync(resolve(repositoryRoot, 'js/hr-settings.js'), 'utf8');
 const copy = value => JSON.parse(JSON.stringify(value));
 
-// Exercise the actual admin event handlers with a small DOM containing the rendered inputs.
-async function openAdmin(initialRules = [{ id: 'one', hrGroups: ['HR'], userGroups: ['Staff'], priority: 2 }], respondToSave = null, language = 'en') {
+// Exercise the actual HR settings event handlers with a small DOM containing the rendered inputs.
+async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], userGroups: ['Staff'], priority: 2 }], respondToSave = null, language = 'en') {
 	const elements = new Map();
 	const events = new Map();
 	const requests = [];
@@ -58,7 +58,7 @@ async function openAdmin(initialRules = [{ id: 'one', hrGroups: ['HR'], userGrou
 		return current;
 	}
 
-	for (const id of ['timesheet-admin-settings', 'timesheet-hr-rules', 'timesheet-add-hr-rule', 'timesheet-specialdays-overtime']) element(id);
+	for (const id of ['timesheet-hr-settings', 'timesheet-hr-rules', 'timesheet-add-hr-rule', 'timesheet-specialdays-overtime']) element(id);
 	element('timesheet-all-groups-data').textContent = JSON.stringify(['HR', 'Staff']);
 	element('timesheet-hr-rules-data').textContent = JSON.stringify(initialRules);
 	class FixedDate extends Date {
@@ -94,7 +94,7 @@ async function openAdmin(initialRules = [{ id: 'one', hrGroups: ['HR'], userGrou
 	if (language === 'de' || language === 'de_DE') {
 		vm.runInContext(readFileSync(resolve(repositoryRoot, `l10n/${language}.js`), 'utf8'), context, { filename: `${language}.js` });
 	}
-	vm.runInContext(adminSource, context, { filename: 'admin.js' });
+	vm.runInContext(hrSettingsSource, context, { filename: 'hr-settings.js' });
 	await new Promise(setImmediate);
 
 	return {
@@ -109,6 +109,18 @@ async function openAdmin(initialRules = [{ id: 'one', hrGroups: ['HR'], userGrou
 		type(input) {
 			for (const callback of events.get('timesheet-hr-rules:input') || []) callback({ target: input });
 		},
+		async removeHrGroup(groupId) {
+			const ruleCard = elements.get('timesheet-hr-rules').children[0];
+			const removeLink = { dataset: { kind: 'hrGroups', group: groupId } };
+			const target = { closest: selector => selector === '.ts-rule' ? ruleCard : selector === '.ts-chip-remove' ? removeLink : null };
+			await Promise.all((events.get('timesheet-hr-rules:click') || []).map(callback => callback({ target, preventDefault() {} })));
+		},
+		async addHrGroup(groupId) {
+			const ruleCard = elements.get('timesheet-hr-rules').children[0];
+			const groupSelect = { dataset: { kind: 'hrGroups' }, value: groupId };
+			const target = { closest: selector => selector === '.ts-rule' ? ruleCard : selector === '.ts-rule-select' ? groupSelect : null };
+			await Promise.all((events.get('timesheet-hr-rules:change') || []).map(callback => callback({ target })));
+		},
 	};
 }
 
@@ -117,11 +129,11 @@ function saveResponse(request) {
 }
 
 for (const language of ['de', 'de_DE']) {
-	test(`German admin cards translate group rules, priorities and reminder controls (${language})`, async () => {
-		const admin = await openAdmin(undefined, null, language);
-		const cardHtml = admin.card().innerHTML;
+	test(`German HR settings cards translate group rules, priorities and reminder controls (${language})`, async () => {
+		const hrSettings = await openHrSettings(undefined, null, language);
+		const cardHtml = hrSettings.card().innerHTML;
 		for (const label of ['Gruppenregel', 'Priorität', 'Zeitregeln', 'Erinnerungen an fehlende Zeiten']) {
-			assert.ok(cardHtml.includes(label), `Missing German admin label: ${label}`);
+			assert.ok(cardHtml.includes(label), `Missing German HR settings label: ${label}`);
 		}
 		assert.ok(!cardHtml.includes('Group rule'));
 		assert.ok(!cardHtml.includes('Missing time entry reminders'));
@@ -137,8 +149,8 @@ test('both German server catalogs include the same interface and email translati
 });
 
 test('group and rule removal controls use a readable multiplication sign and translated labels', async () => {
-	const admin = await openAdmin(undefined, null, 'de');
-	const controls = Array.from(admin.card().innerHTML.matchAll(/<a\b[^>]*class="ts-(?:chip-remove|rule-delete)"[^>]*>([^<]*)<\/a>/g));
+	const hrSettings = await openHrSettings(undefined, null, 'de');
+	const controls = Array.from(hrSettings.card().innerHTML.matchAll(/<a\b[^>]*class="ts-(?:chip-remove|rule-delete)"[^>]*>([^<]*)<\/a>/g));
 	assert.equal(controls.length, 3);
 	for (const [html, label] of controls) {
 		const visibleLabel = label.replace(/&(?:times|#215|#x0*d7);/gi, '×').trim();
@@ -147,152 +159,172 @@ test('group and rule removal controls use a readable multiplication sign and tra
 	}
 });
 
-test('English admin cards retain their original labels', async () => {
-	const admin = await openAdmin();
-	assert.ok(admin.card().innerHTML.includes('Group rule'));
-	assert.ok(admin.card().innerHTML.includes('Priority'));
-	assert.ok(admin.card().innerHTML.includes('Missing time entry reminders'));
+test('English HR settings cards retain their original labels', async () => {
+	const hrSettings = await openHrSettings();
+	assert.ok(hrSettings.card().innerHTML.includes('Group rule'));
+	assert.ok(hrSettings.card().innerHTML.includes('Priority'));
+	assert.ok(hrSettings.card().innerHTML.includes('Missing time entry reminders'));
 });
 
 test('legacy rules render disabled reminders with Monday to Friday defaults', async () => {
-	const admin = await openAdmin();
-	assert.equal(admin.input('enabled').checked, false);
-	assert.equal(admin.input('graceDays').value, '14');
-	assert.equal(admin.input('startDate').value, '');
-	assert.deepEqual([1, 2, 3, 4, 5, 6, 7].filter(day => admin.weekday(day).checked), [1, 2, 3, 4, 5]);
-	assert.equal(admin.requests.length, 0);
+	const hrSettings = await openHrSettings();
+	assert.equal(hrSettings.input('enabled').checked, false);
+	assert.equal(hrSettings.input('graceDays').value, '14');
+	assert.equal(hrSettings.input('startDate').value, '');
+	assert.deepEqual([1, 2, 3, 4, 5, 6, 7].filter(day => hrSettings.weekday(day).checked), [1, 2, 3, 4, 5]);
+	assert.equal(hrSettings.requests.length, 0);
 });
 
 test('first enable uses the Berlin calendar date and saves the complete policy', async () => {
-	const admin = await openAdmin();
-	admin.input('enabled').checked = true;
-	await admin.change(admin.input('enabled'));
-	assert.deepEqual(admin.requests[0].rules[0].missingEntryReminders, {
+	const hrSettings = await openHrSettings();
+	hrSettings.input('enabled').checked = true;
+	await hrSettings.change(hrSettings.input('enabled'));
+	assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders, {
 		enabled: true, graceDays: 14, weekdays: [1, 2, 3, 4, 5], startDate: '2026-10-29',
 	});
-	assert.equal(admin.requests[0].rules[0].priority, 2);
-	assert.deepEqual(admin.requests[0].rules[0].userGroups, ['Staff']);
-	assert.equal(admin.requests[0].headers.requesttoken, 'test-token');
-	assert.equal(admin.input('enabled').checked, true);
-	assert.equal(admin.input('startDate').value, '2026-10-29');
+	assert.equal(hrSettings.requests[0].rules[0].priority, 2);
+	assert.deepEqual(hrSettings.requests[0].rules[0].userGroups, ['Staff']);
+	assert.equal(hrSettings.requests[0].headers.requesttoken, 'test-token');
+	assert.equal(hrSettings.input('enabled').checked, true);
+	assert.equal(hrSettings.input('startDate').value, '2026-10-29');
 });
 
 test('editing disabled reminder settings never enables the feature', async () => {
-	const admin = await openAdmin();
-	admin.input('graceDays').value = '8';
-	await admin.change(admin.input('graceDays'));
-	assert.deepEqual(admin.requests[0].rules[0].missingEntryReminders, {
+	const hrSettings = await openHrSettings();
+	hrSettings.input('graceDays').value = '8';
+	await hrSettings.change(hrSettings.input('graceDays'));
+	assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders, {
 		enabled: false, graceDays: 8, weekdays: [1, 2, 3, 4, 5], startDate: '',
 	});
 });
 
 test('saved weekday and start settings survive edits and server round trips', async () => {
-	const admin = await openAdmin([{
+	const hrSettings = await openHrSettings([{
 		id: 'one', hrGroups: ['HR'], userGroups: ['Staff'], priority: 1,
 		missingEntryReminders: { enabled: true, graceDays: 3, weekdays: [2, 6], startDate: '2026-09-01' },
 	}]);
-	admin.input('graceDays').value = '9';
-	await admin.change(admin.input('graceDays'));
-	assert.deepEqual(admin.requests[0].rules[0].missingEntryReminders, {
+	hrSettings.input('graceDays').value = '9';
+	await hrSettings.change(hrSettings.input('graceDays'));
+	assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders, {
 		enabled: true, graceDays: 9, weekdays: [2, 6], startDate: '2026-09-01',
 	});
-	assert.equal(admin.weekday(6).checked, true);
-	assert.equal(admin.weekday(1).checked, false);
-	assert.equal(admin.input('startDate').value, '2026-09-01');
+	assert.equal(hrSettings.weekday(6).checked, true);
+	assert.equal(hrSettings.weekday(1).checked, false);
+	assert.equal(hrSettings.input('startDate').value, '2026-09-01');
 });
 
 test('removing the last expected weekday blocks saving until a valid selection exists', async () => {
-	const admin = await openAdmin([{
+	const hrSettings = await openHrSettings([{
 		id: 'one', hrGroups: [], userGroups: ['Staff'],
 		missingEntryReminders: { enabled: true, graceDays: 7, weekdays: [1], startDate: '2026-10-01' },
 	}]);
-	admin.weekday(1).checked = false;
-	await admin.change(admin.weekday(1));
-	assert.equal(admin.requests.length, 0);
-	assert.deepEqual(admin.messages, ['Select at least one weekday for reminders.']);
-	admin.weekday(2).checked = true;
-	await admin.change(admin.weekday(2));
-	assert.deepEqual(admin.requests[0].rules[0].missingEntryReminders.weekdays, [2]);
+	hrSettings.weekday(1).checked = false;
+	await hrSettings.change(hrSettings.weekday(1));
+	assert.equal(hrSettings.requests.length, 0);
+	assert.deepEqual(hrSettings.messages, ['Select at least one weekday for reminders.']);
+	hrSettings.weekday(2).checked = true;
+	await hrSettings.change(hrSettings.weekday(2));
+	assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders.weekdays, [2]);
 });
 
 for (const invalidDelay of ['', '0', '366', '1.5']) {
 	test(`invalid reminder delay ${JSON.stringify(invalidDelay)} never reaches the server`, async () => {
-		const admin = await openAdmin();
-		admin.input('graceDays').value = invalidDelay;
-		await admin.change(admin.input('graceDays'));
-		assert.equal(admin.requests.length, 0);
-		assert.deepEqual(admin.messages, ['The reminder delay must be a whole number from 1 to 365.']);
+		const hrSettings = await openHrSettings();
+		hrSettings.input('graceDays').value = invalidDelay;
+		await hrSettings.change(hrSettings.input('graceDays'));
+		assert.equal(hrSettings.requests.length, 0);
+		assert.deepEqual(hrSettings.messages, ['The reminder delay must be a whole number from 1 to 365.']);
 	});
 }
 
 test('invalid calendar dates never reach the server', async () => {
-	const admin = await openAdmin();
-	admin.input('startDate').value = '2026-02-31';
-	await admin.change(admin.input('startDate'));
-	assert.equal(admin.requests.length, 0);
-	assert.deepEqual(admin.messages, ['Select a valid start date for reminders.']);
+	const hrSettings = await openHrSettings();
+	hrSettings.input('startDate').value = '2026-02-31';
+	await hrSettings.change(hrSettings.input('startDate'));
+	assert.equal(hrSettings.requests.length, 0);
+	assert.deepEqual(hrSettings.messages, ['Select a valid start date for reminders.']);
 });
 
 test('clearing an enabled start date does not silently replace it with today', async () => {
-	const admin = await openAdmin([{
+	const hrSettings = await openHrSettings([{
 		id: 'one', hrGroups: ['HR'], userGroups: ['Staff'],
 		missingEntryReminders: { enabled: true, graceDays: 7, weekdays: [1], startDate: '2026-10-01' },
 	}]);
-	admin.input('startDate').value = '';
-	await admin.change(admin.input('startDate'));
-	assert.equal(admin.requests.length, 0);
-	assert.equal(admin.input('startDate').value, '');
-	assert.deepEqual(admin.messages, ['Select a valid start date for reminders.']);
+	hrSettings.input('startDate').value = '';
+	await hrSettings.change(hrSettings.input('startDate'));
+	assert.equal(hrSettings.requests.length, 0);
+	assert.equal(hrSettings.input('startDate').value, '');
+	assert.deepEqual(hrSettings.messages, ['Select a valid start date for reminders.']);
 });
 
 test('rapid edits are saved in order and an old response does not overwrite the latest input', async () => {
 	let releaseFirstSave;
-	const admin = await openAdmin(undefined, async (request, count) => {
+	const hrSettings = await openHrSettings(undefined, async (request, count) => {
 		if (count === 1) await new Promise(resolve => { releaseFirstSave = resolve; });
 		return saveResponse(request);
 	});
-	admin.input('enabled').checked = true;
-	const firstSave = admin.change(admin.input('enabled'));
+	hrSettings.input('enabled').checked = true;
+	const firstSave = hrSettings.change(hrSettings.input('enabled'));
 	await new Promise(setImmediate);
-	admin.input('graceDays').value = '3';
-	const secondSave = admin.change(admin.input('graceDays'));
-	assert.equal(admin.requests.length, 1);
+	hrSettings.input('graceDays').value = '3';
+	const secondSave = hrSettings.change(hrSettings.input('graceDays'));
+	assert.equal(hrSettings.requests.length, 1);
 	releaseFirstSave();
 	await Promise.all([firstSave, secondSave]);
-	assert.deepEqual(admin.requests.map(request => request.rules[0].missingEntryReminders.graceDays), [14, 3]);
-	assert.equal(admin.input('graceDays').value, '3');
-	assert.equal(admin.input('enabled').checked, true);
+	assert.deepEqual(hrSettings.requests.map(request => request.rules[0].missingEntryReminders.graceDays), [14, 3]);
+	assert.equal(hrSettings.input('graceDays').value, '3');
+	assert.equal(hrSettings.input('enabled').checked, true);
 });
 
 test('typing during a pending save is preserved until the next change is submitted', async () => {
 	let releaseFirstSave;
-	const admin = await openAdmin(undefined, async (request, count) => {
+	const hrSettings = await openHrSettings(undefined, async (request, count) => {
 		if (count === 1) await new Promise(resolve => { releaseFirstSave = resolve; });
 		return saveResponse(request);
 	});
-	admin.input('enabled').checked = true;
-	const firstSave = admin.change(admin.input('enabled'));
+	hrSettings.input('enabled').checked = true;
+	const firstSave = hrSettings.change(hrSettings.input('enabled'));
 	await new Promise(setImmediate);
-	const currentCard = admin.card();
-	admin.input('graceDays').value = '5';
-	admin.type(admin.input('graceDays'));
+	const currentCard = hrSettings.card();
+	hrSettings.input('graceDays').value = '5';
+	hrSettings.type(hrSettings.input('graceDays'));
 	releaseFirstSave();
 	await firstSave;
-	assert.equal(admin.card(), currentCard);
-	assert.equal(admin.input('graceDays').value, '5');
-	await admin.change(admin.input('graceDays'));
-	assert.equal(admin.requests[1].rules[0].missingEntryReminders.graceDays, 5);
+	assert.equal(hrSettings.card(), currentCard);
+	assert.equal(hrSettings.input('graceDays').value, '5');
+	await hrSettings.change(hrSettings.input('graceDays'));
+	assert.equal(hrSettings.requests[1].rules[0].missingEntryReminders.graceDays, 5);
 });
 
 test('a failed save reports an error and does not prevent a later retry', async () => {
-	const admin = await openAdmin(undefined, async (request, count) => count === 1
+	const hrSettings = await openHrSettings(undefined, async (request, count) => count === 1
 		? { ok: false, status: 500, text: async () => 'Preparation failed' }
 		: saveResponse(request));
-	admin.input('enabled').checked = true;
-	await admin.change(admin.input('enabled'));
-	assert.deepEqual(admin.messages, ['Saving failed']);
-	admin.input('graceDays').value = '4';
-	await admin.change(admin.input('graceDays'));
-	assert.equal(admin.requests.length, 2);
-	assert.equal(admin.requests[1].rules[0].missingEntryReminders.graceDays, 4);
+	hrSettings.input('enabled').checked = true;
+	await hrSettings.change(hrSettings.input('enabled'));
+	assert.deepEqual(hrSettings.messages, ['Saving failed']);
+	hrSettings.input('graceDays').value = '4';
+	await hrSettings.change(hrSettings.input('graceDays'));
+	assert.equal(hrSettings.requests.length, 2);
+	assert.equal(hrSettings.requests[1].rules[0].missingEntryReminders.graceDays, 4);
+});
+
+test('the last HR group rejection is explained and does not block a queued reassignment', async () => {
+	let releaseFirstSave;
+	const hrSettings = await openHrSettings(undefined, async (request, count) => {
+		if (count === 1) {
+			await new Promise(resolve => { releaseFirstSave = resolve; });
+			return { ok: false, status: 400, text: async () => JSON.stringify({ message: 'At least one HR group must remain assigned.' }) };
+		}
+		return saveResponse(request);
+	});
+	const removal = hrSettings.removeHrGroup('HR');
+	await new Promise(setImmediate);
+	const reassignment = hrSettings.addHrGroup('HR');
+	assert.equal(hrSettings.requests.length, 1);
+	releaseFirstSave();
+	await Promise.all([removal, reassignment]);
+	assert.deepEqual(hrSettings.messages, ['At least one HR group must remain assigned.']);
+	assert.deepEqual(hrSettings.requests.map(request => request.rules[0].hrGroups), [[], ['HR']]);
+	assert.ok(hrSettings.card().innerHTML.includes('data-group="HR"'));
 });

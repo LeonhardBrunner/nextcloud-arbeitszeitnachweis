@@ -10,6 +10,7 @@
 	const svgNamespace = 'http://www.w3.org/2000/svg';
 	const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 	const tourVersion = 1;
+	const dialogPlacementOrder = ['bottom', 'top', 'right', 'left'];
 	let appRoot;
 	let launcher;
 	let invitation;
@@ -37,11 +38,8 @@
 	let pendingViewAction = Promise.resolve();
 	let scheduledPosition;
 	let resizeObserver;
-	let accessibleUsers = [];
-	let hrLoaded = false;
 	let currentPreparation = 0;
 	let currentRun = 0;
-	const explainedHrSteps = new Set();
 	const blockedBackground = [];
 
 	function createElement(tagName, className, text) {
@@ -89,8 +87,6 @@
 		return {
 			version: Number(data.tourVersion) || tourVersion,
 			employeeCompleted: data.tourEmployeeCompleted === 'true',
-			hrCompleted: data.tourHrCompleted === 'true',
-			isHr: data.tourIsHr === 'true',
 			available: data.tourStateAvailable === 'true',
 		};
 	}
@@ -103,7 +99,6 @@
 
 	function showInvitation() {
 		hideInvitation();
-		const hrOnly = progress.employeeCompleted && progress.isHr && !progress.hrCompleted;
 		invitation = createElement('div', 'ts-tour-invitation');
 		invitation.id = 'ts-tour-invitation';
 		invitation.setAttribute('role', 'dialog');
@@ -111,16 +106,14 @@
 		invitation.setAttribute('aria-live', 'polite');
 		const heading = createElement('h2', '', translate('Explore Timesheet?'));
 		heading.id = 'ts-tour-invitation-title';
-		const description = createElement('p', '', translate(hrOnly
-			? 'The HR introduction explains the additional features available to this account.'
-			: 'A short tour explains the main features.'));
+		const description = createElement('p', '', translate('A short tour explains the main features.'));
 		const actions = createElement('div', 'ts-tour-actions');
 		const closeButton = createButton('', 'ts-tour-close', hideInvitation);
 		closeButton.setAttribute('aria-label', translate('Close tour invitation'));
 		closeButton.dataset.tourAction = 'later';
 		const laterButton = createButton('Later', '', hideInvitation);
 		laterButton.dataset.tourAction = 'later';
-		const startButton = createButton('Tutorial', 'primary', () => start(hrOnly));
+		const startButton = createButton('Tutorial', 'primary', () => start());
 		startButton.id = 'ts-tour-start';
 		startButton.dataset.tourAction = 'start';
 		actions.append(laterButton, startButton);
@@ -147,9 +140,8 @@
 		invitation.style.top = `${Math.max(12, Math.min(window.innerHeight - size.height - 12, anchor.bottom + 8))}px`;
 	}
 
-	// Keep original nodes and field values so the tour cannot replace unsaved work.
+	// Preserve the employee view and unsaved field values while controls are highlighted.
 	function captureView() {
-		const hr = document.getElementById('tab-hr');
 		const elements = Array.from(appRoot.querySelectorAll('input, select, textarea'));
 		const scrollElements = [appRoot, document.getElementById('content'), document.scrollingElement].filter(Boolean);
 		return {
@@ -157,25 +149,19 @@
 			windowScroll: [window.scrollX, window.scrollY],
 			scrolls: scrollElements.map(element => ({ element, top: element.scrollTop, left: element.scrollLeft })),
 			activeClasses: Array.from(appRoot.querySelectorAll('.ts-tab, .ts-tabview')).map(element => ({ element, active: element.classList.contains('active') })),
-			hrSectionDisplays: Array.from(hr?.querySelectorAll('.ts-hr-section') || []).map(element => ({ element, display: element.style.display })),
 			fields: elements.map(element => ({ element, value: element.value, checked: element.checked })),
-			bodies: ['hr-userlist', 'hr-user-body'].map(id => document.getElementById(id)).filter(Boolean)
-				.map(element => ({ element, children: Array.from(element.childNodes), dataset: { ...element.dataset } })),
-			texts: Array.from(hr?.querySelectorAll('#hr-user-title span, #hr-month-display, .ts-stats span, #hr-stats-section td') || [])
-				.map(element => ({ element, text: element.textContent })),
-			hrMonth: new Date(timesheet.state.hrCurrentMonth),
 			hoveredRow: timesheet.state.tsHoveredRow,
-			ruleThresholds: timesheet.state.ruleThresholds,
-			exportVisibility: ['mine', 'hr'].map(view => ({ view, visible: !!document.getElementById(`export-${view}-xlsx-choice-ui`)?.classList.contains('is-visible') })),
+			exportVisible: !!document.getElementById('export-mine-xlsx-choice-ui')?.classList.contains('is-visible'),
+			exportPreview: appRoot.classList.contains('ts-tour-export-preview'),
 			profileOpen: header.isProfileOpen(),
 		};
 	}
 
-	function setExportVisible(view, shouldShow) {
-		const container = document.getElementById(`export-${view}-xlsx-choice-ui`);
+	function setExportVisible(shouldShow) {
+		const container = document.getElementById('export-mine-xlsx-choice-ui');
 		const isShown = !!container?.classList.contains('is-visible');
-		if (isShown !== shouldShow && document.getElementById(`export-${view}-xlsx`)) {
-			timesheet.export.handleExportClick(view);
+		if (isShown !== shouldShow && document.getElementById('export-mine-xlsx')) {
+			timesheet.export.handleExportClick('mine');
 		}
 	}
 
@@ -183,30 +169,16 @@
 		if (!snapshot) {
 			return;
 		}
-		for (const item of snapshot.bodies) {
-			item.element.replaceChildren(...item.children);
-			Object.keys(item.element.dataset).forEach(key => delete item.element.dataset[key]);
-			Object.assign(item.element.dataset, item.dataset);
-		}
 		for (const item of snapshot.fields) {
 			item.element.value = item.value;
 			item.element.checked = item.checked;
 		}
-		for (const item of snapshot.texts) {
-			item.element.textContent = item.text;
-		}
-		for (const item of snapshot.hrSectionDisplays) {
-			item.element.style.display = item.display;
-		}
 		for (const item of snapshot.activeClasses) {
 			item.element.classList.toggle('active', item.active);
 		}
-		for (const item of snapshot.exportVisibility) {
-			setExportVisible(item.view, item.visible);
-		}
-		timesheet.state.hrCurrentMonth = snapshot.hrMonth;
+		appRoot.classList.toggle('ts-tour-export-preview', snapshot.exportPreview);
+		setExportVisible(snapshot.exportVisible);
 		timesheet.state.tsHoveredRow = snapshot.hoveredRow;
-		timesheet.state.ruleThresholds = snapshot.ruleThresholds;
 		timesheet.dom.refresh();
 		await header.setProfileOpen(snapshot.profileOpen, activate);
 		for (const item of snapshot.scrolls) {
@@ -221,98 +193,41 @@
 		appRoot.querySelectorAll('.ts-tabview').forEach(section => section.classList.toggle('active', section.id === `tab-${name}`));
 	}
 
-	function showHrOverview() {
-		showTab('hr');
-		document.querySelectorAll('#tab-hr .ts-hr-section').forEach(section => {
-			section.style.display = section.id === 'hr-user-entries' ? 'none' : '';
-		});
-	}
-
-	function isHrAccessError(error) {
-		try {
-			const response = JSON.parse(error.message);
-			return (Array.isArray(response) && response.length === 0) || response.error === 'Forbidden' || response.code === 'hr_access_changed';
-		} catch {
-			return false;
-		}
-	}
-
-	async function loadHrOverview() {
-		showHrOverview();
-		if (hrLoaded) {
-			return;
-		}
-		accessibleUsers = await timesheet.api('/api/hr/users');
-		if (!Array.isArray(accessibleUsers)) {
-			throw new Error('Invalid HR user list');
-		}
-		await timesheet.hr.loadHrUserList();
-		await Promise.all([
-			timesheet.config.loadHrNotificationSettings?.(),
-			timesheet.config.loadHrWarningThresholds?.(),
-		]);
-		hrLoaded = true;
-	}
-
-	async function showEmployeeDetails() {
-		await loadHrOverview();
-		// Resolve the target from a fresh server-scoped list, never from an arbitrary UID.
-		accessibleUsers = await timesheet.api('/api/hr/users');
-		const previousUser = snapshot.texts.find(item => item.element.matches('#hr-user-title span'))?.text.trim();
-		const employee = accessibleUsers.find(user => user.id === previousUser) || accessibleUsers[0];
-		if (!employee) {
-			return false;
-		}
-		const userId = employee.id;
-		const config = await timesheet.api(`/api/hr/config/${encodeURIComponent(userId)}`);
-		const configRow = document.querySelector('#hr-user-entries .hr-config-row');
-		const dailyInput = configRow?.querySelector('.config-daily-min');
-		const stateInput = configRow?.querySelector('.config-state');
-		if (dailyInput) {
-			dailyInput.value = timesheet.util.minToHm(timesheet.util.pickDailyMin(config) ?? 480);
-		}
-		if (stateInput) {
-			stateInput.value = typeof config?.state === 'string' ? config.state : '';
-		}
-		timesheet.state.hrCurrentMonth = previousUser === userId ? new Date(snapshot.hrMonth) : new Date();
-		timesheet.main.updateHrMonthDisplay();
-		await timesheet.entries.loadUserEntries(userId, timesheet.state.hrCurrentMonth);
-		await timesheet.entries.refreshOvertimeTotal(userId, document.getElementById('tab-hr'));
-		document.querySelectorAll('#tab-hr .ts-hr-section').forEach(section => {
-			section.style.display = section.id === 'hr-user-entries' ? 'block' : 'none';
-		});
-		const title = document.querySelector('#hr-user-title span');
-		if (title) {
-			title.textContent = userId;
-		}
-		return true;
-	}
-
 	// Step content uses the same translation keys in every supported account language.
-	function createSteps(hrOnly) {
-		const common = [
-			{ id: 'month', title: 'Choose a month', text: 'The arrows select another month. Selecting the month name returns to the current month.', selectors: ['#month-prev', '#month-display', '#month-next'] },
-			{ id: 'balances', title: 'Hours and balances', text: 'The overview shows recorded hours, the current month’s balance and the total balance including carryovers.', selectors: ['#tab-mine .ts-stats'] },
-			{ id: 'configuration', title: 'Working time and region', text: 'The daily working time is the target used for calculations. The federal state determines which German public holidays are shown. Changes are applied with Save.', selectors: ['#tab-mine .hr-config-row'] },
-			{ id: 'entries', title: 'Record working time', text: 'Start, break and end form the daily entry. Changes are saved when a field is left or Enter is pressed.', selectors: ['#ts-body tr:first-child .startTime', '#ts-body tr:first-child .breakMinutes', '#ts-body tr:first-child .endTime', '#ts-table thead th:nth-child(3)', '#ts-table thead th:nth-child(4)', '#ts-table thead th:nth-child(5)'] },
-			{ id: 'daily-values', title: 'Daily values and warnings', text: 'Duration shows recorded working time; difference compares it with the daily target. Status and warnings identify weekends, public holidays or unusual entries.', selectors: ['#ts-body tr:first-child .ts-duration', '#ts-body tr:first-child .ts-diff', '#ts-body tr:first-child .ts-warn', '#ts-body tr:first-child .ts-status', '#ts-table thead th:nth-child(6)', '#ts-table thead th:nth-child(7)', '#ts-table thead th:nth-child(9)', '#ts-table thead th:nth-child(2)'] },
-			{ id: 'comments', title: 'Comments and absences', text: 'Comments add context to a day. An absence can be marked with "Urlaub" or "Stundenausgleich". Depending on the period, HR approval is required; missing approval triggers a warning.', selectors: ['#ts-body tr:first-child .commentInput', '#ts-table thead th:nth-child(8)'] },
-			{ id: 'break-display', title: 'Break display', text: 'The switch changes how breaks are displayed: minutes or hours and minutes. The choice is saved for this account.', selectors: ['#ts-break-toggle'] },
-			{ id: 'export', title: 'Month and year export', text: 'Export offers a file for the selected month or its calendar year. Both files use Excel format.', selectors: ['#export-mine-xlsx', '#export-mine-xlsx-choice-ui'], prepare: () => setExportVisible('mine', true) },
-		];
-		const hr = [
-			{ id: 'hr-navigation', hr: true, title: 'Timesheet and HR overview', text: 'The Timesheet tab shows personal entries. The HR overview shows assigned employees, their balances and warnings.', selectors: ['.ts-tabs .ts-tab[data-tab="mine"]', '.ts-tabs .ts-tab[data-tab="hr"]'], prepare: () => showTab('mine') },
-			{ id: 'hr-list', hr: true, title: 'HR overview', text: 'This list contains the employees assigned to this HR account. It shows daily targets, balances, latest entries and warnings.', selectors: ['#hr-userlist-section'], prepare: loadHrOverview },
-			{ id: 'hr-statistics', hr: true, title: 'Team statistics', text: 'These figures summarize working hours and balances for the employees visible in this HR account.', selectors: ['#hr-stats-section'], prepare: loadHrOverview },
-			{ id: 'hr-mail', hr: true, title: 'Email notifications for HR', text: 'These settings enable the existing weekly HR warning emails and set their thresholds. Group-based missing-day reminders are configured separately by an administrator.', selectors: ['#hr-notifications-section'], placement: 'left', prepare: loadHrOverview },
-			{ id: 'hr-warnings', hr: true, title: 'Warnings in the overview', text: 'These thresholds control the warnings shown in the employee overview. They are separate from the email notification settings.', selectors: ['#hr-warning-thresholds-section'], placement: 'left', prepare: loadHrOverview },
-			{ id: 'hr-person', hr: true, title: 'Individual employee view', text: 'Selecting an employee opens that person’s entries, settings and export. Back returns to the HR overview.', selectors: ['#hr-user-entries .hr-user-header-bar', '#hr-user-entries .hr-user-controls-row'], prepare: showEmployeeDetails },
-		];
-		const final = [
+	function createSteps() {
+		return [
+			{
+				id: 'export', title: 'Month and year export',
+				text: 'Export offers a file for the selected month or its calendar year. Both files use Excel format.',
+				selectors: ['#export-mine-xlsx', '#export-mine-xlsx-choice-ui'],
+				combineTargets: true,
+				prepare: () => setExportVisible(true),
+			},
+			{
+				id: 'working-time', title: 'Working time',
+				text: 'The start of work can be chosen individually in accordance with company guidelines.',
+				selectors: ['#tab-mine label[for="config-daily-min-mine"]', '#config-daily-min-mine'],
+			},
+			{
+				id: 'federal-state', title: 'Federal state',
+				text: 'The public holidays shown in the Status column depend on the selected federal state.',
+				selectors: ['#tab-mine label[for="config-state-mine"]', '#config-state-mine'],
+			},
+			{
+				id: 'comments', title: 'Comments and absences',
+				text: 'Comments add context to a day. An absence can be marked with "{vacation}" or "{timeOffInLieu}".',
+				textParameters: { vacation: appRoot.dataset.absenceVacation, timeOffInLieu: appRoot.dataset.absenceTimeOffInLieu },
+				selectors: ['#ts-body tr:first-child .commentInput', '#ts-table thead th:nth-child(8)'],
+			},
+			{
+				id: 'warnings', title: 'Time entry warnings',
+				text: 'Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.',
+				selectors: ['#ts-body tr:first-child .ts-warn', '#ts-table thead th:nth-child(9)'],
+			},
 			{ id: 'profile', title: 'Profile menu', text: 'The profile menu provides access to personal details, account settings, appearance and accessibility options.', getTargets: () => [header.profileTrigger()].filter(Boolean) },
-			{ id: 'help', title: 'Help and privacy', text: 'Help and privacy opens general Nextcloud guidance and privacy information. The compass icon can restart the Timesheet tour at any time.', prepare: () => header.setProfileOpen(true, activate), getTargets: () => [header.helpItem()].filter(Boolean) },
+			{ id: 'help', title: 'Help and privacy', text: 'Questions, help and privacy information about Nextcloud in general.', getTargets: () => [header.helpItem()].filter(Boolean) },
+			{ id: 'tour-access', title: 'Help and tour', text: 'Questions and suggestions for HR. The guide can be restarted using the tour icon.', getTargets: () => [launcher] },
 		];
-		return [...(hrOnly ? [] : common), ...(progress.isHr ? hr : []), ...final];
 	}
 
 	function createSvgElement(name, attributes = {}) {
@@ -504,11 +419,15 @@
 			const isApplicationTarget = appRoot.contains(element) && !['profile', 'help'].includes(stepId);
 			return {
 				left: Math.max(4, rectangle.left - 5),
-				top: Math.max(isApplicationTarget ? headerBottom + 4 : 4, rectangle.top - 5),
+				top: Math.max(isApplicationTarget ? headerBottom : 4, rectangle.top - 5),
 				right: Math.min(width - 4, rectangle.right + 5),
 				bottom: Math.min(height - 4, rectangle.bottom + 5),
 			};
 		}).filter(rectangle => rectangle.right > rectangle.left && rectangle.bottom > rectangle.top);
+		// The export button and its open choices form one continuous highlighted area.
+		if (steps[stepIndex]?.combineTargets && rectangles.length > 0) {
+			return [rectangleBounds(rectangles)];
+		}
 		// A field and its label share one outline when their padded areas touch.
 		for (let index = 0; index < rectangles.length; index++) {
 			for (let nextIndex = index + 1; nextIndex < rectangles.length; nextIndex++) {
@@ -537,10 +456,6 @@
 		} : { left: window.innerWidth / 2, right: window.innerWidth / 2, top: window.innerHeight / 3, bottom: window.innerHeight / 3 };
 	}
 
-	function preferredPlacementOrder() {
-		return steps[stepIndex]?.placement === 'left' ? ['left', 'bottom', 'top', 'right'] : ['bottom', 'top', 'right', 'left'];
-	}
-
 	function findDialogPlacement(rectangles, size, width, height) {
 		const bounds = rectangleBounds(rectangles);
 		const horizontalCenter = Math.max(12, Math.min(width - size.width - 12, (bounds.left + bounds.right - size.width) / 2));
@@ -551,7 +466,7 @@
 			right: { left: bounds.right + 14, top: verticalCenter },
 			left: { left: bounds.left - size.width - 14, top: verticalCenter },
 		};
-		for (const side of preferredPlacementOrder()) {
+		for (const side of dialogPlacementOrder) {
 			const position = positions[side];
 			const candidate = { ...position, right: position.left + size.width, bottom: position.top + size.height };
 			if (candidate.left >= 12 && candidate.top >= 12 && candidate.right <= width - 12 && candidate.bottom <= height - 12
@@ -573,7 +488,7 @@
 		};
 		const actionHeight = dialog.querySelector('.ts-tour-actions')?.getBoundingClientRect().height || 44;
 		const minimumHeight = Math.min(height - 24, actionHeight + 88);
-		for (const side of preferredPlacementOrder()) {
+		for (const side of dialogPlacementOrder) {
 			const area = areas[side];
 			if (area.width < Math.min(240, width - 24) || area.height < minimumHeight) {
 				continue;
@@ -597,7 +512,7 @@
 	}
 
 	function alignEntryRowNearTop() {
-		if (!['entries', 'daily-values', 'comments'].includes(steps[stepIndex]?.id)) {
+		if (!['comments', 'warnings'].includes(steps[stepIndex]?.id)) {
 			return false;
 		}
 		const field = document.querySelector('#ts-body tr:first-child .startTime');
@@ -685,55 +600,41 @@
 		}
 		stepIndex = index;
 		const step = steps[stepIndex];
-		// The inactive tab stays legible while both destinations are being explained.
-		appRoot.classList.toggle('ts-tour-navigation-preview', step.id === 'hr-navigation');
-		let rerouteAfterPreparation = false;
 		preparing = true;
 		const preparation = ++currentPreparation;
 		updateButtons();
 		dialogTitle.textContent = translate(step.title);
-		dialogDescription.textContent = translate(step.text);
+		dialogDescription.textContent = translate(step.text, step.textParameters);
 		progressLabel.textContent = translate('Step {current} of {total}', { current: stepIndex + 1, total: steps.length });
 		dialog.querySelector('.ts-tour-content').scrollTop = 0;
 		overlay.dataset.step = step.id;
 		dialog.dataset.stepId = step.id;
 		pendingViewAction = (async () => {
+			appRoot.classList.toggle('ts-tour-export-preview', step.id === 'export');
 			await header.setProfileOpen(step.id === 'help', activate);
-			if (!step.hr && !['profile', 'help'].includes(step.id)) {
+			if (step.id !== 'export') {
+				setExportVisible(false);
+			}
+			if (!['profile', 'help'].includes(step.id)) {
 				showTab('mine');
 			}
-			const prepared = await step.prepare?.();
+			await step.prepare?.();
 			if (!active || preparation !== currentPreparation) {
 				return;
 			}
 			targets = step.getTargets ? step.getTargets().filter(isVisible) : queryTargets(step.selectors);
-			if (step.id === 'hr-person' && prepared === false) {
-				dialogDescription.textContent = translate('No employees are currently assigned. Individual timesheets become available when employees are assigned.');
-				targets = queryTargets(['#hr-userlist-section']);
-			} else if (step.id === 'help' && targets.length === 0) {
-				dialogDescription.textContent = translate('General help is hidden on this Nextcloud instance. The compass icon can restart the Timesheet tour at any time.');
+			if (step.id === 'help' && targets.length === 0) {
+				dialogDescription.textContent = translate('General help is hidden on this Nextcloud instance.');
 				targets = [header.profileMenu(), header.profileTrigger()].filter(isVisible);
 			} else if (targets.length === 0) {
 				dialogDescription.textContent = translate('This section is not available in the current view. The tour can continue with the next step.');
 				targets = [appRoot];
 			}
-			if (step.hr) {
-				explainedHrSteps.add(step.id);
-			}
 			targets[0]?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
 		})().catch(error => {
-			if (step.hr && isHrAccessError(error)) {
-				progress.isHr = false;
-				steps = steps.filter(item => !item.hr);
-				stepIndex = Math.min(stepIndex, steps.length - 2);
-				rerouteAfterPreparation = true;
-				showTab('mine');
-				timesheet.notify(translate('HR access has changed. The tour continues with the features available to this account.'));
-			} else {
-				console.warn('Timesheet tour view could not be prepared:', error);
-				dialogDescription.textContent = translate('This section is not available in the current view. The tour can continue with the next step.');
-				targets = [appRoot];
-			}
+			console.warn('Timesheet tour view could not be prepared:', error);
+			dialogDescription.textContent = translate('This section is not available in the current view. The tour can continue with the next step.');
+			targets = [appRoot];
 		}).finally(() => {
 			preparing = false;
 			if (active && !ending) {
@@ -743,12 +644,9 @@
 			}
 		});
 		await pendingViewAction;
-		if (rerouteAfterPreparation && active && !ending) {
-			await showStep(stepIndex);
-		}
 	}
 
-	async function start(hrOnly = false) {
+	async function start() {
 		if (active || !appRoot) {
 			return;
 		}
@@ -757,13 +655,13 @@
 			return;
 		}
 		hideInvitation();
+		header.closeMenu();
+		header.closeEmailHelp();
 		const run = ++currentRun;
 		try {
 			snapshot = captureView();
-			steps = createSteps(hrOnly);
+			steps = createSteps();
 			stepIndex = 0;
-			hrLoaded = false;
-			explainedHrSteps.clear();
 			active = true;
 			ending = false;
 			createOverlay();
@@ -783,10 +681,9 @@
 			return;
 		}
 		ending = true;
-		appRoot.classList.remove('ts-tour-navigation-preview');
 		currentPreparation++;
 		updateButtons();
-		// Let read-only view preparation finish before putting original nodes back.
+		// Finish read-only preparation before restoring the employee view.
 		await pendingViewAction;
 		window.cancelAnimationFrame(scheduledPosition);
 		scheduledPosition = null;
@@ -822,7 +719,6 @@
 		finishing = true;
 		updateButtons();
 		const run = currentRun;
-		const includeHr = progress.isHr && steps.filter(step => step.hr).every(step => explainedHrSteps.has(step.id));
 		try {
 			for (let attempt = 0; ; attempt++) {
 				if (!isCurrentRun(run)) {
@@ -830,17 +726,16 @@
 				}
 				try {
 					const result = await timesheet.api('/api/preferences/tour/complete', {
-						method: 'POST', body: JSON.stringify({ version: tourVersion, includeHr }),
+						method: 'POST', body: JSON.stringify({ version: tourVersion }),
 					});
 					if (!isCurrentRun(run)) {
 						return;
 					}
-					if (!result || result.version !== tourVersion || typeof result.employeeCompleted !== 'boolean' || typeof result.hrCompleted !== 'boolean') {
+					if (!result || result.version !== tourVersion || typeof result.employeeCompleted !== 'boolean') {
 						throw new Error('Invalid tour completion response');
 					}
-					progress = { ...progress, ...result, available: true };
+					progress = { ...progress, version: result.version, employeeCompleted: result.employeeCompleted, available: true };
 					appRoot.dataset.tourEmployeeCompleted = String(result.employeeCompleted);
-					appRoot.dataset.tourHrCompleted = String(result.hrCompleted);
 					break;
 				} catch (error) {
 					if (!isCurrentRun(run)) {
@@ -879,11 +774,11 @@
 			return;
 		}
 		progress = readProgress();
-		launcher = header.mountLauncher(appRoot, () => start(false));
+		launcher = header.mountLauncher(appRoot, () => start(), hideInvitation);
 		window.addEventListener('resize', positionInvitation);
 		if (!progress.available) {
-			timesheet.notify(translate('Tour progress could not be loaded. The tour can still be opened with the compass icon.'));
-		} else if (!progress.employeeCompleted || (progress.isHr && !progress.hrCompleted)) {
+			timesheet.notify(translate('Tour progress could not be loaded. The tour can still be opened with the tour icon.'));
+		} else if (!progress.employeeCompleted) {
 			showInvitation();
 		}
 	}

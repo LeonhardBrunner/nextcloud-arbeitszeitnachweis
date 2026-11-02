@@ -4,7 +4,7 @@
 	$countSpecialDaysAsOvertime = (bool)($_['countSpecialDaysAsOvertime'] ?? false);
 ?>
 
-<div id="timesheet-admin-settings" class="section">
+<div id="timesheet-hr-settings" class="section">
 	<!-- HR access rules -->
 	<h2><?php p($l->t('Timesheet settings')); ?></h2>
 
@@ -22,7 +22,7 @@
 		<?php p($l->t('Add new rule')); ?>
 	</button>
 
-	<!-- Initial data for the admin rule editor -->
+	<!-- Initial data for the HR rule editor -->
 	<script id="timesheet-all-groups-data" type="application/json">
 		<?php print_unescaped(json_encode(array_values($allGroups), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>
 	</script>
@@ -51,7 +51,7 @@
 		</div>
 	</div>
 
-	<!-- Admin view styles -->
+	<!-- HR settings styles -->
 	<style>
 		/* Rule list and cards */
 		#timesheet-hr-rules {

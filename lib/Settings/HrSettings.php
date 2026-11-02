@@ -2,14 +2,16 @@
 
 namespace OCA\Timesheet\Settings;
 
+use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\AppFramework\Services\IAppConfig;
 use OCP\Settings\ISettings;
 use OCP\Util;
 use OCP\IGroupManager;
+use OCA\Timesheet\Service\HrService;
 use OCA\Timesheet\Service\MissingEntryReminderSettings;
 
-class AdminSettings implements ISettings {
+class HrSettings implements ISettings {
 
 	private const DEFAULT_RULE_SETTINGS = [
 		'priority' => 1,
@@ -24,11 +26,17 @@ class AdminSettings implements ISettings {
 		private IAppConfig $appConfig,
 		private IGroupManager $groupManager,
 		private string $appName,
+		private HrService $hrService,
 	) {
 	}
 
 	public function getForm(): TemplateResponse {
-		Util::addScript($this->appName, 'admin');
+		// The direct form entry point follows the same role check as section visibility.
+		if (!$this->hrService->isHr()) {
+			return new TemplateResponse('core', '403', [], '', Http::STATUS_FORBIDDEN);
+		}
+
+		Util::addScript($this->appName, 'hr-settings');
 
 		$allGroups = [];
 		foreach ($this->groupManager->search('') as $group) {
@@ -38,7 +46,7 @@ class AdminSettings implements ISettings {
 
 		$accessRules = $this->loadRules();
 
-		return new TemplateResponse($this->appName, 'settings-admin', [
+		return new TemplateResponse($this->appName, 'settings-hr', [
 			'allGroups'     => $allGroups,
 			'hrAccessRules' => $accessRules,
 		]);
@@ -120,8 +128,8 @@ class AdminSettings implements ISettings {
 		return max($min, min($max, round($numericValue, 2)));
 	}
 
-	public function getSection(): string {
-		return 'timesheet';
+	public function getSection(): ?string {
+		return $this->hrService->isHr() ? 'timesheet' : null;
 	}
 
 	public function getPriority(): int {

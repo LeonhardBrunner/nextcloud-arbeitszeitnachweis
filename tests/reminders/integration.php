@@ -28,6 +28,7 @@ use OCA\Timesheet\Service\GroupRuleService;
 use OCA\Timesheet\Service\HolidayService;
 use OCA\Timesheet\Service\HrService;
 use OCA\Timesheet\Service\MissingEntryDetector;
+use OCA\Timesheet\Service\AbsenceCommentCatalog;
 use OCA\Timesheet\Service\MissingEntryReminderMailer;
 use OCA\Timesheet\Service\MissingEntryReminderService;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -179,7 +180,7 @@ $appConfig->setAppValueString('hr_access_rules', '[]');
 $makeService = static function (?HolidayService $holidays = null) use ($container, $entryMapper, $configMapper, $appConfig, $session, $groups, $users, $store, $clock, $capturingMailer, $logger): MissingEntryReminderService {
 	return new MissingEntryReminderService(
 		$container->get(GroupRuleService::class), $entryMapper, $configMapper,
-		new HrService($appConfig, $session, $groups), $holidays ?? $container->get(HolidayService::class), new MissingEntryDetector(),
+		new HrService($appConfig, $session, $groups), $holidays ?? $container->get(HolidayService::class), new MissingEntryDetector(new AbsenceCommentCatalog()),
 		$store, $capturingMailer, $groups, $users, $clock, $logger,
 	);
 };

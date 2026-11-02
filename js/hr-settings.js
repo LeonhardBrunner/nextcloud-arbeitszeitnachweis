@@ -1,12 +1,12 @@
 (function () {
 	'use strict';
 
-	const settingsRoot = document.getElementById('timesheet-admin-settings');
+	const settingsRoot = document.getElementById('timesheet-hr-settings');
 	if (!settingsRoot) {
 		return;
 	}
 
-	// Initial settings embedded by the admin template.
+	// Initial settings embedded by the HR settings template.
 	function readEmbeddedJson(id) {
 		const element = document.getElementById(id);
 		if (!element) {
@@ -15,7 +15,7 @@
 		try {
 			return JSON.parse(element.textContent || "null") ?? [];
 		} catch (error) {
-			console.warn("Timesheet admin settings: invalid JSON in", id, error);
+			console.warn("Timesheet HR settings: invalid JSON in", id, error);
 			return [];
 		}
 	}
@@ -202,7 +202,19 @@
 		});
 		if (!response.ok) {
 			const errorText = await response.text().catch(() => '');
-			throw new Error(errorText || `HTTP ${response.status}`);
+			const saveError = new Error(errorText || `HTTP ${response.status}`);
+			// Only recognized validation responses replace the generic save notice.
+			if (response.status === 400) {
+				try {
+					const errorData = JSON.parse(errorText);
+					if (errorData?.message === 'At least one HR group must remain assigned.') {
+						saveError.notificationMessage = t('timesheet', 'At least one HR group must remain assigned.');
+					}
+				} catch {
+					// Non-JSON responses retain the generic save notice.
+				}
+			}
+			throw saveError;
 		}
 		const responseData = await response.json().catch(() => null);
 		const serverRules = responseData?.rules;
@@ -386,7 +398,7 @@
 				}
 			} catch (error) {
 				console.error('Failed to save HR access rules:', error);
-				notify(t('timesheet', 'Saving failed'));
+				notify(error.notificationMessage || t('timesheet', 'Saving failed'));
 			}
 		});
 		ruleSaveQueue = pendingSave;

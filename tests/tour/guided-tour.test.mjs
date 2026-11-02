@@ -11,7 +11,7 @@ const tourSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-tour.js'),
 const flush = () => new Promise(setImmediate);
 
 // Exercise the real tour with a small DOM and read-only application fixtures.
-function createFixture({ hr = false, enabled = true, employeeCompleted = false, hrCompleted = false, available = true, headerPresent = true, nestedSearch = false, employees = [], helpPresent = true, viewportWidth = 1000, viewportHeight = 800, translate = message => message, respond = null, scheduleTimeout = callback => { setImmediate(callback); return 1; } } = {}) {
+function createFixture({ hr = false, hrDom = false, enabled = true, employeeCompleted = false, available = true, headerPresent = true, nestedSearch = false, helpPresent = true, viewportWidth = 1000, viewportHeight = 800, absenceTerms = { vacation: 'Vacation', timeOffInLieu: 'Time off in lieu' }, translate = message => message, respond = null, scheduleTimeout = callback => { setImmediate(callback); return 1; } } = {}) {
 	const events = new Map();
 	const windowEvents = new Map();
 	const requests = [];
@@ -26,6 +26,9 @@ function createFixture({ hr = false, enabled = true, employeeCompleted = false, 
 		const firstChild = selector.includes(':first-child');
 		selector = selector.replace(':first-child', '');
 		if (firstChild && element.parentElement?.children[0] !== element) return false;
+		const childNumber = selector.match(/:nth-child\((\d+)\)/)?.[1];
+		selector = selector.replace(/:nth-child\(\d+\)/g, '');
+		if (childNumber && element.parentElement?.children[Number(childNumber) - 1] !== element) return false;
 		const attributes = [...selector.matchAll(/\[([\w-]+)(?:([*]?=)["']?([^\]"']*)["']?)?\]/g)];
 		selector = selector.replace(/\[[^\]]+\]/g, '');
 		for (const [, name, operator, value] of attributes) {
@@ -155,21 +158,35 @@ function createFixture({ hr = false, enabled = true, employeeCompleted = false, 
 	app.clientWidth = viewportWidth - 16;
 	app.scrollWidth = viewportWidth + 700;
 	app.getBoundingClientRect = () => ({ left: 8, top: 50, right: viewportWidth - 8, bottom: viewportHeight, width: viewportWidth - 16, height: viewportHeight - 50 });
-	Object.assign(app.dataset, { tourEnabled: String(enabled), tourVersion: '1', tourEmployeeCompleted: String(employeeCompleted), tourHrCompleted: String(hrCompleted), tourIsHr: String(hr), tourStateAvailable: String(available) });
+	// The page exposes only the resolved eligibility, never a separate HR tour state.
+	Object.assign(app.dataset, { tourEnabled: String(enabled && !hr), tourVersion: '1', tourEmployeeCompleted: String(employeeCompleted), tourStateAvailable: String(available) });
+	Object.assign(app.dataset, { absenceVacation: absenceTerms.vacation, absenceTimeOffInLieu: absenceTerms.timeOffInLieu });
 	const tabs = element('div', '', 'ts-tabs', app);
-	if (hr) for (const name of ['mine', 'hr']) { const tab = element('button', '', `ts-tab${name === 'mine' ? ' active' : ''}`, tabs); tab.dataset.tab = name; }
+	if (hr || hrDom) for (const name of ['mine', 'hr']) { const tab = element('button', '', `ts-tab${name === 'mine' ? ' active' : ''}`, tabs); tab.dataset.tab = name; }
 	const mine = element('div', 'tab-mine', 'ts-tabview active', app);
 	for (const id of ['month-prev', 'month-display', 'month-next', 'export-mine-xlsx']) element('button', id, '', mine);
 	const stats = element('div', '', 'ts-stats', mine);
 	element('span', 'overtime-total', '', stats).textContent = 'original balance';
 	const config = element('div', '', 'hr-config-row', mine);
+	const workingTimeLabel = element('label', '', '', config);
+	workingTimeLabel.setAttribute('for', 'config-daily-min-mine');
+	workingTimeLabel.textContent = 'Daily working time:';
 	element('input', 'config-daily-min-mine', 'config-daily-min', config).value = '07:30';
+	const stateLabel = element('label', '', '', config);
+	stateLabel.setAttribute('for', 'config-state-mine');
+	stateLabel.textContent = 'State:';
+	element('select', 'config-state-mine', 'config-state', config).value = 'BY';
 	const table = element('table', 'ts-table', '', mine);
+	const tableHead = element('thead', '', '', table);
+	const headerRow = element('tr', '', '', tableHead);
+	for (const label of ['Date', 'Status', 'Start', 'Break', 'End', 'Duration', 'Difference', 'Comment', 'Warning']) {
+		element('th', '', '', headerRow).textContent = label;
+	}
 	const body = element('tbody', 'ts-body', '', table);
 	const row = element('tr', '', '', body);
 	for (const className of ['startTime', 'breakMinutes', 'endTime', 'ts-duration', 'ts-diff', 'ts-warn', 'ts-status', 'commentInput']) element(className.endsWith('Input') ? 'textarea' : className.includes('Time') || className === 'breakMinutes' ? 'input' : 'td', '', className, row);
 	element('div', 'ts-break-toggle', '', mine);
-	if (hr) {
+	if (hr || hrDom) {
 		const hrTab = element('div', 'tab-hr', 'ts-tabview', app);
 		for (const id of ['hr-userlist-section', 'hr-stats-section', 'hr-notifications-section', 'hr-warning-thresholds-section', 'hr-user-entries']) {
 			const section = element('div', id, 'ts-hr-section', hrTab);
@@ -202,27 +219,29 @@ function createFixture({ hr = false, enabled = true, employeeCompleted = false, 
 	});
 	context.window = context;
 	context.Timesheet = {
-		state: { hrCurrentMonth: new Date(2025, 1, 1), ruleThresholds: { original: true }, tsHoveredRow: row },
-		dom: { refresh() {} }, util: { minToHm: () => '08:00', pickDailyMin: () => 480 }, main: { updateHrMonthDisplay() {} },
+		state: { tsHoveredRow: row },
+		dom: { refresh() {} },
 		notify: message => messages.push(message),
 		api: async (path, options = {}) => {
 			const request = { path, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null };
 			requests.push(request);
 			if (respond) { const response = await respond(request, requests.length); if (response !== undefined) return response; }
-			if (path === '/api/hr/users') return employees;
-			if (path.startsWith('/api/hr/config/')) return { dailyMin: 480, state: 'BW' };
-			if (path === '/api/preferences/tour/complete') return { version: 1, employeeCompleted: true, hrCompleted: request.body.includeHr || hrCompleted, isHr: hr };
+			if (path === '/api/preferences/tour/complete') return { version: 1, employeeCompleted: true, hrCompleted: false, isHr: false };
 			throw new Error('Unexpected request: ' + path);
 		},
 		export: { handleExportClick(view) { copyCounts.exportChoices++; const id = `export-${view}-xlsx-choice-ui`; let choices = document.getElementById(id); if (!choices) choices = element('span', id, '', mine); choices.classList.toggle('is-visible'); } },
-		hr: { async loadHrUserList() { const list = document.getElementById('hr-userlist'); list.replaceChildren(); for (const employee of employees) { const button = element('button', '', 'hr-load-user', list); button.dataset.user = employee.id; } } },
-		config: { async loadHrNotificationSettings() {}, async loadHrWarningThresholds() {} },
-		entries: { async loadUserEntries() { copyCounts.entryLoads++; document.getElementById('hr-user-body').replaceChildren(element('tr', '', '', document.createElement('tbody'))); }, async refreshOvertimeTotal() {} },
 	};
 	vm.runInContext(headerSource, context, { filename: 'timesheet-tour-header.js' });
 	vm.runInContext(tourSource, context, { filename: 'timesheet-tour.js' });
 	context.Timesheet.tour.init();
-	return { context, document, app, requests, messages, copyCounts, element, dispatch, event: makeEvent, tour: context.Timesheet.tour };
+	return {
+		context, document, app, requests, messages, copyCounts, element, dispatch, event: makeEvent, tour: context.Timesheet.tour,
+		resize(width, height) {
+			context.innerWidth = width;
+			context.innerHeight = height;
+			for (const callback of windowEvents.get('resize') || []) callback();
+		},
+	};
 }
 
 async function advanceToEnd(fixture) {
@@ -231,6 +250,521 @@ async function advanceToEnd(fixture) {
 		await flush(); await flush();
 	}
 }
+
+async function advanceToStep(fixture, step) {
+	while (fixture.tour.getState().step !== step && fixture.tour.getState().index < fixture.tour.getState().total - 1) {
+		fixture.document.getElementById('ts-tour-next').click();
+		await flush(); await flush();
+	}
+	assert.equal(fixture.tour.getState().step, step, `The tour reaches ${step}`);
+}
+
+test('the help button opens three menu choices without starting the tour', () => {
+	const fixture = createFixture();
+	const launcher = fixture.document.getElementById('ts-tour-launcher');
+	launcher.click();
+	const menu = fixture.document.getElementById('ts-tour-help-menu');
+	assert.ok(menu);
+	assert.equal(menu.hidden, false);
+	assert.equal(launcher.getAttribute('aria-expanded'), 'true');
+	assert.equal(launcher.getAttribute('aria-haspopup'), 'menu');
+	assert.equal(launcher.getAttribute('aria-controls'), menu.id);
+	assert.equal(launcher.getAttribute('aria-label'), 'Help and tour');
+	assert.equal(launcher.title, 'Help and tour');
+	assert.deepEqual(menu.children.map(item => item.textContent), ['Tour guide', 'Questions for HR', 'Suggestions for improvement']);
+	assert.deepEqual(menu.children.map(item => item.getAttribute('role')), ['menuitem', 'menuitem', 'menuitem']);
+	assert.equal(fixture.tour.getState().active, false);
+	assert.equal(fixture.document.getElementById('ts-tour-invitation'), null, 'Manual help does not leave the first-visit invitation behind it');
+	assert.equal(fixture.requests.length, 0);
+});
+
+test('question and improvement choices are real email links with only the agreed recipient and subjects', () => {
+	const fixture = createFixture();
+	const launcher = fixture.document.getElementById('ts-tour-launcher');
+	for (const [itemId, subject] of [
+		['ts-tour-menu-questions', 'Frage zum Arbeitszeitnachweis'],
+		['ts-tour-menu-suggestions', 'Feedback für Arbeitszeitnachweis'],
+	]) {
+		launcher.click();
+		const link = fixture.document.getElementById(itemId);
+		assert.equal(link.tagName, 'A');
+		const email = new URL(link.getAttribute('href'));
+		assert.equal(email.protocol, 'mailto:');
+		assert.equal(email.pathname, 'karriere@xiller.com');
+		assert.deepEqual([...email.searchParams], [['subject', subject]]);
+		link.click();
+		assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, true);
+		assert.equal(fixture.document.activeElement, launcher);
+		assert.equal(fixture.tour.getState().active, false);
+		assert.equal(fixture.requests.length, 0);
+	}
+});
+
+test('an intercepted email link offers conditional help without exposing message details', () => {
+	const scheduledCallbacks = [];
+	const fixture = createFixture({ scheduleTimeout: callback => { scheduledCallbacks.push(callback); return 1; } });
+	const launcher = fixture.document.getElementById('ts-tour-launcher');
+	for (const itemId of ['ts-tour-menu-questions', 'ts-tour-menu-suggestions']) {
+		launcher.click();
+		const link = fixture.document.getElementById(itemId);
+		const originalHref = link.getAttribute('href');
+		const click = fixture.event('click', link);
+		// Simulate a browser test suppressing an external application launch.
+		click.preventDefault();
+		fixture.dispatch(click);
+		const hint = fixture.document.getElementById('ts-email-help');
+		assert.ok(hint, 'The clicked email link leaves useful information even if no application opens');
+		assert.equal(hint.getAttribute('role'), 'region');
+		const status = fixture.document.getElementById('ts-email-help-status');
+		assert.equal(hint.children[0], status, 'The immediate action status precedes the conditional help');
+		assert.equal(status.getAttribute('role'), 'status');
+		assert.equal(status.textContent, 'Opening the default mail app…');
+		assert.equal(fixture.document.getElementById('ts-email-help-title').textContent, 'No mail app opened?');
+		assert.equal(hint.querySelectorAll('input, label').length, 0);
+		const description = hint.querySelectorAll('p').find(paragraph => paragraph !== status);
+		assert.equal(description.textContent, 'Email links require a default mail app in the browser or operating system.');
+		assert.doesNotMatch(hint.children.map(child => child.textContent).join(' '), /karriere@xiller\.com|Frage zum Arbeitszeitnachweis|Feedback für Arbeitszeitnachweis|copied/u);
+		assert.equal(hint.querySelectorAll('button').length, 1);
+		assert.equal(fixture.document.getElementById('ts-email-help-close').getAttribute('aria-label'), 'Close email help');
+		assert.equal(fixture.document.querySelectorAll('#ts-email-help').length, 1);
+		assert.equal(fixture.document.activeElement, launcher, 'Showing the hint does not move focus into it');
+		assert.equal(link.getAttribute('href'), originalHref);
+		assert.equal(fixture.requests.length, 0);
+		assert.deepEqual(scheduledCallbacks, [], 'No delayed handler-detection heuristic runs');
+	}
+});
+
+test('email help stays conditional across focus changes and preserves the email link default action', () => {
+	const fixture = createFixture();
+	fixture.document.getElementById('ts-tour-launcher').click();
+	const link = fixture.document.getElementById('ts-tour-menu-questions');
+	const click = fixture.dispatch(fixture.event('click', link));
+	assert.equal(click.prevented, false, 'The email link keeps its normal default action');
+	const hint = fixture.document.getElementById('ts-email-help');
+	const title = fixture.document.getElementById('ts-email-help-title').textContent;
+	const appInput = fixture.document.getElementById('config-daily-min-mine');
+	appInput.focus();
+	assert.equal(fixture.document.getElementById('ts-email-help'), hint, 'Focus changes do not diagnose a missing mail application');
+	assert.equal(fixture.document.getElementById('ts-email-help-title').textContent, title);
+	assert.equal(fixture.document.activeElement, appInput);
+	assert.equal(fixture.requests.length, 0);
+	assert.equal(appInput.value, '07:30');
+});
+
+test('email help closes explicitly, on outside clicks, when reopening the menu and before a tour starts', async () => {
+	const fixture = createFixture();
+	const launcher = fixture.document.getElementById('ts-tour-launcher');
+	const showHint = () => {
+		launcher.click();
+		fixture.document.getElementById('ts-tour-menu-suggestions').click();
+		assert.ok(fixture.document.getElementById('ts-email-help'));
+	};
+	showHint();
+	fixture.document.getElementById('ts-email-help-close').click();
+	assert.equal(fixture.document.getElementById('ts-email-help'), null);
+	showHint();
+	const closeButton = fixture.document.getElementById('ts-email-help-close');
+	closeButton.focus();
+	fixture.dispatch(fixture.event('keydown', closeButton, { key: 'Escape' }));
+	assert.equal(fixture.document.getElementById('ts-email-help'), null);
+	assert.equal(fixture.document.activeElement, launcher);
+	showHint();
+	fixture.dispatch(fixture.event('pointerdown', fixture.app));
+	assert.equal(fixture.document.getElementById('ts-email-help'), null);
+	showHint();
+	launcher.click();
+	assert.equal(fixture.document.getElementById('ts-email-help'), null);
+	assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, false);
+	fixture.document.getElementById('ts-tour-menu-questions').click();
+	assert.ok(fixture.document.getElementById('ts-email-help'));
+	await fixture.tour.start();
+	assert.equal(fixture.document.getElementById('ts-email-help'), null);
+	assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, true);
+	await fixture.tour.end();
+	assert.equal(fixture.document.getElementById('ts-email-help'), null);
+	assert.equal(fixture.requests.length, 0);
+	assert.equal(createFixture().document.getElementById('ts-email-help'), null);
+});
+
+test('email help stays inside a narrow viewport and repositions without moving focus', () => {
+	for (const direction of ['ltr', 'rtl']) {
+		const fixture = createFixture({ viewportWidth: 320, viewportHeight: 568 });
+		const launcher = fixture.document.getElementById('ts-tour-launcher');
+		const originalStyle = fixture.context.getComputedStyle;
+		fixture.context.getComputedStyle = element => ({ ...originalStyle(element), direction });
+		launcher.click();
+		fixture.document.getElementById('ts-tour-menu-questions').click();
+		const hint = fixture.document.getElementById('ts-email-help');
+		hint.getBoundingClientRect = () => ({ width: 296, height: 340 });
+		launcher.getBoundingClientRect = () => ({ left: 300, top: 0, right: 344, bottom: 50, width: 44, height: 50 });
+		const closeButton = fixture.document.getElementById('ts-email-help-close');
+		closeButton.focus();
+		fixture.resize(320, 568);
+		assert.ok(parseFloat(hint.style.left) >= 12 && parseFloat(hint.style.left) + 296 <= 308);
+		assert.ok(parseFloat(hint.style.top) >= 12 && parseFloat(hint.style.top) + 340 <= 556);
+		assert.equal(fixture.document.activeElement, closeButton);
+		assert.equal(fixture.document.getElementById('ts-email-help'), hint);
+		assert.equal(fixture.requests.length, 0);
+	}
+});
+
+test('the menu tour choice starts the existing tour and restores focus to the help button', async () => {
+	const fixture = createFixture({ employeeCompleted: true });
+	const launcher = fixture.document.getElementById('ts-tour-launcher');
+	launcher.click();
+	assert.equal(fixture.tour.getState().active, false);
+	fixture.document.getElementById('ts-tour-menu-guide').click();
+	await flush(); await flush();
+	assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, true);
+	assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+	assert.equal(fixture.tour.getState().step, 'export');
+	assert.equal(fixture.tour.getState().total, 8);
+	await fixture.tour.end();
+	assert.equal(fixture.document.activeElement, launcher);
+	assert.equal(fixture.requests.length, 0);
+});
+
+test('the help menu supports keyboard navigation, Escape, Tab, outside clicks and focus leaving', () => {
+	const fixture = createFixture();
+	const launcher = fixture.document.getElementById('ts-tour-launcher');
+	const key = value => fixture.dispatch(fixture.event('keydown', fixture.document.activeElement, { key: value }));
+	launcher.focus();
+	key('ArrowDown');
+	const items = fixture.document.getElementById('ts-tour-help-menu').children;
+	assert.equal(fixture.document.activeElement, items[0]);
+	key('ArrowUp');
+	assert.equal(fixture.document.activeElement, items[2]);
+	key('ArrowDown');
+	assert.equal(fixture.document.activeElement, items[0]);
+	key('End');
+	assert.equal(fixture.document.activeElement, items[2]);
+	key('Home');
+	assert.equal(fixture.document.activeElement, items[0]);
+	key('Escape');
+	assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+	assert.equal(fixture.document.activeElement, launcher);
+	key('ArrowUp');
+	assert.equal(fixture.document.activeElement, items[2]);
+	const tab = key('Tab');
+	assert.equal(tab.prevented, false);
+	assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+	launcher.click();
+	fixture.dispatch(fixture.event('pointerdown', fixture.app));
+	assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+	launcher.click();
+	fixture.document.getElementById('config-daily-min-mine').focus();
+	assert.equal(launcher.getAttribute('aria-expanded'), 'false');
+	assert.equal(fixture.document.activeElement.id, 'config-daily-min-mine');
+	assert.equal(fixture.requests.length, 0);
+});
+
+test('the first-visit Tutorial still starts the tour directly while Later remains visit-local', async () => {
+	const fixture = createFixture();
+	const menu = fixture.document.getElementById('ts-tour-help-menu');
+	assert.equal(menu.hidden, true);
+	fixture.document.getElementById('ts-tour-start').click();
+	await flush(); await flush();
+	assert.equal(fixture.tour.getState().step, 'export');
+	assert.equal(menu.hidden, true);
+	await fixture.tour.end();
+	assert.equal(fixture.requests.length, 0);
+	assert.ok(createFixture().document.getElementById('ts-tour-invitation'));
+});
+
+test('the open help menu remains inside the viewport and repositions on resize in both reading directions', () => {
+	for (const direction of ['ltr', 'rtl']) {
+		const fixture = createFixture({ viewportWidth: 320, viewportHeight: 568 });
+		const launcher = fixture.document.getElementById('ts-tour-launcher');
+		const menu = fixture.document.getElementById('ts-tour-help-menu');
+		launcher.getBoundingClientRect = () => ({ left: 300, top: 520, right: 344, bottom: 564, width: 44, height: 44 });
+		menu.getBoundingClientRect = () => ({ width: 280, height: 180 });
+		const originalStyle = fixture.context.getComputedStyle;
+		fixture.context.getComputedStyle = element => ({ ...originalStyle(element), direction });
+		launcher.click();
+		const initialLeft = parseFloat(menu.style.left);
+		const initialTop = parseFloat(menu.style.top);
+		assert.ok(initialLeft >= 12 && initialLeft + 280 <= 308);
+		assert.ok(initialTop >= 12 && initialTop + 180 <= 556);
+		fixture.resize(800, 600);
+		assert.equal(menu.hidden, false);
+		assert.equal(launcher.getAttribute('aria-expanded'), 'true');
+		assert.ok(parseFloat(menu.style.left) >= 12 && parseFloat(menu.style.left) + 280 <= 788);
+		assert.ok(parseFloat(menu.style.top) >= 12 && parseFloat(menu.style.top) + 180 <= 588);
+		assert.notEqual(parseFloat(menu.style.left), initialLeft);
+		assert.equal(fixture.requests.length, 0);
+	}
+});
+
+test('the warning explanation highlights the empty warning cell and its heading between comments and profile', async () => {
+	const fixture = createFixture();
+	const warningCell = fixture.document.querySelector('#ts-body tr:first-child .ts-warn');
+	const warningHeading = fixture.document.querySelector('#ts-table thead th:nth-child(9)');
+	warningHeading.getBoundingClientRect = () => ({ left: 500, top: 120, right: 640, bottom: 145, width: 140, height: 25 });
+	warningCell.getBoundingClientRect = () => ({ left: 500, top: 155, right: 640, bottom: 180, width: 140, height: 25 });
+	assert.equal(warningCell.textContent, '');
+	assert.equal(warningHeading.textContent, 'Warning');
+	await fixture.tour.start();
+	await advanceToStep(fixture, 'comments');
+	fixture.document.getElementById('ts-tour-next').click();
+	await flush(); await flush();
+	assert.equal(fixture.tour.getState().step, 'warnings');
+	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Time entry warnings');
+	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.');
+	const frames = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+	assert.equal(frames.length, 1);
+	assert.equal(Number(frames[0].getAttribute('x')), 495);
+	assert.equal(Number(frames[0].getAttribute('y')), 115);
+	assert.equal(Number(frames[0].getAttribute('width')), 150);
+	assert.equal(Number(frames[0].getAttribute('height')), 70);
+	fixture.document.getElementById('ts-tour-back').click();
+	await flush(); await flush();
+	assert.equal(fixture.tour.getState().step, 'comments');
+	fixture.document.getElementById('ts-tour-next').click();
+	await flush(); await flush();
+	assert.equal(fixture.tour.getState().step, 'warnings');
+	fixture.document.getElementById('ts-tour-next').click();
+	await flush(); await flush();
+	assert.equal(fixture.tour.getState().step, 'profile');
+	assert.equal(warningCell.textContent, '');
+	assert.equal(fixture.requests.length, 0);
+	await fixture.tour.end();
+});
+
+test('the far-right warning column becomes visible on narrow screens and restores horizontal scrolling', async () => {
+	for (const columnLeft of [1000, -1000]) {
+		const fixture = createFixture({ viewportWidth: 320, viewportHeight: 568 });
+		const warningCell = fixture.document.querySelector('#ts-body tr:first-child .ts-warn');
+		const warningHeading = fixture.document.querySelector('#ts-table thead th:nth-child(9)');
+		for (const [control, top] of [[warningHeading, 100], [warningCell, 160]]) {
+			control.getBoundingClientRect = () => ({ left: columnLeft - fixture.app.scrollLeft, right: columnLeft + 150 - fixture.app.scrollLeft, top, bottom: top + 30, width: 150, height: 30 });
+		}
+		await fixture.tour.start();
+		await advanceToStep(fixture, 'warnings');
+		for (const control of [warningHeading, warningCell]) {
+			const rectangle = control.getBoundingClientRect();
+			assert.ok(rectangle.left >= 8 && rectangle.right <= 312, 'Both the warning heading and its empty cell remain visible');
+		}
+		assert.equal(fixture.document.querySelectorAll('#ts-tour-cutout g rect').length, 2);
+		assert.notEqual(fixture.app.scrollLeft, 0);
+		assert.equal(warningCell.textContent, '');
+		assert.equal(fixture.requests.length, 0);
+		await fixture.tour.end();
+		assert.equal(fixture.app.scrollLeft, 0);
+	}
+});
+
+test('the warning row moves above the explanation when a short screen has no free side', async () => {
+	const fixture = createFixture({ viewportWidth: 1000, viewportHeight: 400 });
+	const warningCell = fixture.document.querySelector('#ts-body tr:first-child .ts-warn');
+	const warningHeading = fixture.document.querySelector('#ts-table thead th:nth-child(9)');
+	const startInput = fixture.document.querySelector('#ts-body tr:first-child .startTime');
+	fixture.app.clientHeight = 350;
+	fixture.app.scrollHeight = 1100;
+	const originalStyle = fixture.context.getComputedStyle;
+	fixture.context.getComputedStyle = element => ({ ...originalStyle(element), overflowY: element === fixture.app ? 'auto' : 'visible' });
+	fixture.document.querySelector('#ts-table thead').getBoundingClientRect = () => ({ left: 0, right: 1000, top: 50, bottom: 74, width: 1000, height: 24 });
+	startInput.getBoundingClientRect = () => ({ left: 100, right: 200, top: 200 - fixture.app.scrollTop, bottom: 230 - fixture.app.scrollTop, width: 100, height: 30 });
+	warningHeading.getBoundingClientRect = () => ({ left: 300, right: 700, top: 150 - fixture.app.scrollTop, bottom: 176 - fixture.app.scrollTop, width: 400, height: 26 });
+	warningCell.getBoundingClientRect = () => ({ left: 300, right: 700, top: 200 - fixture.app.scrollTop, bottom: 230 - fixture.app.scrollTop, width: 400, height: 30 });
+	await fixture.tour.start();
+	await advanceToStep(fixture, 'warnings');
+	assert.ok(fixture.app.scrollTop > 0, 'The existing row-alignment helper also handles the warning step');
+	const explanation = fixture.document.getElementById('ts-tour-dialog');
+	const explanationTop = parseFloat(explanation.style.top);
+	for (const frame of fixture.document.querySelectorAll('#ts-tour-cutout g rect')) {
+		assert.ok(Number(frame.getAttribute('y')) + Number(frame.getAttribute('height')) < explanationTop);
+	}
+	assert.equal(fixture.requests.length, 0);
+	await fixture.tour.end();
+	assert.equal(fixture.app.scrollTop, 0);
+});
+
+test('the employee tour explains eight sections in the requested order', async () => {
+	const fixture = createFixture();
+	await fixture.tour.start();
+	const visitedSteps = [];
+	for (let index = 0; index < fixture.tour.getState().total; index++) {
+		visitedSteps.push(fixture.tour.getState().step);
+		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, `Step ${index + 1} of 8`);
+		if (index < fixture.tour.getState().total - 1) {
+			fixture.document.getElementById('ts-tour-next').click();
+			await flush(); await flush();
+		}
+	}
+	assert.deepEqual(visitedSteps, ['export', 'working-time', 'federal-state', 'comments', 'warnings', 'profile', 'help', 'tour-access']);
+	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Help and tour');
+	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Questions and suggestions for HR. The guide can be restarted using the tour icon.');
+	assert.equal(fixture.requests.length, 0);
+	await fixture.tour.end();
+});
+
+test('export uses one continuous frame around the button and both export choices', async () => {
+	const fixture = createFixture();
+	const button = fixture.document.getElementById('export-mine-xlsx');
+	const choices = fixture.element('span', 'export-mine-xlsx-choice-ui', '', button.parentElement);
+	button.getBoundingClientRect = () => ({ left: 100, top: 100, right: 180, bottom: 140, width: 80, height: 40 });
+	choices.getBoundingClientRect = () => ({ left: 220, top: 100, right: 480, bottom: 140, width: 260, height: 40 });
+	await fixture.tour.start();
+	assert.equal(fixture.tour.getState().step, 'export');
+	assert.equal(choices.classList.contains('is-visible'), true);
+	const holes = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+	const frames = fixture.document.querySelectorAll('.ts-tour-highlight rect');
+	assert.equal(holes.length, 1);
+	assert.equal(frames.length, 1);
+	assert.equal(Number(holes[0].getAttribute('x')), 95);
+	assert.equal(Number(holes[0].getAttribute('y')), 95);
+	assert.equal(Number(holes[0].getAttribute('width')), 390);
+	assert.equal(Number(holes[0].getAttribute('height')), 50);
+	await fixture.tour.end();
+	assert.equal(choices.classList.contains('is-visible'), false);
+});
+
+test('the export frame includes controls just below the fixed header', async () => {
+	const fixture = createFixture();
+	const button = fixture.document.getElementById('export-mine-xlsx');
+	const choices = fixture.element('span', 'export-mine-xlsx-choice-ui', '', button.parentElement);
+	button.getBoundingClientRect = () => ({ left: 392, top: 54, right: 457, bottom: 88, width: 65, height: 34 });
+	choices.getBoundingClientRect = () => ({ left: 468, top: 51, right: 745, bottom: 91, width: 277, height: 40 });
+	await fixture.tour.start();
+	const frame = fixture.document.querySelector('#ts-tour-cutout g rect');
+	const frameTop = Number(frame.getAttribute('y'));
+	assert.ok(frameTop >= 50, 'The highlight stays below the fixed header');
+	assert.ok(frameTop <= 51, 'The highlight includes the top of the open export choices');
+	assert.ok(frameTop + Number(frame.getAttribute('height')) >= 91);
+	await fixture.tour.end();
+});
+
+test('the combined export highlight fits narrow left-to-right and right-to-left scroll containers', async () => {
+	for (const coordinates of [[50, 130], [140, -20]]) {
+		const fixture = createFixture({ viewportWidth: 320, viewportHeight: 568 });
+		const button = fixture.document.getElementById('export-mine-xlsx');
+		const choices = fixture.element('span', 'export-mine-xlsx-choice-ui', '', button.parentElement);
+		[button, choices].forEach((control, index) => {
+			const width = index === 0 ? 70 : 150;
+			control.getBoundingClientRect = () => ({ left: coordinates[index] - fixture.app.scrollLeft, right: coordinates[index] + width - fixture.app.scrollLeft, top: 100, bottom: 140, width, height: 40 });
+		});
+		await fixture.tour.start();
+		assert.equal(fixture.app.classList.contains('ts-tour-export-preview'), true);
+		const holes = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+		assert.equal(holes.length, 1);
+		for (const control of [button, choices]) {
+			const rectangle = control.getBoundingClientRect();
+			assert.ok(rectangle.left >= 8 && rectangle.right <= 312, 'The export button and choices remain fully visible');
+		}
+		const frame = holes[0];
+		assert.ok(Number(frame.getAttribute('x')) >= 4);
+		assert.ok(Number(frame.getAttribute('x')) + Number(frame.getAttribute('width')) <= 316);
+		const explanation = fixture.document.getElementById('ts-tour-dialog');
+		assert.ok(parseFloat(explanation.style.top) >= 159, 'The explanation stays below the complete export frame');
+		await fixture.tour.end();
+		assert.equal(fixture.app.classList.contains('ts-tour-export-preview'), false);
+		assert.equal(fixture.app.scrollLeft, 0);
+	}
+});
+
+test('working time and federal state each highlight only their own field and label', async () => {
+	const fixture = createFixture();
+	const targetGroups = [
+		['config-daily-min-mine', 30, 100],
+		['config-state-mine', 400, 200],
+	];
+	for (const [fieldId, left, top] of targetGroups) {
+		const label = fixture.document.querySelector(`label[for="${fieldId}"]`);
+		const field = fixture.document.getElementById(fieldId);
+		label.getBoundingClientRect = () => ({ left, right: left + 130, top, bottom: top + 40, width: 130, height: 40 });
+		field.getBoundingClientRect = () => ({ left: left + 140, right: left + 220, top, bottom: top + 40, width: 80, height: 40 });
+	}
+	await fixture.tour.start();
+	await advanceToStep(fixture, 'working-time');
+	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Working time');
+	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'The start of work can be chosen individually in accordance with company guidelines.');
+	let frame = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+	assert.equal(frame.length, 1);
+	assert.equal(Number(frame[0].getAttribute('x')), 25);
+	assert.equal(Number(frame[0].getAttribute('y')), 95);
+	assert.equal(Number(frame[0].getAttribute('width')), 230);
+	await advanceToStep(fixture, 'federal-state');
+	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Federal state');
+	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'The public holidays shown in the Status column depend on the selected federal state.');
+	frame = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+	assert.equal(frame.length, 1);
+	assert.equal(Number(frame[0].getAttribute('x')), 395);
+	assert.equal(Number(frame[0].getAttribute('y')), 195);
+	assert.equal(Number(frame[0].getAttribute('width')), 230);
+	assert.equal(fixture.requests.length, 0);
+	await fixture.tour.end();
+});
+
+test('the final launcher step closes the profile and ending restores unsaved fields, export and navigation', async () => {
+	for (const initiallyOpen of [false, true]) {
+		const fixture = createFixture();
+		const profile = fixture.document.querySelector('#user-menu .header-menu__trigger');
+		const launcher = fixture.document.getElementById('ts-tour-launcher');
+		launcher.getBoundingClientRect = () => ({ left: 700, right: 744, top: 10, bottom: 50, width: 44, height: 40 });
+		if (initiallyOpen) profile.click();
+		if (initiallyOpen) fixture.context.Timesheet.export.handleExportClick('mine');
+		const fields = ['#config-daily-min-mine', '#config-state-mine', '#ts-body .startTime', '#ts-body .breakMinutes', '#ts-body .endTime', '#ts-body .commentInput'].map(selector => fixture.document.querySelector(selector));
+		const values = ['06:45', 'HE', '08:17', '23', '17:42', 'Unsaved comment'];
+		fields.forEach((field, index) => { field.value = values[index]; });
+		fields.at(-1).focus();
+		fixture.app.scrollTop = 83;
+		fixture.app.scrollLeft = 14;
+		await fixture.tour.start();
+		const choices = fixture.document.getElementById('export-mine-xlsx-choice-ui');
+		assert.equal(choices.classList.contains('is-visible'), true);
+		await advanceToStep(fixture, 'working-time');
+		assert.equal(choices.classList.contains('is-visible'), false);
+		assert.equal(fixture.app.classList.contains('ts-tour-export-preview'), false);
+		fixture.document.getElementById('ts-tour-back').click();
+		await flush(); await flush();
+		assert.equal(fixture.tour.getState().step, 'export');
+		assert.equal(choices.classList.contains('is-visible'), true);
+		await advanceToStep(fixture, 'help');
+		assert.equal(profile.getAttribute('aria-expanded'), 'true');
+		assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Questions, help and privacy information about Nextcloud in general.');
+		await advanceToEnd(fixture);
+		assert.equal(profile.getAttribute('aria-expanded'), 'false');
+		const frame = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+		assert.equal(frame.length, 1);
+		assert.equal(Number(frame[0].getAttribute('x')), 695);
+		assert.equal(Number(frame[0].getAttribute('y')), 5);
+		assert.equal(Number(frame[0].getAttribute('width')), 54);
+		assert.deepEqual(fields.map(field => field.value), values);
+		await fixture.tour.end();
+		assert.equal(profile.getAttribute('aria-expanded'), String(initiallyOpen));
+		assert.equal(choices.classList.contains('is-visible'), initiallyOpen);
+		assert.equal(fixture.app.classList.contains('ts-tour-export-preview'), false);
+		assert.deepEqual(fields.map(field => field.value), values);
+		assert.equal(fixture.document.activeElement, fields.at(-1));
+		assert.equal(fixture.app.scrollTop, 83);
+		assert.equal(fixture.app.scrollLeft, 14);
+		assert.equal(fixture.context.scrollX, 5);
+		assert.equal(fixture.context.scrollY, 45);
+		assert.equal(fixture.requests.length, 0);
+	}
+});
+
+test('absence comment guidance uses shared account-language terms rather than fixed German labels', async () => {
+	for (const absenceTerms of [
+		{ vacation: 'Vacation', timeOffInLieu: 'Time off in lieu' },
+		{ vacation: 'Congés annuels', timeOffInLieu: 'Repos compensateur' },
+		{ vacation: '年次休暇', timeOffInLieu: '代休' },
+	]) {
+		const fixture = createFixture({ absenceTerms });
+		await fixture.tour.start();
+		while (fixture.tour.getState().step !== 'comments') {
+			fixture.document.getElementById('ts-tour-next').click();
+			await flush(); await flush();
+		}
+		const description = fixture.document.getElementById('ts-tour-description').textContent;
+		assert.ok(description.includes(absenceTerms.vacation), description);
+		assert.ok(description.includes(absenceTerms.timeOffInLieu), description);
+		assert.doesNotMatch(description, /Urlaub|Stundenausgleich|\{vacation\}|\{timeOffInLieu\}/u);
+		assert.doesNotMatch(description, /approval|warning/u);
+		assert.equal(fixture.requests.length, 0);
+		await fixture.tour.end();
+	}
+});
 
 test('header placement and invitation follow the app account state without duplicate launchers', async () => {
 	const fixture = createFixture();
@@ -250,8 +784,8 @@ test('completed accounts retain manual access; unavailable progress never auto-s
 	const completed = createFixture({ employeeCompleted: true });
 	assert.equal(completed.document.getElementById('ts-tour-invitation'), null);
 	await completed.tour.start();
-	assert.equal(completed.tour.getState().step, 'month');
-	assert.equal(completed.tour.getState().total, 10);
+	assert.equal(completed.tour.getState().step, 'export');
+	assert.equal(completed.tour.getState().total, 8);
 	await completed.tour.end();
 	const unavailable = createFixture({ available: false });
 	assert.equal(unavailable.document.getElementById('ts-tour-invitation'), null);
@@ -303,60 +837,55 @@ test('employee tour blocks background changes, traps focus, aborts on Escape and
 test('employee completion writes only tour progress and preserves account-language text', async () => {
 	const fixture = createFixture({ translate: text => `translated:${text}` });
 	await fixture.tour.start();
-	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'translated:Choose a month');
+	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'translated:Month and year export');
 	await advanceToEnd(fixture);
-	assert.equal(fixture.tour.getState().step, 'help');
-	assert.equal(fixture.document.getElementById('ts-tour-dialog').dataset.stepId, 'help');
+	assert.equal(fixture.tour.getState().step, 'tour-access');
+	assert.equal(fixture.document.getElementById('ts-tour-dialog').dataset.stepId, 'tour-access');
 	fixture.document.getElementById('ts-tour-next').click();
 	await flush(); await flush();
 	assert.equal(fixture.tour.getState().active, false);
 	assert.equal(fixture.tour.getState().employeeCompleted, true);
-	assert.deepEqual(fixture.requests, [{ path: '/api/preferences/tour/complete', method: 'POST', body: { version: 1, includeHr: false } }]);
+	assert.deepEqual(fixture.requests, [{ path: '/api/preferences/tour/complete', method: 'POST', body: { version: 1 } }]);
 	assert.equal(fixture.copyCounts.entryLoads, 0);
 	assert.equal(fixture.document.getElementById('export-mine-xlsx-choice-ui').classList.contains('is-visible'), false);
 });
 
-test('HR-only introduction uses scoped employee reads, includes HR and restores original fields', async () => {
-	const fixture = createFixture({ hr: true, employeeCompleted: true, employees: [{ id: 'permitted-user' }] });
+test('employee tours never load HR data even when unrelated HR markup is present', async () => {
+	const fixture = createFixture({ hrDom: true });
 	const originalTitle = fixture.document.querySelector('#hr-user-title span').textContent;
-	await fixture.tour.start(true);
+	await fixture.tour.start();
 	assert.equal(fixture.tour.getState().total, 8);
-	assert.equal(fixture.tour.getState().step, 'hr-navigation');
 	await advanceToEnd(fixture);
 	fixture.document.getElementById('ts-tour-next').click();
 	await flush(); await flush();
-	assert.equal(fixture.tour.getState().hrCompleted, true);
+	assert.equal(fixture.tour.getState().employeeCompleted, true);
 	assert.equal(fixture.document.querySelector('#hr-user-title span').textContent, originalTitle);
-	assert.equal(fixture.context.Timesheet.state.hrCurrentMonth.getMonth(), 1);
-	assert.ok(fixture.requests.some(request => request.path === '/api/hr/config/permitted-user'));
-	assert.deepEqual(fixture.requests.filter(request => request.method !== 'GET').map(request => request.body), [{ version: 1, includeHr: true }]);
+	assert.equal(fixture.requests.some(request => request.path.startsWith('/api/hr/')), false);
+	assert.equal('hrCompleted' in fixture.tour.getState(), false);
+	assert.equal('isHr' in fixture.tour.getState(), false);
+	assert.deepEqual(fixture.requests.map(request => request.body), [{ version: 1 }]);
 });
 
-test('empty HR assignments and hidden Nextcloud help have explicit explanations', async () => {
-	const fixture = createFixture({ hr: true, helpPresent: false });
-	await fixture.tour.start(true);
-	while (fixture.tour.getState().step !== 'hr-person') {
-		fixture.document.getElementById('ts-tour-next').click();
-		await flush(); await flush();
-	}
-	assert.match(fixture.document.getElementById('ts-tour-description').textContent, /^No employees are currently assigned/);
-	await advanceToEnd(fixture);
-	assert.match(fixture.document.getElementById('ts-tour-description').textContent, /^General help is hidden/);
-	assert.equal(fixture.copyCounts.entryLoads, 0);
+test('hidden Nextcloud help has an explicit explanation in the employee tour', async () => {
+	const fixture = createFixture({ helpPresent: false });
+	await fixture.tour.start();
+	await advanceToStep(fixture, 'help');
+	assert.equal(fixture.tour.getState().step, 'help');
+	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'General help is hidden on this Nextcloud instance.');
+	assert.equal(fixture.requests.length, 0);
 	await fixture.tour.end();
 });
 
-test('lost HR access removes HR steps and does not mark its introduction complete', async () => {
-	const fixture = createFixture({ hr: true, respond(request) { if (request.path === '/api/hr/users') throw new Error('[]'); } });
-	await fixture.tour.start(true);
-	fixture.document.getElementById('ts-tour-next').click();
-	await flush(); await flush();
-	assert.equal(fixture.tour.getState().isHr, false);
-	assert.equal(fixture.tour.getState().step, 'profile');
+test('a role change rejected by the server never records employee completion', async () => {
+	const fixture = createFixture({ respond(request) { if (request.method === 'POST') throw new Error('{"code":"tour_unavailable"}'); } });
+	await fixture.tour.start();
 	await advanceToEnd(fixture);
 	fixture.document.getElementById('ts-tour-next').click();
 	await flush(); await flush();
-	assert.deepEqual(fixture.requests.filter(request => request.method === 'POST').map(request => request.body), [{ version: 1, includeHr: false }]);
+	assert.equal(fixture.tour.getState().employeeCompleted, false);
+	assert.equal(fixture.tour.getState().active, false);
+	assert.match(fixture.messages.at(-1), /completion could not be saved/);
+	assert.deepEqual(fixture.requests.map(request => request.body), [{ version: 1 }]);
 });
 
 test('temporary completion locks retry; storage failure keeps completion unfinished', async () => {
@@ -383,27 +912,26 @@ test('missing header yields a labeled launcher within the app', async () => {
 	const button = fixture.document.getElementById('ts-tour-launcher');
 	assert.equal(button.parentElement, fixture.app);
 	assert.equal(button.classList.contains('ts-tour-launcher-fallback'), true);
-	assert.equal(button.getAttribute('aria-label'), 'Start the Timesheet tour');
+	assert.equal(button.getAttribute('aria-label'), 'Help and tour');
 	await fixture.tour.start();
-	await advanceToEnd(fixture);
+	await advanceToStep(fixture, 'help');
 	assert.match(fixture.document.getElementById('ts-tour-description').textContent, /^General help is hidden/);
+	await advanceToEnd(fixture);
+	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Questions and suggestions for HR. The guide can be restarted using the tour icon.');
 	await fixture.tour.end();
 });
 
-test('new HR rights offer only the additional introduction; fully introduced HR accounts stay quiet', async () => {
-	const promoted = createFixture({ hr: true, employeeCompleted: true });
-	assert.ok(promoted.document.getElementById('ts-tour-invitation'));
-	promoted.document.getElementById('ts-tour-start').click();
-	await flush(); await flush();
-	assert.equal(promoted.tour.getState().step, 'hr-navigation');
-	assert.equal(promoted.tour.getState().total, 8);
-	await promoted.tour.end();
-	const completed = createFixture({ hr: true, employeeCompleted: true, hrCompleted: true });
-	assert.equal(completed.document.getElementById('ts-tour-invitation'), null);
-	await completed.tour.start();
-	assert.equal(completed.tour.getState().step, 'month');
-	assert.equal(completed.tour.getState().total, 16);
-	await completed.tour.end();
+test('HR accounts receive neither a first invitation nor manual access, regardless of employee completion', async () => {
+	for (const employeeCompleted of [false, true]) {
+		const fixture = createFixture({ hr: true, employeeCompleted });
+		assert.equal(fixture.document.getElementById('ts-tour-launcher'), null);
+		assert.equal(fixture.document.getElementById('ts-tour-invitation'), null);
+		assert.equal(fixture.document.getElementById('ts-tour-help-menu'), null);
+		await fixture.tour.start();
+		assert.equal(fixture.tour.getState().active, false);
+		assert.equal(fixture.document.getElementById('ts-tour-overlay'), null);
+		assert.equal(fixture.requests.length, 0);
+	}
 });
 
 test('ending during a temporary-lock wait cancels further completion retries', async () => {
@@ -438,58 +966,43 @@ test('a delayed completion from an ended tour cannot finish or update a restarte
 	await flush();
 	await fixture.tour.end();
 	await fixture.tour.start();
-	assert.equal(fixture.tour.getState().step, 'month');
+	assert.equal(fixture.tour.getState().step, 'export');
 	resolveOldRequest({ version: 1, employeeCompleted: true, hrCompleted: false, isHr: false });
 	await flush(); await flush();
 	assert.equal(fixture.tour.getState().active, true);
-	assert.equal(fixture.tour.getState().step, 'month');
+	assert.equal(fixture.tour.getState().step, 'export');
 	assert.equal(fixture.tour.getState().employeeCompleted, false);
 	assert.equal(fixture.messages.length, 0);
 	await fixture.tour.end();
 });
 
-test('entry fields fit the narrow viewport as a group in left-to-right and right-to-left scroll containers', async () => {
-	for (const coordinates of [[50, 150, 230], [140, 60, -40]]) {
+test('working-time labels and fields fit narrow left-to-right and right-to-left scroll containers', async () => {
+	for (const coordinates of [[50, 190], [140, 10]]) {
 		const fixture = createFixture({ viewportWidth: 320 });
-		const fields = ['startTime', 'breakMinutes', 'endTime'].map(className => fixture.document.querySelector(`#ts-body .${className}`));
+		const fields = [fixture.document.querySelector('label[for="config-daily-min-mine"]'), fixture.document.getElementById('config-daily-min-mine')];
 		fields.forEach((field, index) => {
-			const width = index === 1 ? 80 : 100;
+			const width = index === 0 ? 130 : 80;
 			field.getBoundingClientRect = () => ({ left: coordinates[index] - fixture.app.scrollLeft, right: coordinates[index] + width - fixture.app.scrollLeft, top: 160, bottom: 190, width, height: 30 });
 		});
 		await fixture.tour.start();
-		while (fixture.tour.getState().step !== 'entries') {
-			fixture.document.getElementById('ts-tour-next').click();
-			await flush(); await flush();
-		}
+		await advanceToStep(fixture, 'working-time');
 		for (const field of fields) {
 			const rectangle = field.getBoundingClientRect();
-			assert.ok(rectangle.left >= 8 && rectangle.right <= 312, 'All three entry fields remain visible together');
+			assert.ok(rectangle.left >= 8 && rectangle.right <= 312, 'The working-time field and its label remain visible together');
 		}
 		await fixture.tour.end();
 		assert.equal(fixture.app.scrollLeft, 0);
 	}
 });
 
-test('application highlights stop below the fixed header and HR details reveal only their controls', async () => {
-	const fixture = createFixture({ hr: true, employees: [{ id: 'permitted-user' }] });
-	const ownConfig = fixture.document.querySelector('#tab-mine .hr-config-row');
-	ownConfig.getBoundingClientRect = () => ({ left: 10, right: 400, top: -20, bottom: 150, width: 390, height: 170 });
+test('application highlights stop below the fixed header', async () => {
+	const fixture = createFixture();
+	const stateSelect = fixture.document.getElementById('config-state-mine');
+	stateSelect.getBoundingClientRect = () => ({ left: 10, right: 400, top: -20, bottom: 150, width: 390, height: 170 });
 	await fixture.tour.start();
-	while (fixture.tour.getState().step !== 'configuration') {
-		fixture.document.getElementById('ts-tour-next').click();
-		await flush(); await flush();
-	}
+	await advanceToStep(fixture, 'federal-state');
 	const configHole = fixture.document.querySelector('#ts-tour-cutout g rect');
 	assert.ok(Number(configHole.getAttribute('y')) >= 50, 'The application spotlight does not brighten the fixed header');
-	const detail = fixture.document.getElementById('hr-user-entries');
-	detail.getBoundingClientRect = () => ({ left: 8, right: 992, top: -600, bottom: 1800, width: 984, height: 2400 });
-	while (fixture.tour.getState().step !== 'hr-person') {
-		fixture.document.getElementById('ts-tour-next').click();
-		await flush(); await flush();
-	}
-	const detailHoles = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
-	assert.ok(detailHoles.length >= 1 && detailHoles.length <= 2);
-	assert.ok(detailHoles.every(hole => Number(hole.getAttribute('height')) < 200), 'Only the compact employee header and controls are revealed');
 	await fixture.tour.end();
 });
 
@@ -527,70 +1040,42 @@ test('keyboard reading keys scroll an overflowing explanation while focus stays 
 });
 
 test('administrator-disabled tours create neither an invitation nor a launcher', async () => {
-	const fixture = createFixture({ enabled: false, hr: true });
+	const fixture = createFixture({ enabled: false });
 	assert.equal(fixture.document.getElementById('ts-tour-launcher'), null);
 	assert.equal(fixture.document.getElementById('ts-tour-invitation'), null);
+	assert.equal(fixture.document.getElementById('ts-tour-help-menu'), null);
 	await fixture.tour.start();
 	assert.equal(fixture.document.getElementById('ts-tour-overlay'), null);
 	assert.equal(fixture.requests.length, 0);
 });
 
-test('the HR introduction explains the two tabs before opening protected HR views', async () => {
-	const fixture = createFixture({ hr: true, employeeCompleted: true });
-	await fixture.tour.start(true);
-	assert.equal(fixture.tour.getState().step, 'hr-navigation');
-	assert.equal(fixture.tour.getState().total, 8);
-	assert.equal(fixture.app.classList.contains('ts-tour-navigation-preview'), true);
-	assert.equal(fixture.requests.length, 0);
-	assert.equal(fixture.document.getElementById('tab-mine').classList.contains('active'), true);
-	fixture.document.getElementById('ts-tour-next').click();
-	await flush(); await flush();
-	assert.equal(fixture.tour.getState().step, 'hr-list');
-	assert.equal(fixture.app.classList.contains('ts-tour-navigation-preview'), false);
-	assert.equal(fixture.document.getElementById('tab-hr').classList.contains('active'), true);
-	assert.ok(fixture.requests.some(request => request.path === '/api/hr/users'));
-	await fixture.tour.end();
-});
 
-test('ending the HR navigation explanation restores the original tab appearance', async () => {
-	const fixture = createFixture({ hr: true, employeeCompleted: true });
-	await fixture.tour.start(true);
-	assert.equal(fixture.app.classList.contains('ts-tour-navigation-preview'), true);
-	fixture.dispatch(fixture.event('keydown', fixture.document.activeElement, { key: 'Escape' }));
-	await flush(); await flush();
-	assert.equal(fixture.tour.getState().active, false);
-	assert.equal(fixture.app.classList.contains('ts-tour-navigation-preview'), false);
-});
 
-test('adjacent entry highlights share one frame instead of overlapping padded boxes', async () => {
+test('adjacent working-time labels and fields share one frame instead of overlapping padded boxes', async () => {
 	const fixture = createFixture();
-	['startTime', 'breakMinutes', 'endTime'].forEach((className, index) => {
-		const left = 300 + index * 60;
-		fixture.document.querySelector(`#ts-body .${className}`).getBoundingClientRect = () => ({ left, right: left + 60, top: 180, bottom: 210, width: 60, height: 30 });
+	const fields = [fixture.document.querySelector('label[for="config-daily-min-mine"]'), fixture.document.getElementById('config-daily-min-mine')];
+	fields.forEach((field, index) => {
+		const left = 300 + index * 100;
+		field.getBoundingClientRect = () => ({ left, right: left + 100, top: 180, bottom: 210, width: 100, height: 30 });
 	});
 	await fixture.tour.start();
-	while (fixture.tour.getState().step !== 'entries') {
-		fixture.document.getElementById('ts-tour-next').click();
-		await flush(); await flush();
-	}
+	await advanceToStep(fixture, 'working-time');
 	const holes = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
 	assert.equal(holes.length, 1);
 	assert.equal(Number(holes[0].getAttribute('x')), 295);
-	assert.equal(Number(holes[0].getAttribute('width')), 190);
+	assert.equal(Number(holes[0].getAttribute('width')), 210);
 	await fixture.tour.end();
 });
 
 test('the explanation uses free horizontal space when a short viewport cannot fit it above or below', async () => {
 	const fixture = createFixture({ viewportWidth: 1000, viewportHeight: 400 });
-	['startTime', 'breakMinutes', 'endTime'].forEach((className, index) => {
-		const left = 300 + index * 60;
-		fixture.document.querySelector(`#ts-body .${className}`).getBoundingClientRect = () => ({ left, right: left + 60, top: 150, bottom: 220, width: 60, height: 70 });
+	const fields = [fixture.document.querySelector('label[for="config-daily-min-mine"]'), fixture.document.getElementById('config-daily-min-mine')];
+	fields.forEach((field, index) => {
+		const left = 300 + index * 90;
+		field.getBoundingClientRect = () => ({ left, right: left + 90, top: 150, bottom: 220, width: 90, height: 70 });
 	});
 	await fixture.tour.start();
-	while (fixture.tour.getState().step !== 'entries') {
-		fixture.document.getElementById('ts-tour-next').click();
-		await flush(); await flush();
-	}
+	await advanceToStep(fixture, 'working-time');
 	const box = fixture.document.getElementById('ts-tour-dialog');
 	const rectangle = { left: parseFloat(box.style.left), top: parseFloat(box.style.top), width: 360, height: 240 };
 	for (const hole of fixture.document.querySelectorAll('#ts-tour-cutout g rect')) {
@@ -600,22 +1085,5 @@ test('the explanation uses free horizontal space when a short viewport cannot fi
 		const bottom = top + Number(hole.getAttribute('height'));
 		assert.equal(rectangle.left < right && rectangle.left + rectangle.width > left && rectangle.top < bottom && rectangle.top + rectangle.height > top, false, 'The explanation does not cover highlighted fields');
 	}
-	await fixture.tour.end();
-});
-
-test('HR email and warning explanations prefer the left side when the desktop has room', async () => {
-	const fixture = createFixture({ hr: true, employeeCompleted: true });
-	for (const id of ['hr-notifications-section', 'hr-warning-thresholds-section']) {
-		fixture.document.getElementById(id).getBoundingClientRect = () => ({ left: 550, right: 900, top: 180, bottom: 500, width: 350, height: 320 });
-	}
-	await fixture.tour.start(true);
-	while (fixture.tour.getState().step !== 'hr-warnings') {
-		if (fixture.tour.getState().step === 'hr-mail') {
-			assert.ok(parseFloat(fixture.document.getElementById('ts-tour-dialog').style.left) + 360 <= 536);
-		}
-		fixture.document.getElementById('ts-tour-next').click();
-		await flush(); await flush();
-	}
-	assert.ok(parseFloat(fixture.document.getElementById('ts-tour-dialog').style.left) + 360 <= 536);
 	await fixture.tour.end();
 });

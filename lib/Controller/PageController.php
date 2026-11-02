@@ -8,7 +8,9 @@ use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IRequest;
 use OCP\IGroupManager;
+use OCP\IL10N;
 use OCP\Util;
+use OCA\Timesheet\Service\AbsenceCommentCatalog;
 use OCA\Timesheet\Service\HrService;
 use OCA\Timesheet\Db\UserPreferencesStore;
 use OCA\Timesheet\Db\TourProgressStore;
@@ -26,6 +28,8 @@ class PageController extends Controller {
 		private TourProgressStore $tourProgressStore,
 		private LoggerInterface $logger,
 		private IGroupManager $groupManager,
+		private AbsenceCommentCatalog $absenceCommentCatalog,
+		private IL10N $l10n,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -34,11 +38,13 @@ class PageController extends Controller {
 	#[NoCSRFRequired]
 	public function index(): TemplateResponse {
 		$currentUser = $this->userSession->getUser();
-		// The introduction is currently limited to non-administrator accounts.
-		$tourEnabled = $currentUser !== null && !$this->groupManager->isAdmin($currentUser->getUID());
+		$isHr = $this->hrService->isHr();
+		// Only ordinary employees receive the introduction or its launcher.
+		$tourEnabled = $currentUser !== null && !$isHr && !$this->groupManager->isAdmin($currentUser->getUID());
 		Util::addTranslations('timesheet');
 
 		// Load modules in dependency order.
+		Util::addScript('timesheet', 'timesheet-header');
 		Util::addScript('timesheet', 'timesheet-core');
 		Util::addScript('timesheet', 'timesheet-entries');
 		Util::addScript('timesheet', 'timesheet-hr');
@@ -59,17 +65,14 @@ class PageController extends Controller {
 		$breakPreference = $currentUser
 			? $this->userPreferencesStore->getBreakInputPreference($currentUser->getUID())
 			: ['breakInputMode' => 'minutes', 'revision' => hash('sha256', '')];
-		$isHr = $this->hrService->isHr();
 		$tourProgress = [
 			'version' => TourProgressStore::VERSION,
 			'employeeCompleted' => false,
-			'hrCompleted' => false,
-			'isHr' => $isHr,
 		];
 		$tourStateAvailable = false;
 		if ($tourEnabled) {
 			try {
-				$tourProgress = $this->tourProgressStore->getProgress($currentUser->getUID(), $isHr);
+				$tourProgress = $this->tourProgressStore->getProgress($currentUser->getUID());
 				$tourStateAvailable = true;
 			} catch (\Throwable $loadError) {
 				// A missing introduction preference must not prevent normal timesheet use.
@@ -80,6 +83,7 @@ class PageController extends Controller {
 			'isHR' => $isHr,
 			'breakInputMode' => $breakPreference['breakInputMode'],
 			'breakInputRevision' => $breakPreference['revision'],
+			'absenceCommentTerms' => $this->absenceCommentCatalog->getTerms($this->l10n->getLanguageCode()),
 			'tourProgress' => $tourProgress,
 			'tourEnabled' => $tourEnabled,
 			'tourStateAvailable' => $tourStateAvailable,

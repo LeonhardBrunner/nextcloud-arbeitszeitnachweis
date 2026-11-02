@@ -1,12 +1,15 @@
-<?php $usesHoursFormat = ($_['breakInputMode'] ?? 'minutes') === 'hours'; ?>
+<?php
+$usesHoursFormat = ($_['breakInputMode'] ?? 'minutes') === 'hours';
+$absenceCommentTerms = $_['absenceCommentTerms'];
+?>
 <section class="card" id="timesheet-app"
 	data-break-input-mode="<?php p($usesHoursFormat ? 'hours' : 'minutes'); ?>"
 	data-break-input-revision="<?php p($_['breakInputRevision'] ?? ''); ?>"
+	data-absence-vacation="<?php p($absenceCommentTerms['vacation']); ?>"
+	data-absence-time-off-in-lieu="<?php p($absenceCommentTerms['timeOffInLieu']); ?>"
 	data-tour-enabled="<?php p(($_['tourEnabled'] ?? true) ? 'true' : 'false'); ?>"
 	data-tour-version="<?php p($_['tourProgress']['version'] ?? 1); ?>"
 	data-tour-employee-completed="<?php p(($_['tourProgress']['employeeCompleted'] ?? false) ? 'true' : 'false'); ?>"
-	data-tour-hr-completed="<?php p(($_['tourProgress']['hrCompleted'] ?? false) ? 'true' : 'false'); ?>"
-	data-tour-is-hr="<?php p(($_['tourProgress']['isHr'] ?? false) ? 'true' : 'false'); ?>"
 	data-tour-state-available="<?php p(($_['tourStateAvailable'] ?? false) ? 'true' : 'false'); ?>">
 	<!-- Tabs -->
 	<div class="ts-tabs">
@@ -114,10 +117,10 @@
 				<!-- HR guidance -->
 				<div id="hr-infobox-section" class="ts-hr-section ts-infobox">
 					<p class="ts-infobox-text">
-						<?php p($l->t('If you would like to request changes to break durations, permitted daily hours or timesheets of other employees, please contact your Nextcloud admin.')) ?>
+						<?php p($l->t('Group assignments, time rules and missing-entry reminders can be managed in the Timesheet section under Profile → Settings.')) ?>
 					</p>
 					<p class="ts-infobox-text">
-						<?php p($l->t('For days without start and end times, only the exact comments "Urlaub" and "Stundenausgleich" prevent a reminder. Letter case and surrounding spaces are ignored. Entries with only one time remain incomplete.')) ?>
+						<?php p($l->t('For days without start and end times, only the exact comments "%1$s" and "%2$s" prevent a reminder. Letter case and surrounding spaces are ignored. Entries with only one time remain incomplete.', [$absenceCommentTerms['vacation'], $absenceCommentTerms['timeOffInLieu']])) ?>
 					</p>
 				</div>
 

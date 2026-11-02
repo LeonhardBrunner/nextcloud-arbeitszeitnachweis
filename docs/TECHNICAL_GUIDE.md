@@ -17,7 +17,7 @@ Dieses Projekt baut auf Version 1.2.0 von David Gun (Repa1253) auf. Die maßgebl
 | --- | --- |
 | `appinfo/` | Anmeldung der App bei Nextcloud, Versionsangaben und Zuordnung der Browseranfragen. |
 | `lib/` | PHP-Code für Berechnungen, Datenbank, Einstellungen und E-Mail-Aufgaben. |
-| `templates/` | Aufbau der App-Seite und der Verwaltungsseite. |
+| `templates/` | Aufbau der App-Seite und der HR-Einstellungsseite. |
 | `js/` | JavaScript für Zeiteinträge, Export, HR-Ansicht und Einstellungen. |
 | `css/` und `img/` | Gestaltung und App-Symbole. |
 | `l10n/` | Übersetzungen. Nextcloud erwartet diesen Ordnernamen. JSON-Dateien werden von PHP, JS-Dateien vom Browser verwendet. Die Tourtexte stehen in den angebotenen Kontosprachen bereit. `de` und `de_DE` enthalten die persönliche und die förmliche deutsche Sprachfassung. |
@@ -40,7 +40,7 @@ Im Hauptordner stehen die Einstellungen für Composer und npm. `composer.json` u
 | Monats- und Jahresexport | `js/timesheet-export.js` steuert die Auswahl; `lib/Service/TimesheetXlsxExporter.php` erstellt die Datei. `EntryController` prüft den Zugriff und liefert den Download. |
 | HR-Übersicht und Zuständigkeiten | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
 | Anzeigeeinstellungen | `PreferencesController` und `lib/Db/UserPreferencesStore.php` speichern die persönliche Pausenanzeige. `PageController` liefert die gespeicherte Auswahl beim Seitenaufruf mit. |
-| Einstellungen | `ConfigController` nimmt persönliche Einstellungen entgegen; `lib/Db/HrPreferencesStore.php` liest und speichert HR-E-Mail- und Warnungseinstellungen. Gruppenregeln liegen bei `SettingsController`, `templates/settings-admin.php` und `js/admin.js`. |
+| Einstellungen | `ConfigController` nimmt persönliche Einstellungen entgegen; `lib/Db/HrPreferencesStore.php` liest und speichert HR-E-Mail- und Warnungseinstellungen. Gruppenregeln liegen bei `SettingsController`, `templates/settings-hr.php` und `js/hr-settings.js`. |
 | E-Mails und Feiertage | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
 | Gemeinsame Browserfunktionen | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
 
@@ -93,27 +93,43 @@ Gespeicherte Änderungen an den eingebundenen Dateien erscheinen nach dem Neulad
 
 Feiertagsdaten benötigen ausgehenden HTTPS-Zugriff auf `get.api-feiertage.de`, sofern keine gültigen gespeicherten Daten vorhanden sind. HR-E-Mails setzen persönliche Benachrichtigungseinstellungen, eine Empfängeradresse, funktionierenden Nextcloud-Mailversand und Hintergrundaufgaben voraus. Der vorhandene Job versendet regulär montags. Test-E-Mails gehören in ein Testpostfach.
 
+### Einstellungen für HR
+
+Der gesamte Bereich **Arbeitszeitnachweis** liegt unter **Profil → Einstellungen**, im Abschnitt **Persönlich**. Er erscheint ausschließlich für Konten mit HR-Zuständigkeit. Dort verwaltet HR die Zuordnung von HR- und Mitarbeitergruppen, Prioritäten, Pausen- und Zeitregeln, Erinnerungen sowie die Prüfung besonderer Tage. Ein Administratorkonto erhält ohne zusätzliche HR-Zuständigkeit keinen Zugriff. Der frühere Eintrag unter **Administration** entfällt.
+
+`lib/Settings/HrSettings.php` lädt das Formular; `HrSection.php` benennt den Menüeintrag. `templates/settings-hr.php` und `js/hr-settings.js` bilden die Oberfläche. `SettingsController` prüft die HR-Rolle auch bei jedem Speichervorgang. Die bisherigen Einstellungen und Browseradressen für das Speichern bleiben erhalten. Die Zeiterfassung darf die Prüfung besonderer Tage weiterhin lesen.
+
+Die HR-Rolle ergibt sich aus den unter `hr_access_rules` gespeicherten HR-Gruppen. Mindestens eine vorhandene HR-Gruppe bleibt beim Speichern zugeordnet. Eine Mitgliedschaft in dieser Gruppe wird in der Nextcloud-Benutzerverwaltung vergeben. Sind bei einer neuen Installation noch keine HR-Gruppen hinterlegt oder wurden alle zugeordneten Gruppen außerhalb der App gelöscht, richtet die für Nextcloud verantwortliche Person zunächst eine vorhandene Gruppe samt HR-Konto ein. Anschließend wird diese Gruppe über den Nextcloud-Verwaltungsbefehl `occ config:app:set timesheet hr_access_rules` einer Regel zugeordnet. Jede Regel benötigt eine eindeutige `id`, `hrGroups`, `userGroups` und eine `priority`; die übrigen Werte erhalten die bestehenden Voreinstellungen. Bereits vorhandene Regeln werden vorher gesichert und gezielt ergänzt. Der Befehl ersetzt den gesamten gespeicherten Regelwert. Ein zusätzlicher Administratorzugang zum Formular ist nicht vorgesehen.
+
 ### Persönliche Pausenanzeige
 
 Der Schalter **Pause: Minuten – Stunden** speichert seine Auswahl automatisch im angemeldeten Nextcloud-Konto. Die Auswahl bleibt nach Neuladen und erneutem Anmelden erhalten und gilt für die eigene Zeiterfassung sowie die HR-Ansicht. Beim Betrachten fremder Einträge gilt die Anzeigeeinstellung der betrachtenden Person. Gespeicherte Pausenwerte und Berechnungen bleiben unverändert.
 
 ### Geführte Tour
 
-Das Kompasssymbol zwischen Suche und Glocke öffnet eine Einführung in Timesheet. Für Nextcloud-Administratorkonten ist die Tour derzeit ausgeschaltet; dort werden weder Symbol noch Einladung angezeigt. `js/timesheet-tour.js` enthält Ablauf und Erklärungen; `js/timesheet-tour-header.js` verbindet das Symbol mit der Nextcloud-Kopfzeile. Die Darstellung liegt in `css/timesheet-tour.css`. Fehlt die erwartete Kopfzeile, erscheint der Zugang innerhalb von Timesheet.
+Das Fragezeichen im Kreis zwischen Suche und Glocke öffnet das Menü **Hilfe und Tour** für Mitarbeitende ohne HR- oder Administrationsrechte. Es enthält **Tourguide**, **Fragen an HR** und **Verbesserungswünsche**. Für HR- und Administratorkonten werden weder Symbol noch Einladung angezeigt; auch ein direkter Abschlussaufruf ist dort gesperrt. `js/timesheet-tour.js` enthält Ablauf und Erklärungen; `js/timesheet-tour-header.js` verbindet das Symbol mit der Nextcloud-Kopfzeile und verwaltet das aufklappbare Menü samt Tastaturbedienung und Mail-Links. Die Darstellung liegt in `css/timesheet-tour.css`. Fehlt die erwartete Kopfzeile, erscheint der Zugang innerhalb von Timesheet.
 
-Die Tour wird nach dem Laden der App angeboten. **Später** verschiebt die Einladung bis zum nächsten Aufruf. Ein Abschluss wird je Konto gespeichert, getrennt für den allgemeinen Teil und die HR-Erweiterung. `TourController` nimmt den Abschluss entgegen; `lib/Db/TourProgressStore.php` speichert ausschließlich die beiden Tourstände. Neue HR-Rechte führen zur zusätzlichen HR-Einführung. Eine manuell gestartete Tour zeigt alle aktuell verfügbaren Schritte.
+`js/timesheet-header.js` ergänzt innerhalb der App Maus-Hinweise für Kontakte und das Profilmenü. Verwendet werden die bereits übersetzten Nextcloud-Beschriftungen. Vorhandene Hinweise bleiben erhalten; auch später geladene Menüs werden berücksichtigt. Diese Ergänzung gilt für alle Konten und ist unabhängig von der Tour. Nextcloud-Dateien werden nicht verändert.
 
-Vor den HR-Funktionen erklärt ein eigener Schritt die Umschaltung zwischen Arbeitszeitnachweis und HR-Übersicht. Der Kommentarschritt beschreibt bereits den vorgesehenen HR-Freigabeablauf für „Urlaub“ und „Stundenausgleich“. Die technische Genehmigungsfunktion bleibt ein eigener Featureauftrag; diese Touränderung ergänzt ausschließlich die Erklärung.
+Die Tour wird nach dem Laden der App angeboten. **Später** verschiebt die Einladung bis zum nächsten Aufruf. Ein Abschluss wird je Konto gespeichert. `TourController` nimmt den Abschluss entgegen; `lib/Db/TourProgressStore.php` verwendet dafür ausschließlich `tour_employee_version`. Bereits abgeschlossene Mitarbeitertouren bleiben abgeschlossen. Die frühere HR-Erweiterung ist entfernt. Erhält ein Konto HR-Rechte, entfällt nach dem Neuladen der Tourzugang. Der Menüpunkt **Tourguide** startet die acht Schritte für Mitarbeitende erneut. Die Einladung beim ersten Besuch öffnet die Tour weiterhin direkt über **Tutorial**.
 
-Erklärungen lesen vorhandene Ansichten und öffnen bei Bedarf Menüs. Die Tour erstellt keine Zeiteinträge, ändert keine Einstellungen und startet keine Downloads. Die vorhandenen Leseaufrufe können berechnete Monatsstände zwischenspeichern, wie beim normalen Öffnen der HR-Ansicht. Nach ihrem Ende wird die zuvor geöffnete Ansicht wiederhergestellt. **Hilfe & Datenschutz** führt zur allgemeinen Nextcloud-Hilfe.
+Die acht Schritte behandeln Export, Arbeitszeit, Bundesland, Kommentare, Warnungen, Profil, allgemeine Nextcloud-Hilfe und das Toursymbol. Beim Export erhalten die Schaltfläche und die geöffnete Monats-/Jahresauswahl eine gemeinsame, durchgehende Hervorhebung. Der Arbeitszeitschritt hebt das Feld **Tägliche Arbeitszeit** hervor und verweist auf den individuell nach Unternehmensrichtlinien wählbaren Arbeitsbeginn. Dieser Hinweis verändert keine Eingaben oder Zeitregeln. Der Bundeslandschritt erklärt den Bezug zu den Feiertagen in der Spalte **Status**. Der Kommentarschritt zeigt die Abwesenheitsbegriffe in der Kontosprache, ohne eine HR-Freigabe zu beschreiben.
+
+Anschließend hebt der Schritt **Warnungen** das Warnungsfeld mit seiner Spaltenüberschrift hervor. Er nennt Pausenabweichungen und fehlende Arbeitszeitnachweise und weist auf deren zeitnahe Korrektur hin. Die bestehende Warnungsprüfung wird dadurch nicht verändert. Der letzte Schritt trägt die Überschrift **Hilfe und Tour**. Sein Text nennt Fragen und Verbesserungsvorschläge an HR sowie den Neustart über das Toursymbol.
+
+**Fragen an HR** und **Verbesserungswünsche** öffnen über `mailto:` eine neue Nachricht im eingestellten Mailprogramm. Beide verwenden `karriere@xiller.com`. Der Betreff lautet **Frage zum Arbeitszeitnachweis** beziehungsweise **Feedback für Arbeitszeitnachweis**. Diese Betreffzeilen bleiben unabhängig von der Kontosprache auf Deutsch. Der Nachrichtentext ist leer. Der Versand erfolgt im Mailprogramm; die App speichert oder versendet diese Nachrichten nicht.
+
+Nach jedem Klick erscheint zuerst die Rückmeldung **Standard-Mailprogramm wird aufgerufen.**. Darunter steht der bedingte Hinweis **Kein Mailprogramm geöffnet?**. Er erklärt die erforderliche Auswahl eines Standard-Mailprogramms. Empfänger und Betreff erscheinen ausschließlich in der vom Mailprogramm geöffneten Nachricht. Der Browser meldet keinen verlässlichen Erfolg oder Fehler des externen Mailprogramms zurück; ein fehlendes Programm wird deshalb nicht automatisch behauptet. Der Hinweis bleibt bei einem Fokuswechsel erhalten und lässt sich schließen. Er wird beim erneuten Öffnen des Menüs oder beim Tourstart entfernt. Es gibt keine Erkennung über Zeitverzögerung oder Fensterfokus.
+
+Erklärungen verwenden die vorhandene Mitarbeiteransicht und öffnen bei Bedarf Menüs. Zeiteinträge und Arbeitszeiteinstellungen werden nicht verändert; Downloads werden nicht gestartet. Die Tour ruft keine HR-Daten ab. Nach ihrem Ende wird die zuvor geöffnete Ansicht wiederhergestellt. **Hilfe & Datenschutz** führt zur allgemeinen Nextcloud-Hilfe.
 
 Die Kontosprache bestimmt die Tourtexte. Änderungen an Erklärungen werden in allen zugehörigen Sprachdateien gepflegt. Die Vollständigkeitsprüfung unter `tests/tour/` kontrolliert Texte, Platzhalter und die Übereinstimmung von JSON- und JS-Dateien. Sie ersetzt keine sprachliche Prüfung durch Muttersprachler. Zusätzliche Tourprüfungen laufen mit `npm run test:tour`; der getrennte PHP-Aufruf lautet `php tests/tour/progress.php`.
 
 ### Erinnerungen für einzelne offene Tage
 
-Die Verwaltungsseite enthält in jeder Gruppenregel den Bereich **Erinnerungen an fehlende Zeiten**. Die Funktion ist nach der Installation ausgeschaltet. Einstellbar sind die Wartefrist von 1 bis 365 Kalendertagen (Voreinstellung 14), die erwarteten Wochentage (Voreinstellung Montag bis Freitag) und der Prüfstart. Beim ersten Einschalten wird das aktuelle Datum vorgeschlagen; ein rückwirkender Beginn ist möglich.
+Unter **Profil → Einstellungen → Arbeitszeitnachweis** enthält jede Gruppenregel den Bereich **Erinnerungen an fehlende Zeiten**. Die Funktion ist nach der Installation ausgeschaltet. Einstellbar sind die Wartefrist von 1 bis 365 Kalendertagen (Voreinstellung 14), die erwarteten Wochentage (Voreinstellung Montag bis Freitag) und der Prüfstart. Beim ersten Einschalten wird das aktuelle Datum vorgeschlagen; ein rückwirkender Beginn ist möglich.
 
-Die tägliche Prüfung findet auch einzelne ältere Lücken, wenn danach bereits weitere Zeiten eingetragen wurden. Fehlende Start- oder Endzeiten werden ebenfalls gemeldet. Bei Tagen ohne beide Zeitangaben verhindern ausschließlich die vollständigen Kommentare **Urlaub** und **Stundenausgleich** eine Erinnerung. Groß-/Kleinschreibung und Leerzeichen am Anfang oder Ende werden ignoriert. Andere Kommentare oder Zusätze genügen nicht. Bei nur einer Zeitangabe bleibt die Erinnerung auch mit einem dieser Kommentare bestehen. Die HR-Übersicht enthält denselben Hinweis.
+Die tägliche Prüfung findet auch einzelne ältere Lücken, wenn danach bereits weitere Zeiten eingetragen wurden. Fehlende Start- oder Endzeiten werden ebenfalls gemeldet. Bei Tagen ohne beide Zeitangaben können festgelegte Abwesenheitskommentare eine Erinnerung verhindern. HR-Hinweis und Tour zeigen die Begriffe in der Kontosprache: auf Deutsch **Urlaub** und **Stundenausgleich**, auf Englisch **Vacation** und **Time off in lieu**. Die Bezeichnungen aller unterstützten Sprachen stehen gemeinsam in `lib/Service/absence-comment-terms.json`. `AbsenceCommentCatalog` stellt sie für Anzeige und Prüfung bereit. Die Prüfung erkennt die Begriffe aller dieser Sprachen, damit ein Sprachwechsel oder eine andere HR-Sprache bereits gespeicherte Einträge nicht ungültig macht. Für unbekannte Kontosprachen erscheinen die englischen Begriffe. Groß-/Kleinschreibung und Leerzeichen am Anfang oder Ende werden ignoriert. Andere Kommentare, Zusätze oder Satzzeichen genügen nicht. Bei nur einer Zeitangabe bleibt die Erinnerung auch mit einem erlaubten Kommentar bestehen. Die Prüfung verändert keine gespeicherten Kommentare.
 
 Feiertage des persönlichen Bundeslands bleiben ausgenommen. Ohne Bundesland oder bei nicht verfügbaren Feiertagsdaten erhält die betroffene Person zunächst keine Erinnerung; zuständiges HR bekommt einen Hinweis. Die ausgewählten Wochentage gelten auch bei einer täglichen Sollzeit von null.
 
@@ -146,6 +162,7 @@ php tests/reminders/state.php
 php tests/reminders/mailer.php
 php tests/preferences/user-preferences.php
 php tests/tour/progress.php
+php tests/settings/hr-settings.php
 ```
 
 `tests/reminders/integration.php` prüft den gesamten Ablauf einschließlich Versand in einer eigenen Nextcloud-Testinstanz. Er erzeugt Testkonten und Einträge und ersetzt dort die Gruppenregeln. Deshalb startet er ausschließlich mit `REMINDER_TEST_ENVIRONMENT=1`, der Datenbank `timesheet_reminders_test`, einem gesetzten `REMINDER_TEST_PASSWORD` und Mailpit als Versandziel. Er gehört nicht in die normale Demo oder eine produktive Installation. Der vorhandene PHPUnit-Aufbau bleibt davon getrennt.
@@ -217,7 +234,7 @@ This project builds on version 1.2.0 by David Gun (Repa1253). The authoritative 
 | --- | --- |
 | `appinfo/` | App registration, version information and routing of browser requests. |
 | `lib/` | PHP code for calculations, database access, settings and email tasks. |
-| `templates/` | Structure of the app page and administration page. |
+| `templates/` | Structure of the app page and HR settings page. |
 | `js/` | JavaScript for time entries, exports, the HR view and settings. |
 | `css/` and `img/` | Styling and app icons. |
 | `l10n/` | Translations. Nextcloud expects this directory name. PHP uses JSON files; the browser uses JS files. Tour text is supplied in the offered account languages. `de` and `de_DE` provide the informal and formal German variants. |
@@ -240,7 +257,7 @@ Composer and npm settings are in the repository root. `composer.json` and `compo
 | Monthly and yearly exports | `js/timesheet-export.js` handles the selection; `lib/Service/TimesheetXlsxExporter.php` creates the file. `EntryController` checks access and returns the download. |
 | HR overview and responsibilities | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
 | Display preferences | `PreferencesController` and `lib/Db/UserPreferencesStore.php` store the personal break display. `PageController` includes the saved selection when rendering the page. |
-| Settings | `ConfigController` receives personal settings; `lib/Db/HrPreferencesStore.php` reads and saves HR email and warning preferences. Group rules belong to `SettingsController`, `templates/settings-admin.php` and `js/admin.js`. |
+| Settings | `ConfigController` receives personal settings; `lib/Db/HrPreferencesStore.php` reads and saves HR email and warning preferences. Group rules belong to `SettingsController`, `templates/settings-hr.php` and `js/hr-settings.js`. |
 | Emails and public holidays | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
 | Shared browser functions | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
 
@@ -293,27 +310,43 @@ Saved changes to mounted files appear after a reload; a GitHub upload is not req
 
 Public holiday data requires outbound HTTPS access to `get.api-feiertage.de` unless valid cached data is available. HR emails require personal notification settings, a recipient address, working Nextcloud mail delivery and background jobs. The existing job normally sends on Mondays. Test emails belong in a test mailbox.
 
+### HR settings
+
+The complete **Timesheet** section is available under **Profile → Settings**, in the **Personal** section. It appears only for accounts with HR responsibilities. HR manages HR and employee group assignments, priorities, break and working-time rules, reminders, and the special-days check there. An administrator account without an HR role has no access. The previous entry under **Administration** is removed.
+
+`lib/Settings/HrSettings.php` loads the form; `HrSection.php` names the menu section. `templates/settings-hr.php` and `js/hr-settings.js` provide the interface. `SettingsController` checks the HR role for every write as well. Existing settings and save URLs are retained. Time recording can still read the special-days check.
+
+The HR role comes from the HR groups stored in `hr_access_rules`. Saving requires at least one existing HR group to remain assigned. Group membership is managed in Nextcloud's user administration. If a new installation has no HR group assigned yet, or all assigned groups have been deleted outside the app, the person responsible for Nextcloud first sets up an existing group with an HR account. That group is then assigned to a rule with Nextcloud's `occ config:app:set timesheet hr_access_rules` administration command. Each rule needs a unique `id`, `hrGroups`, `userGroups` and `priority`; other values use the existing defaults. Existing rules are backed up first and updated selectively. The command replaces the entire stored rule value. There is no additional administrator bypass for the form.
+
 ### Personal break display
 
 The **Break: Minutes – Hours** switch saves its selection automatically in the signed-in Nextcloud account. The selection survives reloads and signing in again and applies to both personal entries and the HR view. When viewing another employee, the viewer’s display preference applies. Stored break values and calculations remain unchanged.
 
 ### Guided tour
 
-The compass between search and notifications opens the Timesheet introduction. The tour is currently disabled for Nextcloud administrator accounts, which receive neither its button nor its invitation. `js/timesheet-tour.js` contains its flow and explanations; `js/timesheet-tour-header.js` connects the button to the Nextcloud header. Styling lives in `css/timesheet-tour.css`. A visible entry point inside Timesheet is used if the expected header is unavailable.
+The question mark in a circle between search and notifications opens the **Help and tour** menu for employees without HR or administrator privileges. It contains **Tour guide**, **Questions for HR** and **Suggestions for improvement**. HR and administrator accounts receive neither the button nor an invitation, and direct completion requests are rejected. `js/timesheet-tour.js` contains its flow and explanations; `js/timesheet-tour-header.js` connects the button to the Nextcloud header and manages the dropdown, keyboard controls and email links. Styling lives in `css/timesheet-tour.css`. A visible entry point inside Timesheet is used if the expected header is unavailable.
 
-The tour is offered after the app has loaded. **Later** defers the invitation until the next visit. Completion is stored per account, separately for the general introduction and the HR extension. `TourController` accepts completion; `lib/Db/TourProgressStore.php` stores only these two completion versions. Newly granted HR access offers the additional introduction. A manually started tour includes all steps currently available.
+`js/timesheet-header.js` adds hover hints to the contacts and profile menus within the app. It reuses Nextcloud's translated labels, preserves existing hints and handles menus rendered later. This addition applies to every account independently of the tour. Nextcloud files are not changed.
 
-A separate step explains switching between the personal timesheet and the HR overview before entering the HR features. The comments step already describes the planned HR approval process for “Urlaub” and “Stundenausgleich”. Implementing approval remains a separate feature task; this tour change adds only the explanation.
+The tour is offered after the app has loaded. **Later** defers the invitation until the next visit. Completion is stored per account. `TourController` accepts completion; `lib/Db/TourProgressStore.php` uses only `tour_employee_version`. Completed employee tours remain completed. The former HR extension has been removed. When an account receives HR privileges, the tour entry point disappears after reloading. Selecting **Tour guide** repeats its eight employee steps. The first-visit invitation still opens the tour directly through **Tutorial**.
 
-Explanations read existing views and open menus when needed. The tour creates no time entries, changes no settings and starts no downloads. Existing read calls can cache calculated monthly balances, just as opening the HR view normally does. The tour restores the previous view when it ends. **Help & privacy** leads to general Nextcloud help.
+The eight steps cover export, working time, federal state, comments, warnings, profile, general Nextcloud help and the tour icon. The export button and its open month/year choices receive one continuous highlight. The working-time step highlights **Daily working time** and explains that starting work can be chosen individually in accordance with company guidelines. This explanation does not change inputs or time rules. The federal-state step explains its effect on public holidays in the **Status** column. The comments step shows absence terms in the account language without describing HR approval.
+
+The following warnings step highlights the warning cell and its column heading. It explains that break deviations and missing timesheets require prompt correction. Existing warning detection remains unchanged. The final step is titled **Help and tour**. Its text mentions questions and suggestions for HR and restarting the guide using the tour icon.
+
+**Questions for HR** and **Suggestions for improvement** use `mailto:` to open a new message in the configured email program. Both use `karriere@xiller.com`. The respective subjects are **Frage zum Arbeitszeitnachweis** and **Feedback für Arbeitszeitnachweis**. These subject lines remain in German regardless of account language. The message body is empty. Sending takes place in the email program; the app neither stores nor sends these messages.
+
+After each click, **Opening the default mail app…** confirms the invocation attempt. Conditional help titled **No mail app opened?** explains that a default mail app is required. The recipient and subject appear only in the message opened by the mail app. The browser provides no reliable success or failure callback for the external mail app, so the interface does not claim to detect a missing application. Focus changes do not dismiss the help; it can be closed explicitly and is removed when the menu reopens or a tour starts. No timeout or focus-based detection is used.
+
+Explanations use the existing employee view and open menus when needed. Time entries and working-time settings are not changed, and downloads are not started. The tour does not request HR data. It restores the previous view when it ends. **Help & privacy** leads to general Nextcloud help.
 
 The account language determines the tour text. Changes to explanations are maintained in all corresponding language files. Coverage checks under `tests/tour/` verify messages, placeholders and matching JSON/JS catalogs. They do not replace linguistic review by native speakers. Tour checks run with `npm run test:tour`; the separate PHP command is `php tests/tour/progress.php`.
 
 ### Reminders for individual open dates
 
-Each group rule on the administration page has a **Missing time entry reminders** section. The feature is disabled after installation. Settings cover a delay from 1 to 365 calendar days (default 14), expected weekdays (default Monday to Friday), and the date from which entries are checked. The current date is suggested on first enablement; an earlier start can be chosen.
+Under **Profile → Settings → Timesheet**, each group rule has a **Missing time entry reminders** section. The feature is disabled after installation. Settings cover a delay from 1 to 365 calendar days (default 14), expected weekdays (default Monday to Friday), and the date from which entries are checked. The current date is suggested on first enablement; an earlier start can be chosen.
 
-The daily check finds individual older gaps even when later dates already have entries. A missing start or end time also triggers a reminder. When both times are absent, only a whole comment matching **Urlaub** or **Stundenausgleich** prevents a reminder. Letter case and surrounding spaces are ignored. Other comments or added words do not qualify. An entry with only one time remains incomplete even with one of these comments. The HR overview displays the same guidance. These two accepted German terms remain unchanged in the English interface.
+The daily check finds individual older gaps even when later dates already have entries. A missing start or end time also triggers a reminder. When both times are absent, fixed absence comments can prevent a reminder. HR guidance and the tour show these terms in the account language: **Vacation** and **Time off in lieu** in English, **Urlaub** and **Stundenausgleich** in German. Terms for every supported language are maintained in `lib/Service/absence-comment-terms.json`. `AbsenceCommentCatalog` supplies both display and detection. Detection accepts the listed terms from all these languages, so changing language or viewing entries in another HR language does not invalidate saved comments. Unknown account languages use the English terms. Letter case and surrounding spaces are ignored. Other comments, additional words or punctuation do not qualify. An entry with only one time remains incomplete even with an accepted comment. Detection never rewrites saved comments.
 
 Public holidays in the employee's configured German state are excluded. Without a state or when holiday data cannot be obtained, the employee's check is suspended and responsible HR receives a notice. The selected weekdays apply even when the daily target is zero.
 
@@ -346,6 +379,7 @@ php tests/reminders/state.php
 php tests/reminders/mailer.php
 php tests/preferences/user-preferences.php
 php tests/tour/progress.php
+php tests/settings/hr-settings.php
 ```
 
 `tests/reminders/integration.php` checks the full workflow and delivery in a dedicated Nextcloud test instance. It creates synthetic accounts and entries and replaces that instance's group rules. It therefore runs only with `REMINDER_TEST_ENVIRONMENT=1`, database `timesheet_reminders_test`, a configured `REMINDER_TEST_PASSWORD`, and Mailpit as the mail destination. It does not belong in the normal demo or a production installation. The existing PHPUnit setup remains separate.

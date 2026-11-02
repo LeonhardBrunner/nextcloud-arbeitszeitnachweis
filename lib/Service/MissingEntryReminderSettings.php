@@ -20,7 +20,7 @@ class MissingEntryReminderSettings {
 		$validWeekdays = self::hasValidWeekdays($weekdays);
 		$validStartDate = is_string($startDate) && self::isValidDate($startDate);
 
-		// Invalid stored policies stay disabled until an administrator saves valid settings.
+		// Invalid stored policies stay disabled until HR saves valid settings.
 		return [
 			'enabled' => ($settings['enabled'] ?? false) === true
 				&& $validGraceDays && $validWeekdays && $weekdays !== [] && $validStartDate,

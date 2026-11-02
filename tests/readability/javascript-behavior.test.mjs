@@ -287,8 +287,11 @@ test('rule and holiday caches match baseline', async () => {
 	assert.deepEqual(result.holidayCache, [['BY_2026', { '2026-10-03': 'Holiday' }]]);
 });
 
-test('admin rendering, rule edits, group constraints and requests match baseline', async () => {
+test('HR settings rendering, rule edits, group constraints and requests match baseline', async () => {
 	const result = await runForBoth(async (root) => {
+		// The unchanged reference checkout retains its original asset and root names.
+		const settingsScript = root === candidateRoot ? 'hr-settings.js' : 'admin.js';
+		const settingsRootId = root === candidateRoot ? 'timesheet-hr-settings' : 'timesheet-admin-settings';
 		const events = new Map();
 		const requests = [];
 		const messages = [];
@@ -311,7 +314,7 @@ test('admin rendering, rule edits, group constraints and requests match baseline
 			elements.set(id, result);
 			return result;
 		}
-		for (const id of ['timesheet-admin-settings', 'timesheet-hr-rules', 'timesheet-add-hr-rule', 'timesheet-specialdays-overtime']) element(id);
+		for (const id of [settingsRootId, 'timesheet-hr-rules', 'timesheet-add-hr-rule', 'timesheet-specialdays-overtime']) element(id);
 		element('timesheet-all-groups-data').textContent = JSON.stringify(['HR', 'Staff', 'Other', 'A&B']);
 		element('timesheet-hr-rules-data').textContent = JSON.stringify(initialRules);
 		const context = vm.createContext({
@@ -331,7 +334,7 @@ test('admin rendering, rule edits, group constraints and requests match baseline
 			},
 		});
 		context.window = context;
-		vm.runInContext(readFileSync(join(root, 'js/admin.js'), 'utf8'), context, { filename: 'admin.js' });
+		vm.runInContext(readFileSync(join(root, 'js', settingsScript), 'utf8'), context, { filename: settingsScript });
 		await new Promise(setImmediate);
 		const snapshots = [];
 		const snapshot = () => snapshots.push(elements.get('timesheet-hr-rules').children.map(({ className, dataset, innerHTML, textContent }) => ({ className, dataset, innerHTML, textContent })));

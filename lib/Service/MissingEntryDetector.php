@@ -9,7 +9,8 @@ use InvalidArgumentException;
 
 class MissingEntryDetector {
 
-	private const EXEMPT_ABSENCE_COMMENTS = ['urlaub', 'stundenausgleich'];
+	public function __construct(private AbsenceCommentCatalog $absenceComments) {
+	}
 
 	/**
 	 * Find overdue dates without changing entries or working-time balances.
@@ -93,7 +94,6 @@ class MissingEntryDetector {
 	}
 
 	private function isExemptAbsenceComment(?string $comment): bool {
-		$normalizedComment = strtolower(trim($comment ?? ''));
-		return in_array($normalizedComment, self::EXEMPT_ABSENCE_COMMENTS, true);
+		return $this->absenceComments->isExemptComment($comment);
 	}
 }

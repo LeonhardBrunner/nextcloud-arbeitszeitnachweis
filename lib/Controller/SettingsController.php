@@ -3,7 +3,6 @@
 namespace OCA\Timesheet\Controller;
 
 use OCP\AppFramework\Controller;
-use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
@@ -14,6 +13,7 @@ use OCP\IUserSession;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCA\Timesheet\Service\MissingEntryReminderSettings;
 use OCA\Timesheet\Service\MissingEntryReminderService;
+use OCA\Timesheet\Service\HrService;
 
 class SettingsController extends Controller {
 
@@ -35,64 +35,17 @@ class SettingsController extends Controller {
 		private \OCA\Timesheet\Service\MonthlyBalanceService $monthlyBalanceService,
 		private MissingEntryReminderService $missingEntryReminderService,
 		private ITimeFactory $timeFactory,
+		private HrService $hrService,
 	) {
 		parent::__construct($appName, $request);
 	}
 
-	/**
-	 * @AdminRequired
-	 * @CSRFCheck
-	 */
-	public function saveAdmin(string $hrGroups, string $hrUserGroup): DataResponse {
-		$hrGroups = trim($hrGroups);
-		$hrUserGroup = trim($hrUserGroup);
-
-		$this->appConfig->setAppValueString('hr_groups', $hrGroups);
-		$this->appConfig->setAppValueString('hr_user_group', $hrUserGroup);
-
-		return new DataResponse(['status' => 'success'], Http::STATUS_OK);
-	}
-
-	public function updateHrGroups(): DataResponse {
-		$groupId = $this->request->getParam('group');
-		$removeGroup = $this->request->getParam('remove') === '1';
-		$groupsJson = $this->appConfig->getAppValueString('hr_groups');
-		$groupIds = json_decode($groupsJson, true) ?: [];
-
-		if ($removeGroup) {
-			$groupIds = array_values(array_filter($groupIds, fn($existingGroupId) => $existingGroupId !== $groupId));
-		} else {
-			if (!in_array($groupId, $groupIds, true)) {
-				$groupIds[] = $groupId;
-			}
-		}
-		$this->appConfig->setAppValueString('hr_groups', json_encode($groupIds));
-
-		return new DataResponse(['hr_groups' => $groupIds]);
-	}
-
-	public function updateHrUserGroups(): DataResponse {
-		$groupId = $this->request->getParam('group');
-		$removeGroup = $this->request->getParam('remove') === '1';
-		$groupsJson = $this->appConfig->getAppValueString('hr_user_groups');
-		$groupIds = json_decode($groupsJson, true) ?: [];
-
-		if ($removeGroup) {
-			$groupIds = array_values(array_filter($groupIds, fn($existingGroupId) => $existingGroupId !== $groupId));
-		} else {
-			if (!in_array($groupId, $groupIds, true)) {
-				$groupIds[] = $groupId;
-			}
-		}
-		$this->appConfig->setAppValueString('hr_user_groups', json_encode($groupIds));
-
-		return new DataResponse(['hr_user_groups' => $groupIds]);
-	}
-
+	// HR manages the shared policy; CSRF protection remains enabled for both writes.
+	#[NoAdminRequired]
 	public function saveHrAccessRules(): DataResponse {
 		$currentUser = $this->userSession->getUser();
 		$currentUserId = $currentUser?->getUID();
-		if (!$currentUserId || !$this->groupManager->isAdmin($currentUserId)) {
+		if (!$currentUserId || !$this->hrService->isHr($currentUserId)) {
 			return new DataResponse(['message' => 'Forbidden'], 403);
 		}
 
@@ -121,6 +74,11 @@ class SettingsController extends Controller {
 			return new DataResponse(['message' => $invalidSettings->getMessage()], 400);
 		}
 		$sanitizedRules = $this->sanitizeRules($submittedRules);
+		// A remaining existing HR group keeps future policy changes reachable.
+		if (!array_filter($sanitizedRules, fn($rule) => $rule['hrGroups'] !== [])) {
+			return new DataResponse(['message' => 'At least one HR group must remain assigned.'], 400);
+		}
+
 		// Each employee group may belong to only one access rule.
 		$duplicateGroupIds = $this->findDuplicateUserGroups($sanitizedRules);
 		if (!empty($duplicateGroupIds)) {
@@ -246,14 +204,11 @@ class SettingsController extends Controller {
 		return array_values($duplicateGroupIds);
 	}
 
-	/**
-	 * @AdminRequired
-	 * @CSRFCheck
-	 */
+	#[NoAdminRequired]
 	public function saveSpecialDaysCheck(): DataResponse {
 		$currentUser = $this->userSession->getUser();
 		$currentUserId = $currentUser?->getUID();
-		if (!$currentUserId || !$this->groupManager->isAdmin($currentUserId)) {
+		if (!$currentUserId || !$this->hrService->isHr($currentUserId)) {
 			return new DataResponse(['message' => 'Forbidden'], 403);
 		}
 

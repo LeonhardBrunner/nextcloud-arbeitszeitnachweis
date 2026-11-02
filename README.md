@@ -34,7 +34,7 @@ Die Übersicht hilft HR, auffällige Einträge zu finden und die erfassten Zeite
 
 ### Einstellungen und Grenzen
 
-Administrierende ordnen HR-Gruppen den Mitarbeitergruppen zu und legen Zeitregeln und deren Prioritäten fest. Persönliche Einstellungen betreffen unter anderem Tagesziel, Feiertagsregion und HR-Benachrichtigungen.
+HR ordnet unter **Profil → Einstellungen → Arbeitszeitnachweis** die HR-Gruppen den Mitarbeitergruppen zu und legt Zeitregeln und deren Prioritäten fest. Persönliche Einstellungen betreffen unter anderem Tagesziel, Feiertagsregion und HR-Benachrichtigungen.
 
 Die App verwendet ein einheitliches Tagesziel pro Person. Für die Sollzeitberechnung zählen nur vollständige Zeiteinträge: Leere Tage und reine Kommentare erzeugen nicht automatisch Minusstunden. Pausen werden als Gesamtdauer pro Tag erfasst.
 
@@ -95,7 +95,7 @@ The overview helps HR find entries that need attention and review recorded hours
 
 ### Settings and limitations
 
-Administrators assign HR groups to employee groups and configure time rules and their priorities. Personal settings include the daily target, public holiday region and HR notifications.
+Under **Profile → Settings → Timesheet**, HR assigns HR groups to employee groups and configures time rules and their priorities. Personal settings include the daily target, public holiday region and HR notifications.
 
 The app uses a uniform daily target for each person. Only complete time entries count towards target hours: empty days and comments on their own do not automatically create negative hours. Breaks are recorded as a total duration per day.
 

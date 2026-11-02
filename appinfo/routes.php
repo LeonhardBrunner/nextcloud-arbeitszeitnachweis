@@ -36,7 +36,7 @@ return [
 		// REST: Holidays
 		['name' => 'holiday#getHolidays', 'url' => '/api/holidays', 'verb' => 'GET'],
 
-		// Admin settings
+		// Shared HR settings; the read-only special-days flag also serves employee calculations.
 		['name' => 'settings#saveHrAccessRules',    'url' => '/settings/hr_access_rules',   'verb' => 'POST'],
 		['name' => 'settings#saveSpecialDaysCheck', 'url' => '/settings/specialdays_check', 'verb' => 'POST'],
 		['name' => 'settings#loadSpecialDaysCheck', 'url' => '/settings/specialdays_check', 'verb' => 'GET'],
