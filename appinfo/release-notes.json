@@ -1,0 +1,32 @@
+{
+	"releases": [
+		{
+			"version": "1.3.0",
+			"sections": [
+				{
+					"title": "New features",
+					"items": [
+						"Employees and HR receive reminders for individual missing or incomplete time entries.",
+						"Freelancer mode is now available.",
+						"HR can filter employees by activity or freelancer status and search by name.",
+						"Employees have a guided tour and email links for contacting HR.",
+						"Update notes are available in the app and the notification bell."
+					]
+				},
+				{
+					"title": "Improvements",
+					"items": [
+						"Break display preferences are saved for each account.",
+						"HR manages group assignments and time rules in personal settings."
+					]
+				},
+				{
+					"title": "Bug fixes",
+					"items": [
+						"The formal German interface and removal icons display correctly."
+					]
+				}
+			]
+		}
+	]
+}

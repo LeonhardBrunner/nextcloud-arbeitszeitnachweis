@@ -134,7 +134,7 @@ foreach (['employee-a', 'employee-b', 'no-region', 'no-mail', 'disabled', 'hr-a'
 	$user->setDisplayName($suffix === 'employee-a' ? 'Employee A <em>demo</em>' : $userId);
 	$user->setEMailAddress($suffix === 'no-mail' ? '' : $userId . '@example.test');
 	$config->setUserValue($userId, 'core', 'lang', in_array($suffix, ['employee-a', 'hr-a'], true) ? 'de' : 'en');
-	foreach (['missing_entry_enrollments', 'missing_entry_employee_last_sent', 'missing_entry_hr_last_sent'] as $key) {
+	foreach (['missing_entry_enrollments', 'missing_entry_employee_last_sent', 'missing_entry_hr_last_sent', 'employment_status'] as $key) {
 		$config->deleteUserValue($userId, 'timesheet', $key);
 	}
 	foreach (['ts_entries', 'ts_user_config', 'ts_monthly_balances'] as $table) {
@@ -181,7 +181,7 @@ $makeService = static function (?HolidayService $holidays = null) use ($containe
 	return new MissingEntryReminderService(
 		$container->get(GroupRuleService::class), $entryMapper, $configMapper,
 		new HrService($appConfig, $session, $groups), $holidays ?? $container->get(HolidayService::class), new MissingEntryDetector(new AbsenceCommentCatalog()),
-		$store, $capturingMailer, $groups, $users, $clock, $logger,
+		$store, $capturingMailer, $groups, $users, $clock, $logger, $container->get(\OCA\Timesheet\Db\EmploymentStatusStore::class),
 	);
 };
 $makeService()->prepareRuleChanges([], $rules);

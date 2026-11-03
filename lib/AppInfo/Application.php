@@ -12,6 +12,9 @@ use OCP\IURLGenerator;
 use OCP\L10N\IFactory;
 use OCA\Timesheet\BackgroundJob\HrNotificationJob;
 use OCA\Timesheet\BackgroundJob\MissingEntryReminderJob;
+use OCA\Timesheet\Notification\UpdateNotesNotifier;
+use OCA\Timesheet\Listener\UpdateNotesUserCreatedListener;
+use OCP\User\Events\UserCreatedEvent;
 
 class Application extends App implements IBootstrap {
 	public const APP_ID = 'timesheet';
@@ -26,7 +29,8 @@ class Application extends App implements IBootstrap {
 	}
 
 	public function register(IRegistrationContext $context): void {
-		// No additional service registration is required.
+		$context->registerNotifierService(UpdateNotesNotifier::class);
+		$context->registerEventListener(UserCreatedEvent::class, UpdateNotesUserCreatedListener::class);
 	}
 
 	public function boot(IBootContext $context): void {

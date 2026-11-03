@@ -21,7 +21,11 @@ return [
 
 		// REST: User config
 		['name' => 'preferences#setBreakInputMode', 'url' => '/api/preferences/break-input-mode', 'verb' => 'PUT'],
+		['name' => 'employmentStatus#setFreelancerMode', 'url' => '/api/preferences/freelancer-mode', 'verb' => 'PUT'],
+		['name' => 'employmentStatus#setActivity', 'url' => '/api/hr/employees/{userId}/activity', 'verb' => 'PUT'],
 		['name' => 'tour#complete', 'url' => '/api/preferences/tour/complete', 'verb' => 'POST'],
+		['name' => 'updateNotes#load', 'url' => '/api/update-notes', 'verb' => 'POST'],
+		['name' => 'updateNotes#shown', 'url' => '/api/update-notes/shown', 'verb' => 'POST'],
 
 		['name' => 'config#getUserConfig', 'url' => '/api/hr/config/{userId}', 'verb' => 'GET'],
 		['name' => 'config#setUserConfig', 'url' => '/api/hr/config/{userId}', 'verb' => 'PUT'],

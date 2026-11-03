@@ -398,6 +398,7 @@
 	// Application startup: keep configuration, rules and entries in this order.
 	async function initializeApplication() {
 		initializeBreakModePreference();
+		timesheet.employmentStatus?.init();
 		timesheet.dom.refresh();
 		timesheet.copy.init();
 		timesheet.hr.init();
@@ -421,7 +422,8 @@
 		if (initialRow) {
 			timesheet.entries.updateWorkedHours(initialRow);
 		}
-		// Offer guidance only after the existing application is ready.
+		// Release notes close before the employee introduction is offered.
+		await timesheet.updateNotes?.init();
 		await timesheet.tour?.init();
 	}
 

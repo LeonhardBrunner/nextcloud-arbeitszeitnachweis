@@ -14,6 +14,8 @@ use OCA\Timesheet\Service\AbsenceCommentCatalog;
 use OCA\Timesheet\Service\HrService;
 use OCA\Timesheet\Db\UserPreferencesStore;
 use OCA\Timesheet\Db\TourProgressStore;
+use OCA\Timesheet\Db\EmploymentStatusStore;
+use OCA\Timesheet\Service\EmploymentStatus;
 use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
 
@@ -30,6 +32,7 @@ class PageController extends Controller {
 		private IGroupManager $groupManager,
 		private AbsenceCommentCatalog $absenceCommentCatalog,
 		private IL10N $l10n,
+		private EmploymentStatusStore $employmentStatusStore,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -39,18 +42,24 @@ class PageController extends Controller {
 	public function index(): TemplateResponse {
 		$currentUser = $this->userSession->getUser();
 		$isHr = $this->hrService->isHr();
-		// Only ordinary employees receive the introduction or its launcher.
-		$tourEnabled = $currentUser !== null && !$isHr && !$this->groupManager->isAdmin($currentUser->getUID());
+		$isEmployeeAccount = $currentUser !== null && !$isHr && !$this->groupManager->isAdmin($currentUser->getUID());
+		// The introduction and personal classification controls belong to ordinary employees.
+		$tourEnabled = $isEmployeeAccount;
+		$updateNotesEnabled = $currentUser !== null && !$this->groupManager->isAdmin($currentUser->getUID());
 		Util::addTranslations('timesheet');
 
 		// Load modules in dependency order.
 		Util::addScript('timesheet', 'timesheet-header');
 		Util::addScript('timesheet', 'timesheet-core');
 		Util::addScript('timesheet', 'timesheet-entries');
+		Util::addScript('timesheet', 'timesheet-employment-status');
 		Util::addScript('timesheet', 'timesheet-hr');
 		Util::addScript('timesheet', 'timesheet-export');
 		Util::addScript('timesheet', 'timesheet-copy');
 		Util::addScript('timesheet', 'timesheet-config');
+		if ($updateNotesEnabled) {
+			Util::addScript('timesheet', 'timesheet-update-notes');
+		}
 		if ($tourEnabled) {
 			Util::addScript('timesheet', 'timesheet-tour-header');
 			Util::addScript('timesheet', 'timesheet-tour');
@@ -58,6 +67,9 @@ class PageController extends Controller {
 		Util::addScript('timesheet', 'timesheet-main');
 
 		Util::addStyle('timesheet', 'style');
+		if ($updateNotesEnabled) {
+			Util::addStyle('timesheet', 'timesheet-update-notes');
+		}
 		if ($tourEnabled) {
 			Util::addStyle('timesheet', 'timesheet-tour');
 		}
@@ -65,6 +77,17 @@ class PageController extends Controller {
 		$breakPreference = $currentUser
 			? $this->userPreferencesStore->getBreakInputPreference($currentUser->getUID())
 			: ['breakInputMode' => 'minutes', 'revision' => hash('sha256', '')];
+		$employmentStatus = (new EmploymentStatus())->toPublicArray();
+		$employmentStatusAvailable = false;
+		if ($currentUser !== null) {
+			try {
+				$employmentStatus = $this->employmentStatusStore->getStatus($currentUser->getUID())->toPublicArray();
+				$employmentStatusAvailable = true;
+			} catch (\Throwable $loadError) {
+				// A failed classification read disables its controls without blocking recorded times.
+				$this->logger->warning('Employment status could not be loaded.', ['exception' => $loadError]);
+			}
+		}
 		$tourProgress = [
 			'version' => TourProgressStore::VERSION,
 			'employeeCompleted' => false,
@@ -81,8 +104,12 @@ class PageController extends Controller {
 		}
 		return new TemplateResponse($this->appName, 'main', [
 			'isHR' => $isHr,
+			'updateNotesEnabled' => $updateNotesEnabled,
 			'breakInputMode' => $breakPreference['breakInputMode'],
 			'breakInputRevision' => $breakPreference['revision'],
+			'employmentStatus' => $employmentStatus,
+			'employmentStatusAvailable' => $employmentStatusAvailable,
+			'canSetFreelancerMode' => $isEmployeeAccount,
 			'absenceCommentTerms' => $this->absenceCommentCatalog->getTerms($this->l10n->getLanguageCode()),
 			'tourProgress' => $tourProgress,
 			'tourEnabled' => $tourEnabled,

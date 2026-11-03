@@ -40,6 +40,8 @@ Im Hauptordner stehen die Einstellungen für Composer und npm. `composer.json` u
 | Monats- und Jahresexport | `js/timesheet-export.js` steuert die Auswahl; `lib/Service/TimesheetXlsxExporter.php` erstellt die Datei. `EntryController` prüft den Zugriff und liefert den Download. |
 | HR-Übersicht und Zuständigkeiten | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
 | Anzeigeeinstellungen | `PreferencesController` und `lib/Db/UserPreferencesStore.php` speichern die persönliche Pausenanzeige. `PageController` liefert die gespeicherte Auswahl beim Seitenaufruf mit. |
+| Update-Hinweise | `UpdateNotesService` verbindet Änderungsliste und gespeicherten Lesestand. `UpdateNotesNotifier` bindet die Glocke an. Das Popup liegt in `js/timesheet-update-notes.js`. |
+| Freelancer und Beschäftigungsstatus | `js/timesheet-employment-status.js` bedient die beiden Einstellungen. `EmploymentStatusController` prüft die Berechtigung; `EmploymentStatusStore` speichert Status und Zeiträume. `EmploymentStatus` fasst ausgenommene Tage und das Bezugsdatum für Erinnerungen zusammen. |
 | Einstellungen | `ConfigController` nimmt persönliche Einstellungen entgegen; `lib/Db/HrPreferencesStore.php` liest und speichert HR-E-Mail- und Warnungseinstellungen. Gruppenregeln liegen bei `SettingsController`, `templates/settings-hr.php` und `js/hr-settings.js`. |
 | E-Mails und Feiertage | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
 | Gemeinsame Browserfunktionen | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
@@ -105,6 +107,67 @@ Die HR-Rolle ergibt sich aus den unter `hr_access_rules` gespeicherten HR-Gruppe
 
 Der Schalter **Pause: Minuten – Stunden** speichert seine Auswahl automatisch im angemeldeten Nextcloud-Konto. Die Auswahl bleibt nach Neuladen und erneutem Anmelden erhalten und gilt für die eigene Zeiterfassung sowie die HR-Ansicht. Beim Betrachten fremder Einträge gilt die Anzeigeeinstellung der betrachtenden Person. Gespeicherte Pausenwerte und Berechnungen bleiben unverändert.
 
+### Freelancer-Modus, Beschäftigungsstatus und HR-Filter
+
+Unter **Pause: Minuten – Stunden** liegt bei normalen Mitarbeiterkonten **Freelancer-Modus: Aus – Ein**. Die Einstellung gilt ausschließlich für das eigene Konto und bleibt nach Neuladen und Anmeldung erhalten. HR- und Administratorkonten können den eigenen Freelancer-Modus nicht ändern. Der Anfangswert ist **Aus**. In der HR-Einzelansicht kann zuständiges HR den Beschäftigungsstatus auf **Aktiv** oder **Inaktiv** setzen. Bestehende Personen gelten zunächst als aktiv. Der Freelancer-Modus wird dort nur angezeigt. Der Beschäftigungsstatus verändert weder das Nextcloud-Konto noch dessen Anmeldung oder Gruppen.
+
+**Filter** rechts über der HR-Tabelle bietet **Aktive Mitarbeitende**, **Inaktive Mitarbeitende**, **Alle Mitarbeitenden** und **Freelancer** sowie eine Suche im vollständigen angezeigten Namen. Suche und Auswahl wirken gemeinsam und bleiben auf die bestehende HR-Zuständigkeit begrenzt. Freelancer können aktiv oder inaktiv sein. Unter **Alle** kennzeichnen Hintergrundfarbe und Beschriftung die Freelancer. Summen beziehen sich auf die sichtbaren Personen. Nach einer Einzelansicht bleibt die Auswahl erhalten; ein vollständiges Neuladen beginnt wieder mit aktiven Personen und leerer Suche.
+
+Freelancer erhalten keine Erinnerungen an fehlende oder unvollständige Zeiten; diese Hinweise entfallen auch für HR. Plus- und Minusstunden bleiben davon unberührt. Über inaktive Personen werden keine Warnmails verschickt. Inaktive HR-Konten erhalten ebenfalls keine Warnmails. Aktives HR im Freelancer-Modus erhält weiterhin Hinweise über andere zugeordnete Mitarbeitende. Die Liste blendet Fehlzeitwarnungen für aktuelle Freelancer und Inaktive aus; andere Hinweise und Stundenstände bleiben sichtbar.
+
+Jede Umschaltung gilt ab dem aktuellen Berliner Kalendertag. Beim Einschalten beginnt die Ausnahme einschließlich dieses Tages; nach Ausschalten beziehungsweise Reaktivieren ist der Tag wieder regulär. Gespeicherte Freelancer- und Inaktiv-Zeiträume bleiben für die tägliche Prüfung dauerhaft ausgenommen. Frühere Lücken außerhalb dieser Zeiträume bleiben prüfbar. Die ältere Meldung **seit längerem kein Eintrag** erhält nach Rückkehr eine neue volle Frist, gerechnet ab dem späteren Datum aus letztem Eintrag und Ende der Ausnahme. Versandfristen werden nicht zurückgesetzt. Zeiteinträge und Salden bleiben unverändert.
+
+Die gemeinsame Kontoeinstellung `employment_status` enthält beide Merkmale und getrennte Zeitraumlisten; eine Datenbanktabelle ist nicht erforderlich. `EmploymentStatusStore` verwendet eine gemeinsame Versionsprüfung und eine Schreibsperre, damit gleichzeitige Änderungen einander nicht überschreiben. Die geschützten Aufrufe heißen `PUT /api/preferences/freelancer-mode` für das eigene Konto und `PUT /api/hr/employees/{userId}/activity` für zuständiges HR. Die Pausenanzeige bleibt getrennt. Fehler werden angezeigt; ein unbekannter Status schaltet Erinnerungen nicht versehentlich wieder ein. Die Tour behält ihre acht Schritte.
+
+### Update-Hinweise
+
+Nach einem Update erscheint beim nächsten App-Aufruf eine kurze Änderungsliste. Sie ist für Mitarbeiter- und HR-Konten bestimmt. Administratorkonten erhalten keine Hinweise, auch bei zusätzlicher HR-Zuordnung.
+
+Das Popup öffnet sich einmal je Konto und Version. Nach dem Schließen bleibt die Änderungsliste über die Glocke erreichbar. Dort stehen die Versionsmeldung und der kurze Hinweis **Änderungsliste öffnen**. Ein Klick öffnet die vollständige Liste im Popup. Über **Alle Benachrichtigungen löschen** wird der Update-Hinweis zusammen mit den anderen Glockenhinweisen entfernt. Spätere Updates erhalten einen neuen Hinweis. Mehrere verpasste Versionen erscheinen zusammengefasst. Neue Konten sehen nur die aktuelle Version. Eine Einführungstour wird erst nach dem Schließen des Update-Popups angeboten.
+
+Versionsnummern werden für einen neuen, geprüften Stand von Hand erhöht. Eine Textkorrektur bei unveränderter Version löst keinen neuen Hinweis aus.
+
+#### Neues Update vorbereiten und aktivieren
+
+1. In `appinfo/info.xml` die Versionsnummer erhöhen, beispielsweise auf `<version>1.3.1</version>`.
+2. In `appinfo/release-notes.json` einen neuen Block mit `"version": "1.3.1"` und den zugehörigen Änderungen ergänzen. Frühere Versionsblöcke bleiben erhalten.
+3. Neue englische Textschlüssel in den vorhandenen Sprachdateien übersetzen und in `tests/updates/translation-coverage.json` ergänzen. Bisherige Einträge bleiben erhalten. Deutsche Texte stehen in `l10n/de.json` und `l10n/de_DE.json`; die gleichnamigen JS-Dateien enthalten dieselben Übersetzungen für den Browser. JSON- und JS-Dateien werden gemeinsam gepflegt.
+4. Die geänderten Funktionen ausprobieren. Anschließend im Hauptordner des Repositorys prüfen:
+
+   ```powershell
+   npm run test:javascript
+   npm run check:javascript
+   ```
+
+   Bei PHP-Änderungen kommen die passenden PHP-Prüfungen aus Abschnitt 5 hinzu. Versionsnummer und Änderungsliste werden auf Übereinstimmung geprüft.
+
+5. Die neue Version in der laufenden lokalen Docker-Demo aktivieren. Voraussetzung ist, dass deren Timesheet-Ordner mit dem geänderten Repository verbunden ist:
+
+   ```powershell
+   docker exec --user www-data timesheet-handover-nextcloud-1 php /var/www/html/occ upgrade --no-interaction
+   ```
+
+   Danach die installierte App-Version und den Zustand der Demo prüfen:
+
+   ```powershell
+   docker exec --user www-data timesheet-handover-nextcloud-1 php /var/www/html/occ config:app:get timesheet installed_version
+   docker exec --user www-data timesheet-handover-nextcloud-1 php /var/www/html/occ status
+   ```
+
+   Die erste Ausgabe nennt im Beispiel die App-Version `1.3.1`. Die zweite beschreibt den Zustand von Nextcloud und zeigt `maintenance: false` und `needsDbUpgrade: false`.
+
+6. Den Arbeitszeitnachweis mit einem Mitarbeiter- oder HR-Konto erneut öffnen. Der neue Hinweis erscheint einmal je Konto; Administratorkonten bleiben ausgeschlossen.
+
+Die Befehle verwenden den Namen des aktuellen Demo-Containers. Bei einer anderen Installation gilt deren eigener Container- beziehungsweise Serverzugang. Für `1.4.0` gilt derselbe Ablauf mit entsprechend angepasster Versionsnummer.
+
+Zum erneuten Lesen öffnet `http://localhost:8133/apps/timesheet/?update-notes=1` die aktuelle Liste. Dieser Aufruf erhöht keine Version und erzeugt keine neue Ankündigung. Ein Commit, Push oder Merge allein aktualisiert keine installierte App.
+
+`UpdateNotesService` erstellt den Glockenhinweis beim App-Aufruf. `UpdateNotesStore` speichert angezeigte und entfernte Versionen getrennt im Benutzerkonto. Neu angelegte Konten werden bei der Kontenerstellung vorgemerkt. Ältere Konten ohne Lesestand erhalten auch die Änderungen übersprungener Versionen. `UpdateNotesNotifier` verarbeitet die Anzeige und die Löschfunktionen der Nextcloud-Glocke. Dafür entsteht keine neue Datenbanktabelle. Die Aufrufe `POST /api/update-notes` und `POST /api/update-notes/shown` gelten ausschließlich für das angemeldete Konto. Administratorkonten sind dort ebenfalls ausgeschlossen.
+
+Für Push-Mitteilungen und Benachrichtigungs-Sammelmails gelten die bestehenden Nextcloud-Einstellungen. Die App verschickt dafür keine eigenen E-Mails. Ein Fehler beim Laden oder Speichern der Hinweise blockiert die Zeiterfassung nicht.
+
+Der Probelauf verwendet eine getrennte Nextcloud-Testinstanz. `tests/updates/integration.php` startet nur mit `UPDATE_TEST_ENVIRONMENT=1`, der Datenbank `timesheet_updates_test` und einem gesetzten `UPDATE_TEST_PASSWORD`. Er legt künstliche Konten an und prüft die native Glocke. Die normale Demo und produktive Konten gehören nicht in diesen Testlauf.
+
 ### Geführte Tour
 
 Das Fragezeichen im Kreis zwischen Suche und Glocke öffnet das Menü **Hilfe und Tour** für Mitarbeitende ohne HR- oder Administrationsrechte. Es enthält **Tourguide**, **Fragen an HR** und **Verbesserungswünsche**. Für HR- und Administratorkonten werden weder Symbol noch Einladung angezeigt; auch ein direkter Abschlussaufruf ist dort gesperrt. `js/timesheet-tour.js` enthält Ablauf und Erklärungen; `js/timesheet-tour-header.js` verbindet das Symbol mit der Nextcloud-Kopfzeile und verwaltet das aufklappbare Menü samt Tastaturbedienung und Mail-Links. Die Darstellung liegt in `css/timesheet-tour.css`. Fehlt die erwartete Kopfzeile, erscheint der Zugang innerhalb von Timesheet.
@@ -163,9 +226,14 @@ php tests/reminders/mailer.php
 php tests/preferences/user-preferences.php
 php tests/tour/progress.php
 php tests/settings/hr-settings.php
+php tests/employment/status-store.php
+php tests/employment/controller-status.php
+php tests/updates/backend.php
 ```
 
 `tests/reminders/integration.php` prüft den gesamten Ablauf einschließlich Versand in einer eigenen Nextcloud-Testinstanz. Er erzeugt Testkonten und Einträge und ersetzt dort die Gruppenregeln. Deshalb startet er ausschließlich mit `REMINDER_TEST_ENVIRONMENT=1`, der Datenbank `timesheet_reminders_test`, einem gesetzten `REMINDER_TEST_PASSWORD` und Mailpit als Versandziel. Er gehört nicht in die normale Demo oder eine produktive Installation. Der vorhandene PHPUnit-Aufbau bleibt davon getrennt.
+
+`tests/employment/integration.php` erweitert denselben geschützten Testlauf um Freelancer, Inaktiv-Zeiten, Rückkehrfristen und beide Mailwege. Dabei entstehen ausschließlich künstliche `employment-*`-Konten. Die JavaScript-Prüfung erfasst außerdem Filter, Namenssuche, Summen sowie das Verhalten bei Speicherfehlern und gleichzeitigen Änderungen.
 
 Mit lokal verfügbarem PHP prüft dieser Befehl alle PHP-Dateien der App und ihrer Prüfprogramme:
 
@@ -194,6 +262,8 @@ Zusätzliche PHP-Werkzeuge sind vorbereitet, aber noch nicht als vollständig ei
 ## 6. Zusammenarbeit und Veröffentlichung
 
 Ein überschaubarer Commit beschreibt eine zusammengehörige Änderung und ihre Prüfung. GitHub Desktop zeigt Branch und Dateiunterschiede vor dem Commit an. „Push origin“ lädt den Branch in den eigenen Fork. Ein Pull Request schlägt die Übernahme ins Firmen-Repository vor. Ein Commit oder Push installiert keine neue Version in Nextcloud.
+
+Ein Merge allein installiert keine App. Für den Livebetrieb aktualisiert die zuständige Nextcloud-Administration das geprüfte App-Paket zentral auf der Firmeninstanz. Eine interne Installation ist auch ohne Veröffentlichung im App Store möglich. Bei Verteilung über den App Store wird zuerst die neue Version veröffentlicht und anschließend unter [Apps in der Firmen-Nextcloud](https://docs.nextcloud.com/server/33/admin_manual/apps_management.html#managing-apps) aktualisiert. Mitarbeitende verwenden danach die aktualisierte App im Browser; ein eigener Download ist nicht erforderlich. Der genaue Installationsweg der Firmeninstanz ist noch festzulegen.
 
 Im bisherigen Checkout heißt der eigene Fork `origin`, das [Firmen-Repository](https://github.com/Xiller/nextcloud-arbeitszeitnachweis) `upstream` und das [ursprüngliche Repository](https://github.com/Repa1253/timesheet) `original`. `git remote -v` zeigt die tatsächlich eingetragenen Quellen. Die [Verhaltensregeln für die Zusammenarbeit](../CODE_OF_CONDUCT.md) bleiben Bestandteil des Projekts.
 
@@ -257,6 +327,8 @@ Composer and npm settings are in the repository root. `composer.json` and `compo
 | Monthly and yearly exports | `js/timesheet-export.js` handles the selection; `lib/Service/TimesheetXlsxExporter.php` creates the file. `EntryController` checks access and returns the download. |
 | HR overview and responsibilities | `js/timesheet-hr.js`, `lib/Controller/OverviewController.php`, `lib/Service/HrService.php`. |
 | Display preferences | `PreferencesController` and `lib/Db/UserPreferencesStore.php` store the personal break display. `PageController` includes the saved selection when rendering the page. |
+| Update notes | `UpdateNotesService` connects the release notes and account state. `UpdateNotesNotifier` integrates with the notification bell. The popup lives in `js/timesheet-update-notes.js`. |
+| Freelancer and activity status | `js/timesheet-employment-status.js` handles both controls. `EmploymentStatusController` checks access; `EmploymentStatusStore` saves flags and periods. `EmploymentStatus` combines excluded dates and the reminder reference date. |
 | Settings | `ConfigController` receives personal settings; `lib/Db/HrPreferencesStore.php` reads and saves HR email and warning preferences. Group rules belong to `SettingsController`, `templates/settings-hr.php` and `js/hr-settings.js`. |
 | Emails and public holidays | `lib/BackgroundJob/HrNotificationJob.php`, `lib/Service/HrNotificationService.php`, `lib/Service/HolidayService.php`. |
 | Shared browser functions | `js/timesheet-main.js`, `js/timesheet-core.js`, `js/timesheet-copy.js`. |
@@ -322,6 +394,67 @@ The HR role comes from the HR groups stored in `hr_access_rules`. Saving require
 
 The **Break: Minutes – Hours** switch saves its selection automatically in the signed-in Nextcloud account. The selection survives reloads and signing in again and applies to both personal entries and the HR view. When viewing another employee, the viewer’s display preference applies. Stored break values and calculations remain unchanged.
 
+### Freelancer mode, activity status and HR filters
+
+**Freelancer mode: Off – On** appears below **Break: Minutes – Hours** for ordinary employee accounts. It changes only the signed-in account, defaults to **Off**, and survives reloads and signing in again. HR and administrator accounts cannot change their own freelancer mode. Responsible HR can set an assigned employee to **Active** or **Inactive** in the individual view. Existing employees default to active. Freelancer mode is read-only there. Activity status does not change the Nextcloud account, login access or groups.
+
+**Filter**, above the right side of the HR table, offers **Active employees**, **Inactive employees**, **All employees**, **Freelancers**, and a search across full display names. Search and selection apply together, within the existing HR responsibility. Freelancers may be active or inactive. Under **All**, both a background tint and a badge identify freelancers. Totals follow the visible people. Filters survive a visit to the individual view; a full page reload resets them to active employees and an empty search.
+
+Freelancers receive no missing or incomplete time reminders, and those notices are also excluded from HR summaries. Positive and negative balance warnings still apply. No warning emails concern inactive employees. Inactive HR accounts receive no warning emails either. Active HR in freelancer mode still receives notices about other assigned employees. The list hides missing-time warnings for current freelancers and inactive employees while retaining other warnings and balances.
+
+Each change takes effect on the current Berlin calendar date. Enabling starts an exemption including that day; disabling or reactivation makes that day regular again. Stored freelancer and inactive periods remain permanently excluded from daily checks. Older gaps outside those periods remain eligible. After return, the legacy **no entry for some time** reminder starts a new full delay from the later of the last entry and the exemption end. Delivery cooldowns are preserved. Entries and balances remain unchanged.
+
+The shared per-account preference `employment_status` holds both flags and their separate period histories; no database table is required. `EmploymentStatusStore` uses a shared revision check and write lock to prevent concurrent updates from overwriting each other. Protected endpoints are `PUT /api/preferences/freelancer-mode` for the signed-in account and `PUT /api/hr/employees/{userId}/activity` for responsible HR. The break display remains separate. Errors are visible, and unreadable status never silently re-enables reminders. The tour retains its eight steps.
+
+### Update notes
+
+After an update, a short list of changes appears on the next app visit. Employee and HR accounts receive these notices. Administrator accounts are excluded, including accounts that also have HR access.
+
+The popup opens once per account and version. Closing it leaves the notes available through the notification bell. The bell shows the version announcement and a short **Open the update notes** message. Selecting it opens the complete list in the popup. **Dismiss all notifications** removes the update notice along with the account's other bell notifications. Later updates create a new notice. Several missed versions appear together. New accounts see only the current version. The introduction is offered after the update popup closes.
+
+Version numbers are increased manually for a new, verified release. Correcting text without changing the version does not trigger a new notice.
+
+#### Prepare and activate a new update
+
+1. Increase the version in `appinfo/info.xml`, for example to `<version>1.3.1</version>`.
+2. Add a new block with `"version": "1.3.1"` and the corresponding changes to `appinfo/release-notes.json`. Keep earlier version blocks.
+3. Translate new English message keys in the existing language files and add them to `tests/updates/translation-coverage.json`. Keep existing entries. German wording lives in `l10n/de.json` and `l10n/de_DE.json`; the matching JS files contain the same browser translations. Maintain JSON and JS files together.
+4. Try the changed features in the app. Then run these checks from the repository root:
+
+   ```powershell
+   npm run test:javascript
+   npm run check:javascript
+   ```
+
+   PHP changes also require the relevant PHP checks from section 5. Check that the version number matches the release notes.
+
+5. Activate the new version in the running local Docker demo. Its Timesheet directory must be connected to the changed repository:
+
+   ```powershell
+   docker exec --user www-data timesheet-handover-nextcloud-1 php /var/www/html/occ upgrade --no-interaction
+   ```
+
+   Then check the installed app version and the demo status:
+
+   ```powershell
+   docker exec --user www-data timesheet-handover-nextcloud-1 php /var/www/html/occ config:app:get timesheet installed_version
+   docker exec --user www-data timesheet-handover-nextcloud-1 php /var/www/html/occ status
+   ```
+
+   The first command reports app version `1.3.1` in this example. The second describes the Nextcloud status and shows `maintenance: false` and `needsDbUpgrade: false`.
+
+6. Reopen Timesheet with an employee or HR account. The new notice appears once per account; administrator accounts remain excluded.
+
+These commands use the current demo container name. Other installations use their own container or server access. The same procedure applies to `1.4.0` with the version number changed accordingly.
+
+To read the current notes again, open `http://localhost:8133/apps/timesheet/?update-notes=1`. This does not increase the version or create a new announcement. A commit, push or merge alone does not update an installed app.
+
+`UpdateNotesService` creates the bell notice when the app opens. `UpdateNotesStore` keeps displayed and dismissed versions separate in account preferences. Newly created accounts receive a marker at account creation. Older accounts without saved progress also receive notes from skipped releases. `UpdateNotesNotifier` handles display and dismissal in the native Nextcloud bell. No database table is required. `POST /api/update-notes` and `POST /api/update-notes/shown` apply only to the signed-in account. Administrator accounts are excluded from both calls.
+
+Existing Nextcloud settings govern device push and notification digest emails. The app does not send separate emails for update notes. Loading or saving failures do not block time entry.
+
+Verification uses a separate Nextcloud test instance. `tests/updates/integration.php` runs only with `UPDATE_TEST_ENVIRONMENT=1`, database `timesheet_updates_test`, and a configured `UPDATE_TEST_PASSWORD`. It creates synthetic accounts and checks the native bell. It does not belong in the normal demo or a production installation.
+
 ### Guided tour
 
 The question mark in a circle between search and notifications opens the **Help and tour** menu for employees without HR or administrator privileges. It contains **Tour guide**, **Questions for HR** and **Suggestions for improvement**. HR and administrator accounts receive neither the button nor an invitation, and direct completion requests are rejected. `js/timesheet-tour.js` contains its flow and explanations; `js/timesheet-tour-header.js` connects the button to the Nextcloud header and manages the dropdown, keyboard controls and email links. Styling lives in `css/timesheet-tour.css`. A visible entry point inside Timesheet is used if the expected header is unavailable.
@@ -380,9 +513,14 @@ php tests/reminders/mailer.php
 php tests/preferences/user-preferences.php
 php tests/tour/progress.php
 php tests/settings/hr-settings.php
+php tests/employment/status-store.php
+php tests/employment/controller-status.php
+php tests/updates/backend.php
 ```
 
 `tests/reminders/integration.php` checks the full workflow and delivery in a dedicated Nextcloud test instance. It creates synthetic accounts and entries and replaces that instance's group rules. It therefore runs only with `REMINDER_TEST_ENVIRONMENT=1`, database `timesheet_reminders_test`, a configured `REMINDER_TEST_PASSWORD`, and Mailpit as the mail destination. It does not belong in the normal demo or a production installation. The existing PHPUnit setup remains separate.
+
+`tests/employment/integration.php` extends that same guarded runner with freelancer and inactive periods, return delays, and both email paths. It creates only synthetic `employment-*` accounts. JavaScript checks also cover filters, name search, totals, save failures and concurrent changes.
 
 With PHP available locally, this command checks all PHP files in the app and its checking tools:
 
@@ -411,6 +549,8 @@ Additional PHP tools are configured but have not yet been verified as a fully in
 ## 6. Collaboration and publishing
 
 A focused commit describes one related change and its checks. GitHub Desktop shows the branch and file differences before committing. “Push origin” uploads the branch to the personal fork. A pull request proposes its inclusion in the company repository. A commit or push does not install a new version in Nextcloud.
+
+A merge alone does not install an app. For live use, the responsible Nextcloud administrator updates the verified app package centrally on the company instance. Internal installation is possible without an App Store release. When distributing through the App Store, the new version is published first and then updated under [Apps in the company Nextcloud](https://docs.nextcloud.com/server/33/admin_manual/apps_management.html#managing-apps). Employees then use the updated app in their browser; individual downloads are not required. The company's exact installation procedure remains to be established.
 
 In the existing checkout, `origin` means the personal fork, `upstream` the [company repository](https://github.com/Xiller/nextcloud-arbeitszeitnachweis), and `original` the [original repository](https://github.com/Repa1253/timesheet). `git remote -v` shows the configured sources. The [code of conduct](../CODE_OF_CONDUCT.md) remains part of the project.
 

@@ -18,6 +18,7 @@ class MissingEntryDetector {
 	 * @param int[] $weekdays ISO weekdays, from Monday (1) to Sunday (7).
 	 * @param array<int, array{workDate:string,startMin:?int,endMin:?int,comment:?string}> $entries
 	 * @param string[] $holidayDates
+	 * @param array<int, array{from:string,to:?string}> $excludedPeriods Inclusive start and exclusive end dates.
 	 * @return array<int, array{date:string,reason:string}>
 	 */
 	public function findMissingEntries(
@@ -27,6 +28,7 @@ class MissingEntryDetector {
 		array $weekdays,
 		array $entries,
 		array $holidayDates,
+		array $excludedPeriods = [],
 	): array {
 		$inspectionStart = $this->parseStartDate($startDate, $today);
 		if ($graceDays < 1 || $graceDays > 365) {
@@ -49,7 +51,8 @@ class MissingEntryDetector {
 		// Evaluate each expected day, including gaps followed by more recent entries.
 		for ($workDate = $inspectionStart; $workDate <= $lastDueDate; $workDate = $workDate->modify('+1 day')) {
 			$dateString = $workDate->format('Y-m-d');
-			if (!in_array((int)$workDate->format('N'), $weekdays, true) || isset($holidaysByDate[$dateString])) {
+			if (!in_array((int)$workDate->format('N'), $weekdays, true) || isset($holidaysByDate[$dateString])
+				|| $this->isExcludedDate($dateString, $excludedPeriods)) {
 				continue;
 			}
 
@@ -60,6 +63,16 @@ class MissingEntryDetector {
 		}
 
 		return $missingEntries;
+	}
+
+	/** @param array<int, array{from:string,to:?string}> $periods */
+	private function isExcludedDate(string $date, array $periods): bool {
+		foreach ($periods as $period) {
+			if ($date >= $period['from'] && ($period['to'] === null || $date < $period['to'])) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private function parseStartDate(string $startDate, DateTimeImmutable $today): DateTimeImmutable {

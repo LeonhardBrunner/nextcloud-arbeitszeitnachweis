@@ -698,6 +698,7 @@
 			item.element.inert = item.inert;
 		}
 		await restoreView();
+		timesheet.employmentStatus?.refresh();
 		const focusTarget = snapshot?.focus?.isConnected && snapshot.focus !== document.body ? snapshot.focus : launcher;
 		overlay?.remove();
 		overlay = null;

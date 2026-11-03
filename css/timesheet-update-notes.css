@@ -1,0 +1,112 @@
+/* Release notes use Nextcloud's neutral surfaces and account text direction. */
+.ts-update-notes-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 10000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 24px;
+	background: rgb(0 0 0 / 55%);
+}
+
+.ts-update-notes-dialog {
+	box-sizing: border-box;
+	width: min(640px, 100%);
+	max-block-size: calc(100dvh - 48px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 20px;
+	border: 1px solid var(--color-border, #ccc);
+	border-radius: var(--border-radius-large, 12px);
+	background: var(--color-main-background, #fff);
+	color: var(--color-main-text, #222);
+	text-align: start;
+	overflow-wrap: anywhere;
+}
+
+.ts-update-notes-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	margin-block-end: 20px;
+}
+
+.ts-update-notes-header h2 {
+	margin: 4px 0 0;
+	font-size: 1.25rem;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+#ts-update-notes-dialog button {
+	border: 1px solid var(--color-border-dark, #aaa);
+	background-color: var(--color-background-dark, #ededed);
+	color: var(--color-main-text, #222);
+}
+
+#ts-update-notes-dialog button:hover,
+#ts-update-notes-dialog button:focus,
+#ts-update-notes-dialog button:active {
+	background-color: var(--color-background-hover, #ddd);
+	color: var(--color-main-text, #222);
+}
+
+#ts-update-notes-dialog button:focus-visible {
+	outline: 2px solid var(--color-main-text, #222);
+	outline-offset: 2px;
+}
+
+.ts-update-notes-release + .ts-update-notes-release {
+	margin-block-start: 24px;
+	padding-block-start: 16px;
+	border-block-start: 1px solid var(--color-border, #ccc);
+}
+
+.ts-update-notes-release h3 {
+	margin: 0 0 12px;
+	font-size: 1.1rem;
+	font-weight: 600;
+}
+
+.ts-update-notes-release h4 {
+	margin: 16px 0 6px;
+	font-size: 1rem;
+	font-weight: 600;
+}
+
+.ts-update-notes-release ul {
+	margin: 0;
+	padding-inline-start: 24px;
+	list-style: disc;
+}
+
+.ts-update-notes-release li {
+	margin-block: 6px;
+	line-height: 1.5;
+}
+
+.ts-update-notes-footer {
+	display: flex;
+	justify-content: flex-end;
+	margin-block-start: 24px;
+}
+
+.ts-update-notes-action {
+	min-height: 40px;
+	margin: 0;
+	padding: 8px 16px;
+}
+
+@media (max-width: 480px) {
+	.ts-update-notes-backdrop {
+		padding: 12px;
+	}
+
+	.ts-update-notes-dialog {
+		max-block-size: calc(100dvh - 24px);
+		padding: 16px;
+	}
+}

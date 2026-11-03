@@ -5,6 +5,7 @@ namespace OCA\Timesheet\Service;
 use DateTimeImmutable;
 use DateTimeZone;
 use OCA\Timesheet\Db\EntryMapper;
+use OCA\Timesheet\Db\EmploymentStatusStore;
 use OCA\Timesheet\Db\MissingEntryReminderStore;
 use OCA\Timesheet\Db\UserConfigMapper;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -28,6 +29,7 @@ class MissingEntryReminderService {
 		private IUserManager $userManager,
 		private ITimeFactory $timeFactory,
 		private LoggerInterface $logger,
+		private EmploymentStatusStore $employmentStatusStore,
 	) {
 	}
 
@@ -67,6 +69,12 @@ class MissingEntryReminderService {
 		$findingsByUser = [];
 		$holidaysByRegionAndYear = [];
 		foreach ($employeesById as $userId => $employee) {
+			// Unknown status must never silently re-enable reminders for an exempt person.
+			$employmentStatus = $this->loadEmploymentStatus((string)$userId);
+			if ($employmentStatus === null || !$employmentStatus->isActive || $employmentStatus->freelancerMode) {
+				$statistics['skippedEmployees']++;
+				continue;
+			}
 			try {
 				$rule = $this->groupRuleService->getMissingEntryReminderPolicy((string)$userId);
 				if ($rule === null || !($rule['missingEntryReminders']['enabled'] ?? false)
@@ -74,7 +82,7 @@ class MissingEntryReminderService {
 					continue;
 				}
 				$statistics['checkedEmployees']++;
-				$finding = $this->checkEmployee($employee, $rule, $now, $holidaysByRegionAndYear);
+				$finding = $this->checkEmployee($employee, $rule, $now, $holidaysByRegionAndYear, $employmentStatus);
 				if ($finding['issues'] === [] && $finding['setupIssue'] === null) {
 					continue;
 				}
@@ -108,12 +116,16 @@ class MissingEntryReminderService {
 			foreach ($this->hrService->getAllHrUserIds() as $hrUserId) {
 				try {
 					$hrUser = $this->userManager->get($hrUserId);
-					if (!$hrUser || !$hrUser->isEnabled() || !$this->reminderStore->isDeliveryDue($hrUserId, 'hr', $now)) {
+					$hrStatus = $this->loadEmploymentStatus($hrUserId);
+					if (!$hrUser || !$hrUser->isEnabled() || $hrStatus === null || !$hrStatus->isActive
+						|| !$this->reminderStore->isDeliveryDue($hrUserId, 'hr', $now)) {
 						continue;
 					}
 					$hrFindings = [];
 					foreach ($this->hrService->getAccessibleUsers($hrUserId) as $accessibleEmployee) {
-						if (isset($findingsByUser[$accessibleEmployee['id']])) {
+						$currentStatus = $this->loadEmploymentStatus((string)$accessibleEmployee['id']);
+						if ($currentStatus !== null && $currentStatus->isActive && !$currentStatus->freelancerMode
+							&& isset($findingsByUser[$accessibleEmployee['id']])) {
 							$hrFindings[] = $findingsByUser[$accessibleEmployee['id']];
 						}
 					}
@@ -160,7 +172,7 @@ class MissingEntryReminderService {
 	}
 
 	/** @return array{name:string,issues:array,setupIssue:?string} */
-	private function checkEmployee(IUser $employee, array $rule, DateTimeImmutable $now, array &$holidayCache): array {
+	private function checkEmployee(IUser $employee, array $rule, DateTimeImmutable $now, array &$holidayCache, EmploymentStatus $employmentStatus): array {
 		$userId = $employee->getUID();
 		$settings = $rule['missingEntryReminders'];
 		$result = ['name' => $employee->getDisplayName(), 'issues' => [], 'setupIssue' => null];
@@ -203,8 +215,17 @@ class MissingEntryReminderService {
 		}
 
 		$entries = array_map(fn($entry) => $entry->jsonSerialize(), $this->entryMapper->findByUserAndRange($userId, $startDate, $cutoff));
-		$result['issues'] = $this->detector->findMissingEntries($now, $startDate, $settings['graceDays'], $settings['weekdays'], $entries, $holidayDates);
+		$result['issues'] = $this->detector->findMissingEntries($now, $startDate, $settings['graceDays'], $settings['weekdays'], $entries, $holidayDates, $employmentStatus->getExcludedPeriods());
 		return $result;
+	}
+
+	private function loadEmploymentStatus(string $userId): ?EmploymentStatus {
+		try {
+			return $this->employmentStatusStore->getStatus($userId);
+		} catch (\Throwable $loadError) {
+			$this->logger->error('Missing-entry reminders skipped because employment status could not be read.', ['userId' => $userId, 'exception' => $loadError]);
+			return null;
+		}
 	}
 
 	private function currentTime(): DateTimeImmutable {

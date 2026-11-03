@@ -35,148 +35,219 @@
 		return getWarningThresholds();
 	}
 
-	// Update HR statistics summary
+	let allEmployees = [];
+	let visibleEmployees = [];
+	let listGeneration = 0;
+	let listLoaded = false;
+	let initialized = false;
+	const employeeFilter = { mode: 'active', name: '' };
+	const translate = (message, parameters = {}) => t(appState.appName, message, parameters);
+	const berlinCalendar = new Intl.DateTimeFormat('en-CA', {
+		timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit',
+	});
+
+	function finiteMinutes(value, fallback = 0) {
+		return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+	}
+
+	// The list and statistics always use exactly the same filtered data.
 	function updateHrStats() {
-		timesheet.dom.refresh();
-		const domCache = timesheet.dom;
-		const userListElement = domCache.userListEl || document.getElementById('hr-userlist');
-		if (!userListElement) {
-			return;
-		}
-		const totalHoursElement = domCache.hrStatsTotalEl || document.getElementById('hr-stat-total-hours');
-		const positiveOvertimeElement = domCache.hrStatsOvertimeEl || document.getElementById('hr-stat-total-overtime');
-		const employeesWithOvertimeElement = domCache.hrStatsNOvertimeEl || document.getElementById('hr-stat-employees-overtime');
-		const negativeOvertimeElement = domCache.hrStatsMinusOvertimeEl || document.getElementById('hr-stat-total-negative');
-		const employeesWithNegativeOvertimeElement = domCache.hrStatsNMinusOvertimeEl || document.getElementById('hr-stat-employees-negative');
-		const netOvertimeElement = domCache.hrStatsSumOvertimeEl || document.getElementById('hr-stat-sum-overtimes');
 		let totalWorkedMinutes = 0;
-		let totalOvertimeMinutes = 0;
-		let employeesWithOvertimeCount = 0;
-		let totalNegativeOvertimeMinutes = 0;
-		let employeesWithNegativeOvertimeCount = 0;
-		userListElement.querySelectorAll('tr').forEach(userRow => {
-			const monthMinutes = parseInt(userRow.dataset.totalMinutesMonth || '0', 10);
-			if (!Number.isNaN(monthMinutes)) {
-				totalWorkedMinutes += monthMinutes;
-			}
-			const balanceText = (userRow.querySelector('.hr-user-balance')?.textContent || '').trim();
-			const parsedBalanceMinutes = utils.hmToMin(balanceText);
-			const minutes = typeof parsedBalanceMinutes === 'number' && Number.isFinite(parsedBalanceMinutes) ? parsedBalanceMinutes : 0;
-			if (minutes > 0) {
-				totalOvertimeMinutes += minutes;
-				employeesWithOvertimeCount++;
-			}
-			if (minutes < 0) {
-				totalNegativeOvertimeMinutes += minutes;
-				employeesWithNegativeOvertimeCount++;
-			}
-		});
-		if (totalHoursElement) {
-			totalHoursElement.textContent = utils.minToHm(totalWorkedMinutes);
+		let positiveMinutes = 0;
+		let negativeMinutes = 0;
+		let positiveCount = 0;
+		let negativeCount = 0;
+		for (const employee of visibleEmployees) {
+			totalWorkedMinutes += finiteMinutes(employee.totalMinutes);
+			const balance = finiteMinutes(employee.overtimeMinutes);
+			if (balance > 0) { positiveMinutes += balance; positiveCount++; }
+			if (balance < 0) { negativeMinutes += balance; negativeCount++; }
 		}
-		if (positiveOvertimeElement) {
-			positiveOvertimeElement.textContent = utils.minToHm(totalOvertimeMinutes);
-		}
-		if (employeesWithOvertimeElement) {
-			employeesWithOvertimeElement.textContent = String(employeesWithOvertimeCount);
-		}
-		if (negativeOvertimeElement) {
-			negativeOvertimeElement.textContent = utils.minToHm(totalNegativeOvertimeMinutes);
-		}
-		if (employeesWithNegativeOvertimeElement) {
-			employeesWithNegativeOvertimeElement.textContent = String(employeesWithNegativeOvertimeCount);
-		}
-		if (netOvertimeElement) {
-			netOvertimeElement.textContent = utils.minToHm(totalOvertimeMinutes + totalNegativeOvertimeMinutes);
+		const values = {
+			'hr-stat-total-hours': utils.minToHm(totalWorkedMinutes),
+			'hr-stat-total-overtime': utils.minToHm(positiveMinutes),
+			'hr-stat-employees-overtime': String(positiveCount),
+			'hr-stat-total-negative': utils.minToHm(negativeMinutes),
+			'hr-stat-employees-negative': String(negativeCount),
+			'hr-stat-sum-overtimes': utils.minToHm(positiveMinutes + negativeMinutes),
+		};
+		for (const [id, value] of Object.entries(values)) {
+			const element = document.getElementById(id);
+			if (element) element.textContent = value;
 		}
 	}
 
-	// Load HR user list and their stats
-	async function loadHrUserList() {
-		timesheet.dom.refresh();
-		const domCache = timesheet.dom;
-		if (!domCache.userListEl) {
-			return;
+	function daysSince(date) {
+		if (!date) return null;
+		// Compare calendar dates in the same zone used by employment phases and reminders.
+		const parts = Object.fromEntries(berlinCalendar.formatToParts(new Date()).map(part => [part.type, part.value]));
+		const today = Date.parse(`${parts.year}-${parts.month}-${parts.day}`);
+		const timestamp = Date.parse(date);
+		return Number.isFinite(timestamp) ? Math.max(0, Math.floor((today - timestamp) / 86400000)) : null;
+	}
+
+	function employeeWarnings(employee) {
+		const thresholds = getWarningThresholds();
+		const warnings = [];
+		const reference = employee.missingEntryReferenceDate === undefined ? employee.lastEntryDate : employee.missingEntryReferenceDate;
+		const daysWithoutEntry = daysSince(reference);
+		if (employee.isActive && !employee.freelancerMode && (daysWithoutEntry === null || daysWithoutEntry >= thresholds.noEntryDays)) {
+			warnings.push(`${translate('No entry for more than')} ${thresholds.noEntryDays} ${translate('days')}`);
 		}
-		domCache.userListEl.innerHTML = '';
+		const balance = finiteMinutes(employee.overtimeMinutes);
+		if (balance >= thresholds.overtimeThresholdMinutes) warnings.push(translate('Too much overtime'));
+		else if (balance <= -thresholds.negativeOvertimeThresholdMinutes) warnings.push(translate('Too many negative hours'));
+		return warnings.join(', ');
+	}
+
+	function appendCell(row, className, text) {
+		const cell = document.createElement('td');
+		cell.className = className;
+		cell.textContent = text;
+		row.appendChild(cell);
+		return cell;
+	}
+
+	function appendBadge(cell, className, text) {
+		const badge = document.createElement('span');
+		badge.className = className;
+		badge.textContent = text;
+		cell.appendChild(badge);
+	}
+
+	function renderEmployees() {
+		const body = document.getElementById('hr-userlist');
+		if (!body) return;
+		const nameQuery = employeeFilter.name.trim().toLowerCase();
+		visibleEmployees = allEmployees.filter(employee => {
+			const matchesMode = employeeFilter.mode === 'all'
+				|| employeeFilter.mode === 'active' && employee.isActive === true
+				|| employeeFilter.mode === 'inactive' && employee.isActive === false
+				|| employeeFilter.mode === 'freelancers' && employee.freelancerMode === true;
+			return matchesMode && String(employee.name || employee.id).toLowerCase().includes(nameQuery);
+		});
+		const nameCounts = new Map();
+		for (const employee of allEmployees) {
+			const name = String(employee.name || employee.id);
+			nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+		}
+		body.replaceChildren();
+		for (const employee of visibleEmployees) {
+			const row = document.createElement('tr');
+			row.classList.toggle('is-freelancer', employeeFilter.mode === 'all' && employee.freelancerMode === true);
+			const name = String(employee.name || employee.id);
+			const nameCell = appendCell(row, 'hr-employee-name', '');
+			const button = document.createElement('button');
+			button.type = 'button';
+			button.className = 'hr-load-user';
+			button.dataset.user = String(employee.id);
+			button.textContent = name;
+			if (nameCounts.get(name) > 1) {
+				const identifier = document.createElement('small');
+				identifier.className = 'hr-employee-identifier';
+				identifier.textContent = String(employee.id);
+				button.appendChild(identifier);
+			}
+			nameCell.appendChild(button);
+			if (employee.freelancerMode) appendBadge(nameCell, 'ts-freelancer-badge', translate('Freelancer'));
+			if (employee.isActive === false) appendBadge(nameCell, 'ts-inactive-badge', translate('Inactive'));
+			appendCell(row, 'hr-user-target', utils.minToHm(finiteMinutes(employee.dailyMin, 480)));
+			appendCell(row, 'hr-user-balance', utils.minToHm(finiteMinutes(employee.overtimeMinutes)));
+			appendCell(row, 'hr-user-last-entry', employee.lastEntryDate ? utils.formatDate(new Date(employee.lastEntryDate)) : '-');
+			const actualDays = daysSince(employee.lastEntryDate);
+			appendCell(row, 'hr-user-days-since', actualDays === null ? '' : String(actualDays));
+			appendCell(row, 'hr-user-errors', employeeWarnings(employee));
+			body.appendChild(row);
+		}
+		const count = document.getElementById('hr-employee-count');
+		if (count) count.textContent = translate('{visible} of {total} employees', { visible: visibleEmployees.length, total: allEmployees.length });
+		const message = document.getElementById('hr-employee-list-message');
+		if (message) message.textContent = !allEmployees.length ? translate('No employees are assigned.') : !visibleEmployees.length ? translate('No matching employees.') : '';
+		updateHrStats();
+	}
+
+	async function loadHrUserList() {
+		if (!document.getElementById('hr-userlist')) return;
+		const generation = ++listGeneration;
+		const message = document.getElementById('hr-employee-list-message');
+		const retry = document.getElementById('hr-employee-list-retry');
+		if (message) message.textContent = translate('Loading employees…');
+		if (retry) retry.hidden = true;
 		try {
-			const thresholds = await ensureWarningThresholds();
-			const users = await timesheet.api('/api/hr/userlist');
-			const userRowsFragment = document.createDocumentFragment();
-			(users || []).forEach(({
-				id,
-				name,
-				dailyMin: dailyMinimumMinutes,
-				overtimeMinutes,
-				totalMinutes: totalWorkedMinutes,
-				lastEntryDate
-			}) => {
-				const userRow = document.createElement('tr');
-				userRow.innerHTML = `
-          <td><button type="button" data-user="${id}" class="hr-load-user">${name}</button></td>
-          <td class="hr-user-target">--:--</td>
-          <td class="hr-user-balance">--:--</td>
-          <td class="hr-user-last-entry">-</td>
-          <td class="hr-user-days-since"></td>
-          <td class="hr-user-errors"></td>
-        `;
-				userRowsFragment.appendChild(userRow);
-				const dailyMinutes = typeof dailyMinimumMinutes === 'number' && Number.isFinite(dailyMinimumMinutes) ? dailyMinimumMinutes : 480;
-				const targetCell = userRow.querySelector('.hr-user-target');
-				if (targetCell) {
-					targetCell.textContent = utils.minToHm(dailyMinutes);
-				}
-				const totalMinutesMonth = typeof totalWorkedMinutes === 'number' && Number.isFinite(totalWorkedMinutes) ? totalWorkedMinutes : 0;
-				userRow.dataset.totalMinutesMonth = String(totalMinutesMonth);
-				const overtimeMinutesValue = typeof overtimeMinutes === 'number' && Number.isFinite(overtimeMinutes) ? overtimeMinutes : 0;
-				const balanceCell = userRow.querySelector('.hr-user-balance');
-				if (balanceCell) {
-					balanceCell.textContent = utils.minToHm(overtimeMinutesValue);
-				}
-				const lastEntryCell = userRow.querySelector('.hr-user-last-entry');
-				if (lastEntryCell && lastEntryDate) {
-					lastEntryCell.textContent = utils.formatDate(new Date(lastEntryDate));
-				}
-				const daysSinceEntryCell = userRow.querySelector('.hr-user-days-since');
-				const errorCell = userRow.querySelector('.hr-user-errors');
-				const errors = [];
-				let daysSinceLastEntry = null;
-				if (lastEntryDate) {
-					const today = new Date();
-					const todayDateString = today.toISOString().slice(0, 10);
-					daysSinceLastEntry = Math.floor((Date.parse(todayDateString) - Date.parse(lastEntryDate)) / (1000 * 60 * 60 * 24));
-					if (daysSinceLastEntry < 0) {
-						daysSinceLastEntry = 0;
-					}
-					if (daysSinceEntryCell) {
-						daysSinceEntryCell.textContent = String(daysSinceLastEntry);
-					}
-					if (daysSinceLastEntry >= thresholds.noEntryDays) {
-						errors.push(`${t(appState.appName, 'No entry for more than')} ${thresholds.noEntryDays} ${t(appState.appName, 'days')}`);
-					}
-				} else {
-					errors.push(`${t(appState.appName, 'No entry for more than')} ${thresholds.noEntryDays} ${t(appState.appName, 'days')}`);
-				}
-				if (typeof overtimeMinutesValue === 'number') {
-					if (overtimeMinutesValue >= thresholds.overtimeThresholdMinutes) {
-						errors.push(t(appState.appName, 'Too much overtime'));
-					} else if (overtimeMinutesValue <= -thresholds.negativeOvertimeThresholdMinutes) {
-						errors.push(t(appState.appName, 'Too many negative hours'));
-					}
-				}
-				if (errorCell) {
-					errorCell.textContent = errors.join(', ');
-				}
-			});
-			domCache.userListEl.appendChild(userRowsFragment);
-			updateHrStats();
+			await ensureWarningThresholds();
+			const employees = await timesheet.api('/api/hr/userlist');
+			if (generation !== listGeneration) return;
+			if (!Array.isArray(employees)) throw new Error('Invalid HR employee list');
+			// UID, rather than display name, identifies a person across groups and edits.
+			allEmployees = [...new Map(employees.filter(employee => employee && typeof employee.id === 'string' && employee.id).map(employee => [employee.id, employee])).values()];
+			listLoaded = true;
+			renderEmployees();
 		} catch (error) {
+			if (generation !== listGeneration) return;
+			allEmployees = [];
+			renderEmployees();
+			if (message) message.textContent = translate('Employee list could not be loaded.');
+			if (retry) retry.hidden = false;
 			console.warn('Failed to load HR user list:', error);
 		}
 	}
 
+	function closeFilters(restoreFocus = false) {
+		const popup = document.getElementById('hr-employee-filter-popup');
+		if (popup) popup.hidden = true;
+		const button = document.getElementById('hr-employee-filter-button');
+		button?.setAttribute('aria-expanded', 'false');
+		if (restoreFocus) button?.focus();
+	}
+
+	function positionFilters() {
+		const popup = document.getElementById('hr-employee-filter-popup');
+		const button = document.getElementById('hr-employee-filter-button');
+		if (!popup || popup.hidden || !button) return;
+		const anchor = button.getBoundingClientRect();
+		const size = popup.getBoundingClientRect();
+		popup.style.left = `${Math.max(12, Math.min(window.innerWidth - size.width - 12, anchor.right - size.width))}px`;
+		popup.style.top = `${Math.max(12, Math.min(window.innerHeight - size.height - 12, anchor.bottom + 8))}px`;
+	}
+
+	function initializeFilters() {
+		const button = document.getElementById('hr-employee-filter-button');
+		const popup = document.getElementById('hr-employee-filter-popup');
+		const search = document.getElementById('hr-employee-search');
+		const mode = document.getElementById('hr-employee-filter-mode');
+		button?.addEventListener('click', () => {
+			if (!popup) return;
+			popup.hidden = !popup.hidden;
+			button.setAttribute('aria-expanded', String(!popup.hidden));
+			positionFilters();
+			if (!popup.hidden) search?.focus();
+		});
+		document.getElementById('hr-employee-filter-close')?.addEventListener('click', () => closeFilters(true));
+		popup?.addEventListener('keydown', event => {
+			if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFilters(true); }
+		});
+		document.addEventListener('click', event => {
+			if (popup && !popup.hidden && !popup.contains(event.target) && !button?.contains(event.target)) closeFilters();
+		});
+		window.addEventListener('resize', positionFilters);
+		window.addEventListener('scroll', positionFilters, true);
+		search?.addEventListener('input', () => { employeeFilter.name = search.value; renderEmployees(); });
+		mode?.addEventListener('change', () => { employeeFilter.mode = mode.value; renderEmployees(); });
+		document.getElementById('hr-employee-filter-clear')?.addEventListener('click', () => {
+			employeeFilter.mode = 'active'; employeeFilter.name = '';
+			if (mode) mode.value = 'active';
+			if (search) search.value = '';
+			renderEmployees();
+		});
+		document.getElementById('hr-employee-list-retry')?.addEventListener('click', loadHrUserList);
+	}
+
 	// Initialize HR module
 	function initializeHrHandlers() {
+		if (initialized || !document.getElementById('hr-userlist')) return;
+		initialized = true;
+		initializeFilters();
+		timesheet.employmentStatus?.onChange(() => { if (listLoaded) loadHrUserList(); });
 		// Load HR user entries on button click
 		document.addEventListener('click', async event => {
 			const userButton = event.target.closest('.hr-load-user');
@@ -187,6 +258,8 @@
 			if (!userId) {
 				return;
 			}
+			closeFilters();
+			timesheet.employmentStatus?.setHrEmployee(userId, allEmployees.find(employee => employee.id === userId));
 			const tabHrSection = document.getElementById('tab-hr');
 			const hrConfigRow = tabHrSection?.querySelector('.hr-config-row');
 			const hrDailyMinInput = hrConfigRow?.querySelector('.config-daily-min');

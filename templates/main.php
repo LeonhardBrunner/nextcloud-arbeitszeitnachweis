@@ -1,10 +1,16 @@
 <?php
 $usesHoursFormat = ($_['breakInputMode'] ?? 'minutes') === 'hours';
 $absenceCommentTerms = $_['absenceCommentTerms'];
+$employmentStatus = $_['employmentStatus'] ?? [];
 ?>
 <section class="card" id="timesheet-app"
+	data-update-notes-enabled="<?php p(($_['updateNotesEnabled'] ?? false) ? 'true' : 'false'); ?>"
 	data-break-input-mode="<?php p($usesHoursFormat ? 'hours' : 'minutes'); ?>"
 	data-break-input-revision="<?php p($_['breakInputRevision'] ?? ''); ?>"
+	data-employment-status-available="<?php p(($_['employmentStatusAvailable'] ?? false) ? 'true' : 'false'); ?>"
+	data-employment-is-active="<?php p(($employmentStatus['isActive'] ?? false) ? 'true' : 'false'); ?>"
+	data-freelancer-mode="<?php p(($employmentStatus['freelancerMode'] ?? false) ? 'true' : 'false'); ?>"
+	data-employment-status-revision="<?php p($employmentStatus['statusRevision'] ?? ''); ?>"
 	data-absence-vacation="<?php p($absenceCommentTerms['vacation']); ?>"
 	data-absence-time-off-in-lieu="<?php p($absenceCommentTerms['timeOffInLieu']); ?>"
 	data-tour-enabled="<?php p(($_['tourEnabled'] ?? true) ? 'true' : 'false'); ?>"
@@ -108,6 +114,19 @@ $absenceCommentTerms = $_['absenceCommentTerms'];
 			</label>
 			<span class="ts-break-mode-option<?php p($usesHoursFormat ? ' is-active' : ''); ?>" data-break-mode-label="hours"><?php p($l->t('Hours')) ?></span>
 		</div>
+		<?php if ($_['canSetFreelancerMode'] ?? false): ?>
+			<!-- Personal employment classification uses its own account preference. -->
+			<div class="ts-employment-toggle" role="group" aria-labelledby="freelancer-mode-label">
+				<span id="freelancer-mode-label" class="ts-break-toggle-label"><?php p($l->t('Freelancer mode')); ?>:</span>
+				<span><?php p($l->t('Off')); ?></span>
+				<label class="ts-break-switch">
+					<input type="checkbox" id="freelancer-mode-switch" class="ts-freelancer-toggle-switch" role="switch" aria-labelledby="freelancer-mode-label" aria-describedby="freelancer-mode-feedback" aria-checked="false" disabled>
+					<span class="ts-break-switch-slider" aria-hidden="true"></span>
+				</label>
+				<span><?php p($l->t('On')); ?></span>
+			</div>
+			<p id="freelancer-mode-feedback" class="ts-employment-feedback" role="status"></p>
+		<?php endif; ?>
 	</div>
 
 	<!-- HR overview -->
@@ -126,22 +145,46 @@ $absenceCommentTerms = $_['absenceCommentTerms'];
 
 				<!-- Employee list -->
 				<div id="hr-userlist-section" class="ts-hr-section">
-					<h4><?php p($l->t('Employees')) ?></h4>
-					<table class="grid hr-userlist">
-						<thead>
-							<tr>
-								<th><?php p($l->t('Name')) ?></th>
-								<th><?php p($l->t('Daily target')) ?></th>
-								<th><?php p($l->t('Balance')) ?></th>
-								<th><?php p($l->t('Last entry')) ?></th>
-								<th><?php p($l->t('Days since last entry')) ?></th>
-								<th><?php p($l->t('Warnings')) ?></th>
-							</tr>
-						</thead>
-						<tbody id="hr-userlist">
-							<!-- Rows are rendered by JavaScript. -->
-						</tbody>
-					</table>
+					<div class="hr-employee-list-header">
+						<h4><?php p($l->t('Employees')) ?></h4>
+						<button type="button" id="hr-employee-filter-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="hr-employee-filter-popup"><?php p($l->t('Filter')); ?></button>
+					</div>
+					<div id="hr-employee-filter-popup" class="hr-employee-filter-popup" role="dialog" aria-labelledby="hr-employee-filter-heading" hidden>
+						<div class="hr-employee-filter-heading">
+							<h5 id="hr-employee-filter-heading"><?php p($l->t('Filter employees')); ?></h5>
+							<button type="button" id="hr-employee-filter-close" aria-label="<?php p($l->t('Close employee filters')); ?>">&#215;</button>
+						</div>
+						<label for="hr-employee-search"><?php p($l->t('Search by name')); ?></label>
+						<input type="search" id="hr-employee-search" autocomplete="off">
+						<label for="hr-employee-filter-mode"><?php p($l->t('Show employees')); ?></label>
+						<select id="hr-employee-filter-mode">
+							<option value="active"><?php p($l->t('Active employees')); ?></option>
+							<option value="inactive"><?php p($l->t('Inactive employees')); ?></option>
+							<option value="all"><?php p($l->t('All employees')); ?></option>
+							<option value="freelancers"><?php p($l->t('Freelancers')); ?></option>
+						</select>
+						<button type="button" id="hr-employee-filter-clear"><?php p($l->t('Clear filters')); ?></button>
+					</div>
+					<p id="hr-employee-count" class="hr-employee-count" role="status"></p>
+					<p id="hr-employee-list-message" class="hr-employee-list-message" role="status"></p>
+					<button type="button" id="hr-employee-list-retry" hidden><?php p($l->t('Retry')); ?></button>
+					<div class="hr-employee-table-scroll">
+						<table class="grid hr-userlist">
+							<thead>
+								<tr>
+									<th><?php p($l->t('Name')) ?></th>
+									<th><?php p($l->t('Daily target')) ?></th>
+									<th><?php p($l->t('Balance')) ?></th>
+									<th><?php p($l->t('Last entry')) ?></th>
+									<th><?php p($l->t('Days since last entry')) ?></th>
+									<th><?php p($l->t('Warnings')) ?></th>
+								</tr>
+							</thead>
+							<tbody id="hr-userlist">
+								<!-- Rows are rendered by JavaScript. -->
+							</tbody>
+						</table>
+					</div>
 				</div>
 
 				<!-- HR statistics -->
@@ -277,6 +320,15 @@ $absenceCommentTerms = $_['absenceCommentTerms'];
 				</div>
 
 				<!-- Month controls, statistics and settings -->
+				<div class="hr-employee-status-controls">
+					<label for="hr-employment-status"><?php p($l->t('Employment status')); ?></label>
+					<select id="hr-employment-status" aria-describedby="hr-employment-status-feedback" disabled>
+						<option value="active"><?php p($l->t('Active')); ?></option>
+						<option value="inactive"><?php p($l->t('Inactive')); ?></option>
+					</select>
+					<span id="hr-employee-freelancer" class="ts-freelancer-badge" hidden><?php p($l->t('Freelancer')); ?></span>
+					<span id="hr-employment-status-feedback" class="ts-employment-feedback" role="status"></span>
+				</div>
 				<div class="hr-user-controls-row">
 					<div class="ts-month-row">
 						<button type="button" class="month-nav" id="hr-month-prev"><</button>

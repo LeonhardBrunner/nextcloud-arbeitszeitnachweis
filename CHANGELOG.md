@@ -1,5 +1,7 @@
 # Changelog
 
+User-facing changes from version 1.3.0 onward are maintained in [the release notes catalog](appinfo/release-notes.json) and displayed in the app. Earlier releases remain documented below.
+
 ## [1.2.0]
 ### Added
 - Balances are now prepared and stored automatically in the background when monthly views or summaries are opened.

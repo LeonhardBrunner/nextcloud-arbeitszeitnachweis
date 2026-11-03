@@ -1,0 +1,7 @@
+{
+	"releases": [
+		{"version": "1.3.0", "sections": [{"title": "New features", "items": ["First release feature."]}]},
+		{"version": "1.4.0", "sections": [{"title": "Improvements", "items": ["Second release improvement."]}]},
+		{"version": "1.5.0", "sections": [{"title": "Bug fixes", "items": ["Third release fix."]}]}
+	]
+}

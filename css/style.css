@@ -128,12 +128,38 @@
 }
 
 .hr-userlist button.hr-load-user {
+	box-sizing: border-box;
+	display: block;
 	padding: 4px 10px;
 	border: 1px solid var(--color-border, #ccc);
 	background: #ddd;
 	color: #000;
 	margin: 0;
 	width: 100%;
+	max-width: 100%;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.hr-userlist .hr-employee-name {
+	white-space: normal;
+}
+
+.hr-userlist .hr-employee-name .ts-freelancer-badge,
+.hr-userlist .hr-employee-name .ts-inactive-badge {
+	box-sizing: border-box;
+	display: block;
+	width: fit-content;
+	max-width: 100%;
+	margin-inline: auto;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+/* Only the table scrolls; its employee filter remains above the visible column area. */
+.hr-employee-table-scroll {
+	max-inline-size: 100%;
+	overflow-x: auto;
 }
 
 .hr-userlist button.hr-load-user:hover {
@@ -371,6 +397,173 @@
 	height: 1px;
 }
 
+/* Employment controls share the switch appearance, with independent event handlers. */
+.ts-employment-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin-block-start: 8px;
+	padding: 6px 10px;
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 6px;
+	background: var(--color-background-dark, #f6f8fa);
+}
+
+.ts-freelancer-toggle-switch {
+	position: absolute;
+	opacity: 0;
+	width: 1px;
+	height: 1px;
+}
+
+.ts-freelancer-toggle-switch:checked + .ts-break-switch-slider {
+	border-color: var(--color-primary, #0082c9);
+	background: var(--color-primary, #0082c9);
+}
+
+.ts-freelancer-toggle-switch:checked + .ts-break-switch-slider::before {
+	transform: translateX(18px);
+}
+
+.ts-freelancer-toggle-switch:focus-visible + .ts-break-switch-slider {
+	outline: 2px solid var(--color-primary-element, #0082c9);
+	outline-offset: 3px;
+}
+
+.ts-freelancer-toggle-switch:disabled + .ts-break-switch-slider {
+	opacity: .5;
+	cursor: wait;
+}
+
+.ts-employment-feedback {
+	margin: 4px 0;
+	font-size: .9em;
+}
+
+.ts-freelancer-badge,
+.ts-inactive-badge {
+	display: inline-block;
+	margin: 3px;
+	padding: 2px 6px;
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 6px;
+	font-size: .85em;
+	line-height: 1.4;
+}
+
+.ts-freelancer-badge {
+	font-weight: 600;
+	border-color: var(--color-primary-element, #0082c9);
+}
+
+/* Keep the detail badge distinct from a custom page background. */
+#hr-employee-freelancer {
+	border-color: #000;
+}
+
+.ts-freelancer-badge[hidden] {
+	display: none;
+}
+
+.hr-userlist tbody tr.is-freelancer {
+	background: color-mix(in srgb, var(--color-primary-element, #0082c9) 8%, var(--color-main-background, #fff));
+}
+
+.hr-employee-identifier {
+	display: block;
+	font-size: .8em;
+}
+
+.hr-employee-list-header,
+.hr-employee-filter-heading,
+.hr-employee-status-controls {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 6px;
+}
+
+.hr-employee-list-header {
+	justify-content: space-between;
+}
+
+.hr-employee-list-header h4,
+.hr-employee-filter-heading h5 {
+	margin: 0;
+}
+
+.hr-employee-count,
+.hr-employee-list-message {
+	margin: 4px 6px;
+}
+
+.hr-employee-list-message:empty,
+.ts-employment-feedback:empty {
+	display: none;
+}
+
+.hr-employee-filter-popup {
+	position: fixed;
+	z-index: 3000;
+	box-sizing: border-box;
+	width: min(320px, calc(100vw - 24px));
+	max-height: calc(100dvh - 24px);
+	overflow: auto;
+	padding: 12px;
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 8px;
+	background: var(--color-main-background, #fff);
+	color: var(--color-main-text, #222);
+	box-shadow: 0 6px 24px rgba(0, 0, 0, .2);
+}
+
+.hr-employee-filter-popup[hidden] {
+	display: none;
+}
+
+/* Keep secondary filter actions neutral in both Nextcloud themes. */
+#timesheet-app #hr-employee-filter-button,
+#timesheet-app #hr-employee-filter-clear,
+#timesheet-app #hr-employee-filter-close {
+	border: 1px solid var(--color-border-dark, #aaa);
+	background-color: var(--color-background-dark, #ededed);
+	color: var(--color-main-text, #222);
+}
+
+#timesheet-app #hr-employee-filter-button:hover,
+#timesheet-app #hr-employee-filter-clear:hover,
+#timesheet-app #hr-employee-filter-close:hover,
+#timesheet-app #hr-employee-filter-button:active,
+#timesheet-app #hr-employee-filter-clear:active,
+#timesheet-app #hr-employee-filter-close:active {
+	background-color: var(--color-background-hover, #ddd);
+}
+
+#timesheet-app #hr-employee-filter-button:focus-visible,
+#timesheet-app #hr-employee-filter-clear:focus-visible,
+#timesheet-app #hr-employee-filter-close:focus-visible {
+	outline: 2px solid var(--color-main-text, #222);
+	outline-offset: 2px;
+}
+
+.hr-employee-filter-heading {
+	justify-content: space-between;
+	padding: 0;
+}
+
+.hr-employee-filter-popup label {
+	display: block;
+	margin-block-start: 8px;
+}
+
+.hr-employee-filter-popup input,
+.hr-employee-filter-popup select {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+}
+
 .ts-break-switch-slider {
 	position: relative;
 	width: 100%;
@@ -483,13 +676,35 @@
 
 @media (max-width: 1050px) {
 	.ts-hr-row {
-		grid-template-columns: 1fr;
+		grid-template-columns: minmax(0, 1fr);
+		justify-content: stretch;
+		inline-size: 100%;
 		grid-template-areas:
 			"stats"
 			"warnings"
 			"notifications"
 			"users"
 			"infobox";
+	}
+	#hr-userlist-section,
+	#hr-stats-section,
+	#hr-notifications-section,
+	#hr-warning-thresholds-section,
+	#hr-infobox-section {
+		box-sizing: border-box;
+		min-inline-size: 0;
+		max-inline-size: 100%;
+		justify-self: stretch;
+	}
+	#hr-stats-section,
+	#hr-notifications-section,
+	#hr-warning-thresholds-section {
+		overflow-x: auto;
+	}
+	#hr-stats-section th,
+	#hr-notifications-section .hr-hint-row td,
+	#hr-warning-thresholds-section .hr-hint-row td {
+		white-space: normal;
 	}
 }
 

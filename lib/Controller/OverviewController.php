@@ -13,6 +13,7 @@ use OCP\IRequest;
 use OCP\IUserSession;
 use OCA\Timesheet\Db\EntryMapper;
 use OCA\Timesheet\Db\UserConfigMapper;
+use OCA\Timesheet\Db\EmploymentStatusStore;
 use OCA\Timesheet\Service\HrService;
 use OCA\Timesheet\Service\HolidayService;
 use OCA\Timesheet\Service\MonthlyBalanceService;
@@ -29,6 +30,7 @@ class OverviewController extends Controller {
 		private HrService $hrService,
 		private HolidayService $holidayService,
 		private MonthlyBalanceService $monthlyBalanceService,
+		private EmploymentStatusStore $employmentStatusStore,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -95,6 +97,11 @@ class OverviewController extends Controller {
 		if ($userIds === []) {
 			return new DataResponse([]);
 		}
+		try {
+			$employmentStatuses = $this->employmentStatusStore->getStatusesForUsers($userIds);
+		} catch (\Throwable $loadError) {
+			return new DataResponse(['message' => 'Loading employment status failed'], 500);
+		}
 
 		$userSummaries = [];
 
@@ -105,6 +112,7 @@ class OverviewController extends Controller {
 			}
 
 			$summary = $this->monthlyBalanceService->calculateCurrentBalance($userId);
+			$employmentStatus = $employmentStatuses[$userId];
 			$userSummaries[] = [
 				'id' => $userId,
 				'name' => $user['name'] ?? $userId,
@@ -114,6 +122,8 @@ class OverviewController extends Controller {
 				'lastEntryDate' => $summary['lastEntryDate'] ?? null,
 				'balanceSource' => $summary['source'] ?? 'entries',
 				'lastSnapshot' => $summary['lastSnapshot'] ?? null,
+				...$employmentStatus->toPublicArray(),
+				'missingEntryReferenceDate' => $employmentStatus->getMissingEntryReferenceDate($summary['lastEntryDate'] ?? null),
 			];
 		}
 

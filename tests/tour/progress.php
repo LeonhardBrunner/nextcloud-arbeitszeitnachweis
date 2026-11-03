@@ -46,6 +46,12 @@ namespace OCP\Lock {
 	}
 }
 
+namespace OCP\AppFramework\Utility {
+	interface ITimeFactory {
+		public function getDateTime(string $time = 'now', ?\DateTimeZone $timezone = null): \DateTime;
+	}
+}
+
 namespace OCP\AppFramework {
 	class Controller {
 		public function __construct(protected string $appName, \OCP\IRequest $request) {
@@ -115,14 +121,24 @@ namespace {
 	use OCA\Timesheet\Controller\TourController;
 	use OCA\Timesheet\Db\TourProgressStore;
 	use OCA\Timesheet\Db\UserPreferencesStore;
+	use OCA\Timesheet\Db\EmploymentStatusStore;
 	use OCA\Timesheet\Service\HrService;
 	use OCA\Timesheet\Service\AbsenceCommentCatalog;
 
 	require_once __DIR__ . '/../../lib/Db/TourProgressStore.php';
 	require_once __DIR__ . '/../../lib/Db/UserPreferencesStore.php';
+	require_once __DIR__ . '/../../lib/Service/EmploymentStatus.php';
+	require_once __DIR__ . '/../../lib/Db/EmploymentStatusStore.php';
 	require_once __DIR__ . '/../../lib/Service/AbsenceCommentCatalog.php';
 	require_once __DIR__ . '/../../lib/Controller/TourController.php';
 	require_once __DIR__ . '/../../lib/Controller/PageController.php';
+
+	class TourTimeFixture implements \OCP\AppFramework\Utility\ITimeFactory {
+		public function getDateTime(string $time = 'now', ?\DateTimeZone $timezone = null): \DateTime {
+			$date = new \DateTime('2026-11-02T12:00:00+00:00');
+			return $timezone === null ? $date : $date->setTimezone($timezone);
+		}
+	}
 
 	class TourLockFixture implements \OCP\Lock\ILockingProvider {
 		public array $held = [];
@@ -265,7 +281,7 @@ namespace {
 			$logger = new TourLoggerFixture();
 			\OCP\Util::$scripts = [];
 			\OCP\Util::$styles = [];
-			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture());
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture()));
 			$parameters = $page->index()->getParams();
 			$expectSame(false, $parameters['tourEnabled']);
 			$expectSame(false, $parameters['tourStateAvailable']);
@@ -273,7 +289,8 @@ namespace {
 			$expectSame(false, in_array('timesheet-tour', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-main', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-header', \OCP\Util::$scripts, true));
-			$expectSame(['style'], \OCP\Util::$styles);
+			$expectSame($isAdmin ? ['style'] : ['style', 'timesheet-update-notes'], \OCP\Util::$styles);
+			$expectSame(!$isAdmin, $parameters['updateNotesEnabled']);
 			$expectSame([], array_values(array_filter($config->reads, static fn(string $key): bool => str_starts_with($key, 'tour_'))));
 			$expectSame([], $config->writes);
 			$expectSame([], $logger->warnings);
@@ -444,7 +461,7 @@ namespace {
 		$logger = new TourLoggerFixture();
 		\OCP\Util::$scripts = [];
 		\OCP\Util::$styles = [];
-		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture());
+		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture()));
 		$parameters = $page->index()->getParams();
 		$expectSame(true, $parameters['tourEnabled']);
 		$expectSame(true, $parameters['tourStateAvailable']);
@@ -452,14 +469,14 @@ namespace {
 		$expectSame(['version' => 1, 'employeeCompleted' => true], $parameters['tourProgress']);
 		$expectSame(true, array_search('timesheet-tour-header', \OCP\Util::$scripts, true) < array_search('timesheet-tour', \OCP\Util::$scripts, true));
 		$expectSame(true, array_search('timesheet-tour', \OCP\Util::$scripts, true) < array_search('timesheet-main', \OCP\Util::$scripts, true));
-		$expectSame(['style', 'timesheet-tour'], \OCP\Util::$styles);
+		$expectSame(['style', 'timesheet-update-notes', 'timesheet-tour'], \OCP\Util::$styles);
 		$expectSame([], $logger->warnings);
 	});
 	$test('A tour-state read failure leaves the main timesheet renderable', static function () use ($fixture, $expectSame): void {
 		[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture();
 		$config->rejectReads = true;
 		$logger = new TourLoggerFixture();
-		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture());
+		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture()));
 		$parameters = $page->index()->getParams();
 		$expectSame(false, $parameters['tourStateAvailable']);
 		$expectSame('minutes', $parameters['breakInputMode']);
@@ -474,7 +491,7 @@ namespace {
 			'de_DE' => ['vacation' => 'Urlaub', 'timeOffInLieu' => 'Stundenausgleich'],
 		] as $language => $expectedTerms) {
 			[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture('alice', true);
-			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture($language));
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture($language), new EmploymentStatusStore($config, $locks, new TourTimeFixture()));
 			$parameters = $page->index()->getParams();
 			$expectSame($expectedTerms, $parameters['absenceCommentTerms']);
 			$expectSame(false, $parameters['tourEnabled']);

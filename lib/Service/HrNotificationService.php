@@ -3,9 +3,12 @@
 namespace OCA\Timesheet\Service;
 
 use OCA\Timesheet\Db\EntryMapper;
+use OCA\Timesheet\Db\EmploymentStatusStore;
 use OCA\Timesheet\Db\UserConfigMapper;
 use OCA\Timesheet\Service\HrService;
 use OCP\AppFramework\Db\DoesNotExistException;
+use OCP\AppFramework\Utility\ITimeFactory;
+use Psr\Log\LoggerInterface;
 
 class HrNotificationService {
 	private const DEFAULT_NO_ENTRY_DAYS = 14;
@@ -20,7 +23,10 @@ class HrNotificationService {
 		private EntryMapper $entryMapper,
 		private UserConfigMapper $userConfigMapper,
 		private HrService $hrService,
-		private MonthlyBalanceService $monthlyBalanceService
+		private MonthlyBalanceService $monthlyBalanceService,
+		private EmploymentStatusStore $employmentStatusStore,
+		private ITimeFactory $timeFactory,
+		private LoggerInterface $logger,
 	) {
 	}
 
@@ -32,9 +38,13 @@ class HrNotificationService {
 			return $notificationsByHrUser;
 		}
 
-		$todayDate = date('Y-m-d');
+		$today = $this->timeFactory->getDateTime('today', new \DateTimeZone('Europe/Berlin'));
 
 		foreach ($hrUserIds as $hrUserId) {
+			$hrStatus = $this->loadEmploymentStatus($hrUserId);
+			if ($hrStatus === null || !$hrStatus->isActive) {
+				continue;
+			}
 			$hrConfig = null;
 			try {
 				$hrConfig = $this->userConfigMapper->findByUser($hrUserId);
@@ -77,6 +87,10 @@ class HrNotificationService {
 				if ($userId === '') {
 					continue;
 				}
+				$employmentStatus = $this->loadEmploymentStatus($userId);
+				if ($employmentStatus === null || !$employmentStatus->isActive) {
+					continue;
+				}
 
 				$displayName = (string)($userInfo['name'] ?? $userId);
 
@@ -87,19 +101,25 @@ class HrNotificationService {
 
 				$lastEntryDate = ($balanceSummary && isset($balanceSummary['lastEntryDate']))
 					? (string)$balanceSummary['lastEntryDate']
-					: (($balanceSummary && isset($balanceSummary['to'])) ? (string)$balanceSummary['to'] : null);
+					: null;
 
+				// The older aggregate reminder starts a fresh full delay after an exemption.
+				$referenceDate = $employmentStatus->getMissingEntryReferenceDate($lastEntryDate);
+				if ($referenceDate === null && $balanceSummary && isset($balanceSummary['to'])) {
+					// Preserve the old range fallback only when no actual entry or return exists.
+					$referenceDate = $employmentStatus->getMissingEntryReferenceDate((string)$balanceSummary['to']);
+				}
 				$daysSinceLastEntry = null;
-				if ($lastEntryDate) {
-					$secondsSinceLastEntry = strtotime($todayDate) - strtotime($lastEntryDate);
-					$daysSinceLastEntry = ($secondsSinceLastEntry < 0) ? 0 : (int)floor($secondsSinceLastEntry / 86400);
+				if ($referenceDate !== null) {
+					$reference = \DateTimeImmutable::createFromFormat('!Y-m-d', $referenceDate, new \DateTimeZone('Europe/Berlin'));
+					$daysSinceLastEntry = $reference > $today ? 0 : (int)$reference->diff($today)->format('%a');
 				}
 
-				if ($noEntryEnabled) {
-					if ($lastEntryDate === null || ($daysSinceLastEntry !== null && $daysSinceLastEntry >= $noEntryDays)) {
+				if ($noEntryEnabled && !$employmentStatus->freelancerMode) {
+					if ($referenceDate === null || ($daysSinceLastEntry !== null && $daysSinceLastEntry >= $noEntryDays)) {
 						$hrNotifications['noEntry'][] = [
 							'user' => $displayName,
-							'days' => ($lastEntryDate && $daysSinceLastEntry !== null) ? (int)$daysSinceLastEntry : null,
+							'days' => $daysSinceLastEntry,
 						];
 					}
 				}
@@ -131,6 +151,15 @@ class HrNotificationService {
 		}
 
 		return $notificationsByHrUser;
+	}
+
+	private function loadEmploymentStatus(string $userId): ?EmploymentStatus {
+		try {
+			return $this->employmentStatusStore->getStatus($userId);
+		} catch (\Throwable $loadError) {
+			$this->logger->error('HR warnings skipped because employment status could not be read.', ['userId' => $userId, 'exception' => $loadError]);
+			return null;
+		}
 	}
 
 	private function formatHours(int $minutes, bool $forceSign = false): string {

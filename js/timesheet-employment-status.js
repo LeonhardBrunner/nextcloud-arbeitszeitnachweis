@@ -1,0 +1,113 @@
+(function () {
+	'use strict';
+
+	const timesheet = window.Timesheet;
+	if (!timesheet) return;
+	const translate = message => t('timesheet', message);
+	const confirmedStatuses = new Map();
+	const pendingUsers = new Map();
+	const listeners = new Set();
+	let selectedEmployeeId = null;
+	let initialized = false;
+	let selfFeedback = '';
+	let employeeFeedback = '';
+	const currentUserId = timesheet.state.currentUserId;
+
+	function validStatus(status) {
+		return status && typeof status.isActive === 'boolean' && typeof status.freelancerMode === 'boolean'
+			&& typeof status.statusRevision === 'string' && status.statusRevision.length > 0;
+	}
+
+	function remember(userId, status) {
+		if (validStatus(status)) {
+			confirmedStatuses.set(userId, { isActive: status.isActive, freelancerMode: status.freelancerMode, statusRevision: status.statusRevision });
+		}
+	}
+
+	// Render confirmed account state; this method never saves a preference.
+	function refresh() {
+		const selfStatus = pendingUsers.get(currentUserId) || confirmedStatuses.get(currentUserId);
+		const switchInput = document.getElementById('freelancer-mode-switch');
+		if (switchInput) {
+			switchInput.checked = selfStatus?.freelancerMode ?? false;
+			switchInput.setAttribute('aria-checked', String(switchInput.checked));
+			switchInput.disabled = !selfStatus || pendingUsers.has(currentUserId);
+		}
+		const selfMessage = document.getElementById('freelancer-mode-feedback');
+		if (selfMessage) selfMessage.textContent = selfFeedback || (!selfStatus ? translate('Employment status could not be loaded. Reload the page to try again.') : '');
+		const selectedStatus = pendingUsers.get(selectedEmployeeId) || confirmedStatuses.get(selectedEmployeeId);
+		const activitySelect = document.getElementById('hr-employment-status');
+		if (activitySelect) {
+			activitySelect.value = selectedStatus?.isActive === false ? 'inactive' : 'active';
+			activitySelect.disabled = !selectedStatus || pendingUsers.has(selectedEmployeeId);
+		}
+		const badge = document.getElementById('hr-employee-freelancer');
+		if (badge) badge.hidden = !selectedStatus?.freelancerMode;
+		const employeeMessage = document.getElementById('hr-employment-status-feedback');
+		if (employeeMessage) employeeMessage.textContent = employeeFeedback || (selectedEmployeeId && !selectedStatus ? translate('Employment status could not be loaded. Reload the page to try again.') : '');
+	}
+
+	async function saveStatus(userId, path, changes) {
+		const previousStatus = confirmedStatuses.get(userId);
+		if (!previousStatus || pendingUsers.has(userId)) return;
+		pendingUsers.set(userId, { ...previousStatus, ...changes });
+		const isSelfSave = Object.hasOwn(changes, 'freelancerMode');
+		if (isSelfSave) selfFeedback = translate('Saving employment status…');
+		else employeeFeedback = translate('Saving employment status…');
+		refresh();
+		try {
+			const result = await timesheet.api(path, { method: 'PUT', body: JSON.stringify({ ...changes, statusRevision: previousStatus.statusRevision }) });
+			if (!validStatus(result)) throw new Error('Invalid employment status response');
+			remember(userId, result);
+			if (isSelfSave) selfFeedback = '';
+			else if (selectedEmployeeId === userId) employeeFeedback = '';
+			for (const listener of listeners) listener(userId, confirmedStatuses.get(userId));
+		} catch (error) {
+			let conflict;
+			try { conflict = JSON.parse(error.message); } catch {}
+			const isConflict = conflict?.code === 'employment_status_conflict' && validStatus(conflict);
+			if (isConflict) {
+				remember(userId, conflict);
+				for (const listener of listeners) listener(userId, confirmedStatuses.get(userId));
+			}
+			const message = translate(isConflict ? 'Employment status changed in another window. The current value has been restored.' : 'Employment status could not be saved.');
+			if (isSelfSave) selfFeedback = message;
+			else if (selectedEmployeeId === userId) employeeFeedback = message;
+		} finally {
+			pendingUsers.delete(userId);
+			refresh();
+		}
+	}
+
+	function setHrEmployee(userId, status) {
+		selectedEmployeeId = userId;
+		employeeFeedback = '';
+		if (!pendingUsers.has(userId)) remember(userId, status);
+		refresh();
+	}
+
+	function init() {
+		if (initialized) return;
+		initialized = true;
+		const root = document.getElementById('timesheet-app');
+		if (root?.dataset.employmentStatusAvailable === 'true') {
+			remember(currentUserId, {
+				isActive: root.dataset.employmentIsActive === 'true',
+				freelancerMode: root.dataset.freelancerMode === 'true',
+				statusRevision: root.dataset.employmentStatusRevision,
+			});
+		}
+		document.getElementById('freelancer-mode-switch')?.addEventListener('change', async event => {
+			const choice = event.target.checked;
+			await saveStatus(currentUserId, '/api/preferences/freelancer-mode', { freelancerMode: choice });
+		});
+		document.getElementById('hr-employment-status')?.addEventListener('change', async event => {
+			if (!selectedEmployeeId) return;
+			const userId = selectedEmployeeId;
+			await saveStatus(userId, `/api/hr/employees/${encodeURIComponent(userId)}/activity`, { isActive: event.target.value === 'active' });
+		});
+		refresh();
+	}
+
+	timesheet.employmentStatus = { init, refresh, setHrEmployee, onChange: listener => listeners.add(listener) };
+})();

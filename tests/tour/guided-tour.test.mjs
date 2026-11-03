@@ -834,6 +834,21 @@ test('employee tour blocks background changes, traps focus, aborts on Escape and
 	assert.equal(fixture.requests.length, 0);
 });
 
+test('ending the tour redraws a confirmed employment save that completed while the tour was open', async () => {
+	const fixture = createFixture();
+	const switchInput = fixture.element('input', 'freelancer-mode-switch', '', fixture.app);
+	let confirmedMode = false;
+	let refreshCount = 0;
+	fixture.context.Timesheet.employmentStatus = { refresh() { refreshCount++; switchInput.checked = confirmedMode; } };
+	await fixture.tour.start();
+	confirmedMode = true;
+	switchInput.checked = true;
+	await fixture.tour.end();
+	assert.equal(switchInput.checked, true, 'The old tour snapshot cannot replace a newly confirmed preference');
+	assert.equal(refreshCount, 1);
+	assert.equal(fixture.requests.length, 0);
+});
+
 test('employee completion writes only tour progress and preserves account-language text', async () => {
 	const fixture = createFixture({ translate: text => `translated:${text}` });
 	await fixture.tour.start();
