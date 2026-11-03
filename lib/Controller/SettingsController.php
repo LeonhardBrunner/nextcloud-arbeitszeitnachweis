@@ -10,12 +10,15 @@ use OCP\AppFramework\Services\IAppConfig;
 use OCP\IRequest;
 use OCP\IGroupManager;
 use OCP\IUserSession;
+use OCP\IUserManager;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCA\Timesheet\Service\MissingEntryReminderSettings;
 use OCA\Timesheet\Service\MissingEntryReminderService;
 use OCA\Timesheet\Service\HrService;
+use OCA\Timesheet\Service\HrRuleAssignments;
 
 class SettingsController extends Controller {
+	private HrRuleAssignments $hrAssignments;
 
 	private const GROUP_DEFAULTS = [
 		'priority' => 1,
@@ -36,8 +39,10 @@ class SettingsController extends Controller {
 		private MissingEntryReminderService $missingEntryReminderService,
 		private ITimeFactory $timeFactory,
 		private HrService $hrService,
+		private IUserManager $userManager,
 	) {
 		parent::__construct($appName, $request);
+		$this->hrAssignments = new HrRuleAssignments($groupManager, $userManager);
 	}
 
 	// HR manages the shared policy; CSRF protection remains enabled for both writes.
@@ -66,17 +71,22 @@ class SettingsController extends Controller {
 
 		$previousRulesJson = $this->appConfig->getAppValueString('hr_access_rules');
 		$previousRules = json_decode($previousRulesJson, true);
+		$previousAssignmentRules = is_array($previousRules) ? $previousRules : [];
 		$previousRules = is_array($previousRules) ? $this->sanitizeRules($previousRules) : [];
 
 		try {
+			$submittedRules = $this->validateAssignmentSettings($submittedRules, $previousAssignmentRules);
 			$submittedRules = $this->validateReminderSettings($submittedRules, $previousRules);
+			$sanitizedRules = $this->sanitizeRules($submittedRules, true);
+			$hasHrAssignment = $this->hasRemainingHrAssignment($sanitizedRules);
 		} catch (\InvalidArgumentException $invalidSettings) {
 			return new DataResponse(['message' => $invalidSettings->getMessage()], 400);
+		} catch (\Throwable $validationError) {
+			return new DataResponse(['message' => 'Saving reminder settings failed'], 500);
 		}
-		$sanitizedRules = $this->sanitizeRules($submittedRules);
-		// A remaining existing HR group keeps future policy changes reachable.
-		if (!array_filter($sanitizedRules, fn($rule) => $rule['hrGroups'] !== [])) {
-			return new DataResponse(['message' => 'At least one HR group must remain assigned.'], 400);
+		// A group or enabled individual keeps future policy changes reachable.
+		if (!$hasHrAssignment) {
+			return new DataResponse(['message' => 'At least one HR group or enabled HR account must remain assigned.'], 400);
 		}
 
 		// Each employee group may belong to only one access rule.
@@ -97,6 +107,92 @@ class SettingsController extends Controller {
 		}
 
 		return new DataResponse(['rules' => $sanitizedRules]);
+	}
+
+	/** Older tabs may omit the new fields; omission never resets restricted mail delivery. */
+	private function validateAssignmentSettings(array $rules, array $previousRules): array {
+		$previousById = [];
+		foreach ($previousRules as $previousRule) {
+			if (is_array($previousRule) && is_scalar($previousRule['id'] ?? null)) {
+				$previousById[trim((string)$previousRule['id'])] = $previousRule;
+			}
+		}
+		foreach ($rules as &$rule) {
+			if (!is_array($rule) || trim((string)($rule['id'] ?? '')) === '') {
+				continue;
+			}
+			$previous = $previousById[trim((string)$rule['id'])] ?? [];
+			foreach (['hrUsers', 'mailRecipients'] as $field) {
+				if (!array_key_exists($field, $rule) && array_key_exists($field, $previous)) {
+					$rule[$field] = $previous[$field];
+				}
+			}
+			$rule = array_replace($rule, $this->hrAssignments->validateForSave($rule));
+		}
+		unset($rule);
+		return $rules;
+	}
+
+	private function hasRemainingHrAssignment(array $rules): bool {
+		foreach ($rules as $rule) {
+			if ($rule['hrGroups'] !== []) {
+				return true;
+			}
+			foreach ($rule['hrUsers'] as $userId) {
+				if ($this->userManager->get($userId)?->isEnabled()) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/** Bounded account search is available only to accounts that manage HR rules. */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	public function searchPeople(): DataResponse {
+		$userId = $this->userSession->getUser()?->getUID();
+		if (!$userId || !$this->hrService->isHr($userId)) {
+			return new DataResponse(['message' => 'Forbidden'], 403);
+		}
+		$search = $this->request->getParam('search', '');
+		$purpose = $this->request->getParam('purpose', 'responsible');
+		if (!is_string($search) || mb_strlen($search) > 200 || !in_array($purpose, ['responsible', 'mail'], true)) {
+			return new DataResponse(['message' => 'Invalid account search'], 400);
+		}
+		$search = trim($search);
+		if ($purpose === 'responsible' && mb_strlen($search) < 2) {
+			return new DataResponse(['users' => [], 'hasMore' => false]);
+		}
+		try {
+			$groupIds = $this->request->getParam('hrGroups', []);
+			$directUserIds = $this->request->getParam('hrUsers', []);
+			if (!is_array($groupIds) || !is_array($directUserIds)) {
+				return new DataResponse(['message' => 'Invalid account search'], 400);
+			}
+			$candidates = $purpose === 'mail'
+				? array_map(fn(string $id) => $this->userManager->get($id), $this->hrAssignments->getResponsibleUserIds(['hrGroups' => $groupIds, 'hrUsers' => $directUserIds]))
+				: $this->userManager->searchDisplayName($search, 21, 0);
+			$users = [];
+			$needle = mb_strtolower($search);
+			foreach ($candidates as $candidate) {
+				if (!$candidate || !$candidate->isEnabled()) {
+					continue;
+				}
+				$name = (string)$candidate->getDisplayName();
+				$id = $candidate->getUID();
+				if ($needle !== '' && !str_contains(mb_strtolower($name), $needle) && !str_contains(mb_strtolower($id), $needle)) {
+					continue;
+				}
+				$users['user:' . $id] = ['id' => $id, 'name' => $name, 'enabled' => true];
+			}
+			$users = array_values($users);
+			usort($users, static fn(array $first, array $second): int => strnatcasecmp($first['name'], $second['name']) ?: strcmp($first['id'], $second['id']));
+			$hasMore = count($users) > 20 || ($purpose === 'responsible' && count($candidates) > 20);
+			return new DataResponse(['users' => array_slice($users, 0, 20), 'hasMore' => $hasMore]);
+		} catch (\Throwable $searchError) {
+			return new DataResponse(['message' => 'Accounts could not be loaded. Try again.'], 500);
+		}
 	}
 
 	/** @return array<int, mixed> */
@@ -122,7 +218,7 @@ class SettingsController extends Controller {
 		return $rules;
 	}
 
-	private function sanitizeRules(array $rules): array {
+	private function sanitizeRules(array $rules, bool $assignmentsValidated = false): array {
 		$sanitizedRules = [];
 		foreach ($rules as $rule) {
 			if (!is_array($rule)) {
@@ -134,15 +230,13 @@ class SettingsController extends Controller {
 				continue;
 			}
 
-			$hrGroups = isset($rule['hrGroups']) && is_array($rule['hrGroups']) ? $rule['hrGroups'] : [];
 			$userGroups = isset($rule['userGroups']) && is_array($rule['userGroups']) ? $rule['userGroups'] : [];
 
-			$hrGroups = $this->cleanGroupList($hrGroups);
 			$userGroups = $this->cleanGroupList($userGroups);
 
 			$sanitizedRules[] = array_merge([
 				'id' => $ruleId,
-				'hrGroups' => $hrGroups,
+				...($assignmentsValidated ? array_intersect_key($rule, array_flip(['hrGroups', 'hrUsers', 'mailRecipients'])) : $this->hrAssignments->normalize($rule)),
 				'userGroups' => $userGroups,
 				'missingEntryReminders' => MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null),
 			], $this->sanitizeRuleThresholds($rule));

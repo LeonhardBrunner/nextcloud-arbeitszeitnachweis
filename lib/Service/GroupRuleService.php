@@ -8,6 +8,7 @@ use OCP\IUserManager;
 use OCP\IUserSession;
 
 class GroupRuleService {
+	private HrRuleAssignments $hrAssignments;
 	private const DEFAULTS = [
 		'breakShortMinutes' => 30,
 		'breakShortHours' => 6,
@@ -25,6 +26,7 @@ class GroupRuleService {
 		private IUserManager $userManager,
 		private IUserSession $userSession,
 	) {
+		$this->hrAssignments = new HrRuleAssignments($groupManager, $userManager);
 	}
 
 	/**
@@ -133,18 +135,15 @@ class GroupRuleService {
 				continue;
 			}
 
-			$hrGroups = $rule['hrGroups'] ?? [];
 			$userGroups = $rule['userGroups'] ?? [];
 
-			$hrGroups = is_array($hrGroups) ? $hrGroups : [];
 			$userGroups = is_array($userGroups) ? $userGroups : [];
 
-			$hrGroups = $this->cleanGroupList($hrGroups);
 			$userGroups = $this->cleanGroupList($userGroups);
 
 			$sanitizedRules[] = array_merge([
 				'id' => $ruleId,
-				'hrGroups' => $hrGroups,
+				...$this->hrAssignments->normalize($rule),
 				'userGroups' => $userGroups,
 				'missingEntryReminders' => MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null),
 			], $this->sanitizeRuleThresholds($rule));

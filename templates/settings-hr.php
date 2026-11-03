@@ -1,7 +1,9 @@
 <?php
 	$allGroups = $_['allGroups'] ?? [];
 	$hrAccessRules = $_['hrAccessRules'] ?? [];
+	$hrPeople = $_['hrPeople'] ?? [];
 	$countSpecialDaysAsOvertime = (bool)($_['countSpecialDaysAsOvertime'] ?? false);
+	$embeddedJsonFlags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 ?>
 
 <div id="timesheet-hr-settings" class="section">
@@ -9,7 +11,7 @@
 	<h2><?php p($l->t('Timesheet settings')); ?></h2>
 
 	<p class="ts-hint">
-		<?php p($l->t('Define access rules: HR groups may access timesheets of the employee groups. Set time rules for those employee groups in each rule. Use priorities for when users are in multiple groups.')); ?>
+		<?php p($l->t('Define access rules: HR groups and individual accounts may access timesheets of the employee groups. Email recipients are selected separately. Time rules apply to the employee groups.')); ?>
 	</p>
 
 	<?php if (empty($allGroups)) : ?>
@@ -24,11 +26,15 @@
 
 	<!-- Initial data for the HR rule editor -->
 	<script id="timesheet-all-groups-data" type="application/json">
-		<?php print_unescaped(json_encode(array_values($allGroups), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>
+		<?php print_unescaped(json_encode(array_values($allGroups), $embeddedJsonFlags)); ?>
 	</script>
 
 	<script id="timesheet-hr-rules-data" type="application/json">
-		<?php print_unescaped(json_encode(array_values($hrAccessRules), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>
+		<?php print_unescaped(json_encode(array_values($hrAccessRules), $embeddedJsonFlags)); ?>
+	</script>
+
+	<script id="timesheet-hr-people-data" type="application/json">
+		<?php print_unescaped(json_encode(array_values($hrPeople), $embeddedJsonFlags)); ?>
 	</script>
 
 	<hr class="ts-divider" />
@@ -167,6 +173,82 @@
 
 		.ts-rule-select {
 			max-width: 420px;
+		}
+
+		/* Searchable account assignments use native controls and neutral actions. */
+		.ts-rule-col {
+			min-width: 0;
+		}
+
+		.ts-person-picker {
+			margin-top: 12px;
+		}
+
+		.ts-person-picker > label,
+		.ts-mail-recipient-settings > label {
+			display: block;
+			font-weight: 600;
+			margin-bottom: 4px;
+		}
+
+		.ts-person-search,
+		.ts-person-choice,
+		.ts-mail-recipient-mode {
+			box-sizing: border-box;
+			width: 100%;
+			max-width: 420px;
+		}
+
+		.ts-person-choice {
+			display: flex;
+			align-items: center;
+			flex-wrap: wrap;
+			gap: 8px;
+			margin-top: 6px;
+		}
+
+		.ts-person-results {
+			min-width: 0;
+			max-width: 100%;
+			flex: 1 1 200px;
+		}
+
+		.ts-person-search-status {
+			min-height: 1.4em;
+		}
+
+		.ts-person-picker .ts-chip {
+			box-sizing: border-box;
+			max-width: 100%;
+		}
+
+		.ts-person-picker .ts-chip > span {
+			min-width: 0;
+			overflow-wrap: anywhere;
+		}
+
+		#timesheet-hr-settings .ts-person-remove {
+			width: 32px;
+			min-width: 32px;
+			min-height: 32px;
+			padding: 0;
+			margin: 0;
+			border: 0;
+			background: transparent;
+			color: inherit;
+		}
+
+		#timesheet-hr-settings .ts-person-add {
+			background: var(--color-background-dark);
+			color: var(--color-main-text);
+			border: 1px solid var(--color-border);
+		}
+
+		#timesheet-hr-settings .ts-person-remove:hover,
+		#timesheet-hr-settings .ts-person-remove:focus-visible,
+		#timesheet-hr-settings .ts-person-add:hover,
+		#timesheet-hr-settings .ts-person-add:focus-visible {
+			background: var(--color-background-hover);
 		}
 
 		/* Missing-entry reminder controls */

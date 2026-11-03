@@ -19,6 +19,10 @@ namespace OCP {
 	}
 	interface IGroupManager {
 		public function isAdmin(string $userId): bool;
+		public function isInGroup(string $userId, string $groupId): bool;
+	}
+	interface IGroup {
+		public function getGID(): string;
 	}
 	interface IL10N {
 		public function getLanguageCode(): string;
@@ -36,6 +40,31 @@ namespace OCP {
 		public static function addStyle(string $app, string $name): void {
 			self::$styles[] = $name;
 		}
+	}
+}
+
+namespace OCP\EventDispatcher {
+	class Event {
+	}
+	interface IEventListener {
+		public function handle(Event $event): void;
+	}
+}
+
+namespace OCP\Group\Events {
+	abstract class MembershipFixtureEvent extends \OCP\EventDispatcher\Event {
+		public function __construct(private \OCP\IGroup $group, private \OCP\IUser $user) {
+		}
+		public function getGroup(): \OCP\IGroup {
+			return $this->group;
+		}
+		public function getUser(): \OCP\IUser {
+			return $this->user;
+		}
+	}
+	class UserAddedEvent extends MembershipFixtureEvent {
+	}
+	class UserRemovedEvent extends MembershipFixtureEvent {
 	}
 }
 
@@ -172,6 +201,7 @@ namespace {
 	}
 	require_once __DIR__ . '/../../lib/Service/EmploymentStatus.php';
 	require_once __DIR__ . '/../../lib/Db/EmploymentStatusStore.php';
+	require_once __DIR__ . '/../../lib/Listener/EmployeeActivityListener.php';
 	require_once __DIR__ . '/../../lib/Controller/EmploymentStatusController.php';
 	require_once __DIR__ . '/../../lib/Controller/PageController.php';
 	require_once __DIR__ . '/../../lib/Controller/OverviewController.php';
@@ -273,8 +303,32 @@ namespace {
 	}
 	class EmploymentGroupFixture implements \OCP\IGroupManager {
 		public array $adminUserIds = ['admin', 'hr-admin'];
+		public array $membersByGroup = ['Zeitnachweis' => ['alice', 'bob']];
+		public bool $rejectReads = false;
 		public function isAdmin(string $userId): bool {
 			return in_array($userId, $this->adminUserIds, true);
+		}
+		public function isInGroup(string $userId, string $groupId): bool {
+			if ($this->rejectReads) {
+				throw new \RuntimeException('Synthetic group lookup failure.');
+			}
+			return in_array($userId, $this->membersByGroup[$groupId] ?? [], true);
+		}
+		public function get(string $groupId): ?EmploymentGroupObjectFixture {
+			return array_key_exists($groupId, $this->membersByGroup) ? new EmploymentGroupObjectFixture($groupId) : null;
+		}
+		public function addMember(string $userId, string $groupId = 'Zeitnachweis'): void {
+			$this->membersByGroup[$groupId] = array_values(array_unique([...($this->membersByGroup[$groupId] ?? []), $userId]));
+		}
+		public function removeMember(string $userId, string $groupId = 'Zeitnachweis'): void {
+			$this->membersByGroup[$groupId] = array_values(array_filter($this->membersByGroup[$groupId] ?? [], static fn(string $memberId): bool => $memberId !== $userId));
+		}
+	}
+	class EmploymentGroupObjectFixture implements \OCP\IGroup {
+		public function __construct(private string $groupId) {
+		}
+		public function getGID(): string {
+			return $this->groupId;
 		}
 	}
 	class EmploymentTranslationFixture implements \OCP\IL10N {

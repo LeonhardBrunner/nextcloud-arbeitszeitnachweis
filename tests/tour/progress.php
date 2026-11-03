@@ -227,6 +227,9 @@ namespace {
 	}
 	class TourGroupManagerFixture implements \OCP\IGroupManager {
 		public array $administrators = [];
+		public function isInGroup(string $userId, string $groupId): bool {
+			return $groupId === 'Zeitnachweis';
+		}
 		public function isAdmin(string $userId): bool {
 			return in_array($userId, $this->administrators, true);
 		}
@@ -281,7 +284,7 @@ namespace {
 			$logger = new TourLoggerFixture();
 			\OCP\Util::$scripts = [];
 			\OCP\Util::$styles = [];
-			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture()));
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager));
 			$parameters = $page->index()->getParams();
 			$expectSame(false, $parameters['tourEnabled']);
 			$expectSame(false, $parameters['tourStateAvailable']);
@@ -461,7 +464,7 @@ namespace {
 		$logger = new TourLoggerFixture();
 		\OCP\Util::$scripts = [];
 		\OCP\Util::$styles = [];
-		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture()));
+		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager));
 		$parameters = $page->index()->getParams();
 		$expectSame(true, $parameters['tourEnabled']);
 		$expectSame(true, $parameters['tourStateAvailable']);
@@ -476,7 +479,7 @@ namespace {
 		[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture();
 		$config->rejectReads = true;
 		$logger = new TourLoggerFixture();
-		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture()));
+		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager));
 		$parameters = $page->index()->getParams();
 		$expectSame(false, $parameters['tourStateAvailable']);
 		$expectSame('minutes', $parameters['breakInputMode']);
@@ -491,7 +494,7 @@ namespace {
 			'de_DE' => ['vacation' => 'Urlaub', 'timeOffInLieu' => 'Stundenausgleich'],
 		] as $language => $expectedTerms) {
 			[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture('alice', true);
-			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture($language), new EmploymentStatusStore($config, $locks, new TourTimeFixture()));
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture($language), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager));
 			$parameters = $page->index()->getParams();
 			$expectSame($expectedTerms, $parameters['absenceCommentTerms']);
 			$expectSame(false, $parameters['tourEnabled']);

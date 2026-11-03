@@ -14,6 +14,9 @@ use OCA\Timesheet\BackgroundJob\HrNotificationJob;
 use OCA\Timesheet\BackgroundJob\MissingEntryReminderJob;
 use OCA\Timesheet\Notification\UpdateNotesNotifier;
 use OCA\Timesheet\Listener\UpdateNotesUserCreatedListener;
+use OCA\Timesheet\Listener\EmployeeActivityListener;
+use OCP\Group\Events\UserAddedEvent;
+use OCP\Group\Events\UserRemovedEvent;
 use OCP\User\Events\UserCreatedEvent;
 
 class Application extends App implements IBootstrap {
@@ -31,6 +34,8 @@ class Application extends App implements IBootstrap {
 	public function register(IRegistrationContext $context): void {
 		$context->registerNotifierService(UpdateNotesNotifier::class);
 		$context->registerEventListener(UserCreatedEvent::class, UpdateNotesUserCreatedListener::class);
+		$context->registerEventListener(UserAddedEvent::class, EmployeeActivityListener::class);
+		$context->registerEventListener(UserRemovedEvent::class, EmployeeActivityListener::class);
 	}
 
 	public function boot(IBootContext $context): void {

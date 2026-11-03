@@ -20,6 +20,12 @@
 		}
 	}
 	const allGroups = readEmbeddedJson('timesheet-all-groups-data');
+	const peopleById = new Map();
+	const embeddedPeople = readEmbeddedJson('timesheet-hr-people-data');
+	for (const person of Array.isArray(embeddedPeople) ? embeddedPeople : []) {
+		if (person && typeof person.id === 'string') peopleById.set(person.id, person);
+	}
+	const personSearches = new Map();
 	let accessRules = readEmbeddedJson('timesheet-hr-rules-data');
 	let notifiedDuplicateEmployeeGroups = false;
 	let ruleSaveQueue = Promise.resolve();
@@ -102,11 +108,28 @@
 		return Number.isFinite(parsedDate.getTime()) && parsedDate.toISOString().slice(0, 10) === value;
 	}
 
+	function normalizeAccountIds(values) {
+		return [...new Set((Array.isArray(values) ? values : [])
+			.filter(value => typeof value === 'string').map(value => value.trim()).filter(Boolean))];
+	}
+
+	function normalizeMailRecipients(inputSettings) {
+		if (inputSettings === undefined) return { mode: 'all', userIds: [] };
+		const settings = inputSettings && typeof inputSettings === 'object' && !Array.isArray(inputSettings) ? inputSettings : {};
+		const userIds = settings.userIds === undefined ? [] : settings.userIds;
+		if (!['all', 'selected'].includes(settings.mode) || !Array.isArray(userIds) || userIds.some(id => typeof id !== 'string')) {
+			return { mode: 'selected', userIds: [] };
+		}
+		return { mode: settings.mode, userIds: settings.mode === 'all' ? [] : normalizeAccountIds(userIds) };
+	}
+
 	function normalizeRuleSettings(inputRule = {}) {
 		const normalizedRule = {
 			id: String(inputRule.id || "").trim(),
 			hrGroups: Array.isArray(inputRule.hrGroups) ? inputRule.hrGroups : [],
+			hrUsers: normalizeAccountIds(inputRule.hrUsers),
 			userGroups: Array.isArray(inputRule.userGroups) ? inputRule.userGroups : [],
+			mailRecipients: normalizeMailRecipients(inputRule.mailRecipients),
 			missingEntryReminders: normalizeReminderSettings(inputRule.missingEntryReminders)
 		};
 		Object.entries(defaultRuleSettings).forEach(([settingKey, defaultValue]) => {
@@ -134,8 +157,8 @@
 			if (!id) {
 				return;
 			}
-			const hrGroups = Array.isArray(rule.hrGroups) ? rule.hrGroups : [];
-			const userGroups = Array.isArray(rule.userGroups) ? rule.userGroups : [];
+			const hrGroups = Array.isArray(rule.hrGroups ?? rule.hr_groups) ? (rule.hrGroups ?? rule.hr_groups) : [];
+			const userGroups = Array.isArray(rule.userGroups ?? rule.user_groups) ? (rule.userGroups ?? rule.user_groups) : [];
 			const normalizeGroupIds = groupIds => {
 				const uniqueGroupIds = new Set();
 				groupIds.forEach(value => {
@@ -209,6 +232,12 @@
 					const errorData = JSON.parse(errorText);
 					if (errorData?.message === 'At least one HR group must remain assigned.') {
 						saveError.notificationMessage = t('timesheet', 'At least one HR group must remain assigned.');
+					} else if (errorData?.message === 'At least one HR group or enabled HR account must remain assigned.') {
+						saveError.notificationMessage = t('timesheet', 'At least one HR group or enabled HR account must remain assigned.');
+					} else if (errorData?.message === 'Mail recipients must be responsible for this rule.') {
+						saveError.notificationMessage = t('timesheet', 'Mail recipients must be responsible for this rule.');
+					} else if (['Invalid HR account selection.', 'Invalid mail recipient settings.'].includes(errorData?.message)) {
+						saveError.notificationMessage = t('timesheet', 'HR assignments or email recipients are invalid.');
 					}
 				} catch {
 					// Non-JSON responses retain the generic save notice.
@@ -282,6 +311,137 @@
 			</div>`;
 	}
 
+	// Account labels always include the identifier when names alone are ambiguous.
+	function personLabel(person) {
+		const name = typeof person?.name === 'string' && person.name.trim() ? person.name : person.id;
+		return name === person.id ? name : `${name} (${person.id})`;
+	}
+
+	function renderPeopleChips(userIds, purpose) {
+		return userIds.map(userId => {
+			const person = peopleById.get(userId) || { id: userId, name: userId };
+			const label = personLabel(person);
+			const disabledLabel = person.enabled === false ? ` (${t('timesheet', 'Disabled account')})` : '';
+			return `<span class="ts-chip"><span>${escapeHtml(label + disabledLabel)}</span><button type="button" class="ts-person-remove" data-person-id="${escapeHtml(userId)}" data-person-purpose="${purpose}" aria-label="${escapeHtml(t('timesheet', 'Remove') + ': ' + label)}">&times;</button></span>`;
+		}).join('');
+	}
+
+	function renderPeoplePicker(rule, purpose) {
+		const identifier = `ts-person-${encodeURIComponent(rule.id)}-${purpose}`;
+		const isResponsible = purpose === 'responsible';
+		const selectedIds = isResponsible ? rule.hrUsers : rule.mailRecipients.userIds;
+		const label = t('timesheet', isResponsible ? 'Individual HR accounts' : 'Selected HR accounts');
+		return `<div class="ts-person-picker" data-person-picker="${purpose}">
+			<label for="${identifier}-search">${escapeHtml(label)}</label>
+			<div class="ts-chips">${renderPeopleChips(selectedIds, purpose)}</div>
+			<input type="search" id="${identifier}-search" class="ts-person-search" data-person-purpose="${purpose}" placeholder="${escapeHtml(t('timesheet', 'Search by name or account ID'))}" autocomplete="off" aria-describedby="${identifier}-status">
+			<div class="ts-person-choice">
+				<select class="ts-person-results" data-person-purpose="${purpose}" aria-label="${escapeHtml(t('timesheet', 'Choose an account'))}" disabled><option value="">${escapeHtml(t('timesheet', 'Choose an account'))}</option></select>
+				<button type="button" class="ts-person-add" data-person-purpose="${purpose}" disabled>${escapeHtml(t('timesheet', 'Add account'))}</button>
+			</div>
+			<p id="${identifier}-status" class="ts-person-search-status ts-setting-desc" role="status">${isResponsible ? escapeHtml(t('timesheet', 'Enter at least two characters.')) : ''}</p>
+		</div>`;
+	}
+
+	function renderMailRecipients(rule) {
+		const selectedMode = rule.mailRecipients.mode === 'selected';
+		const identifier = `ts-mail-mode-${encodeURIComponent(rule.id)}`;
+		return `<div class="ts-rule-section ts-mail-recipient-settings">
+			<label for="${identifier}" class="ts-rule-section-title">${escapeHtml(t('timesheet', 'Email recipients'))}</label>
+			<select id="${identifier}" class="ts-mail-recipient-mode">
+				<option value="all"${selectedMode ? '' : ' selected'}>${escapeHtml(t('timesheet', 'All responsible HR accounts'))}</option>
+				<option value="selected"${selectedMode ? ' selected' : ''}>${escapeHtml(t('timesheet', 'Selected HR accounts'))}</option>
+			</select>
+			<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Email selection does not change HR access.'))}</p>
+			<div class="ts-selected-mail-recipients"${selectedMode ? '' : ' hidden'}>
+				<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Only selected responsible accounts receive HR summaries. Employee reminders are unchanged.'))}</p>
+				${renderPeoplePicker(rule, 'mail')}
+				${rule.mailRecipients.userIds.length ? '' : `<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'No selected accounts means no HR summary for this rule.'))}</p>`}
+			</div>
+		</div>`;
+	}
+
+	// Search is read-only and scoped to a rule; rebuilt cards discard pending responses.
+	function cancelPersonSearches() {
+		for (const search of personSearches.values()) {
+			if (search.timer !== undefined) clearTimeout(search.timer);
+			search.controller?.abort();
+		}
+		personSearches.clear();
+	}
+
+	function personSearchControls(ruleCard, purpose) {
+		const picker = ruleCard.querySelector(`[data-person-picker="${purpose}"]`);
+		if (!picker) return null;
+		return {
+			input: picker.querySelector('.ts-person-search'),
+			results: picker.querySelector('.ts-person-results'),
+			addButton: picker.querySelector('.ts-person-add'),
+			status: picker.querySelector('.ts-person-search-status')
+		};
+	}
+
+	function resetPersonResults(controls) {
+		const placeholder = document.createElement('option');
+		placeholder.value = '';
+		placeholder.textContent = t('timesheet', 'Choose an account');
+		controls.results.replaceChildren(placeholder);
+		controls.results.disabled = true;
+		controls.addButton.disabled = true;
+	}
+
+	function searchPeople(ruleCard, purpose, immediate = false) {
+		const rule = accessRules.find(candidate => candidate.id === ruleCard.dataset.ruleId);
+		const controls = personSearchControls(ruleCard, purpose);
+		if (!rule || !controls || !['responsible', 'mail'].includes(purpose)) return;
+		const key = `${rule.id}:${purpose}`;
+		const previous = personSearches.get(key);
+		if (previous?.timer !== undefined) clearTimeout(previous.timer);
+		previous?.controller?.abort();
+		const query = controls.input.value.trim();
+		const search = { card: ruleCard, controls, people: new Map(), controller: new AbortController() };
+		personSearches.set(key, search);
+		resetPersonResults(controls);
+		if (purpose === 'responsible' && query.length < 2) {
+			controls.status.textContent = t('timesheet', 'Enter at least two characters.');
+			return;
+		}
+		controls.status.textContent = t('timesheet', 'Searching accounts…');
+		const runSearch = async () => {
+			const parameters = new URLSearchParams({ search: query, purpose });
+			for (const groupId of rule.hrGroups) parameters.append('hrGroups[]', groupId);
+			for (const userId of rule.hrUsers) parameters.append('hrUsers[]', userId);
+			try {
+				const response = await fetch(OC.generateUrl('/apps/timesheet/api/hr/people') + '?' + parameters.toString(), {
+					method: 'GET', headers: { requesttoken: OC.requestToken }, signal: search.controller.signal
+				});
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				const data = await response.json();
+				if (!data || !Array.isArray(data.users)) throw new Error('Invalid account search response');
+				if (personSearches.get(key) !== search || search.controller.signal.aborted) return;
+				const selectedIds = purpose === 'responsible' ? rule.hrUsers : rule.mailRecipients.userIds;
+				for (const person of data.users) {
+					if (!person || typeof person.id !== 'string' || !person.id || typeof person.name !== 'string' || typeof person.enabled !== 'boolean') continue;
+					peopleById.set(person.id, person);
+					search.people.set(person.id, person);
+					const option = document.createElement('option');
+					option.value = person.id;
+					option.textContent = personLabel(person) + (person.enabled ? '' : ` (${t('timesheet', 'Disabled account')})`);
+					option.disabled = !person.enabled || selectedIds.includes(person.id);
+					controls.results.appendChild(option);
+				}
+				const available = [...search.people.values()].some(person => person.enabled && !selectedIds.includes(person.id));
+				controls.results.disabled = !available;
+				controls.status.textContent = data.hasMore ? t('timesheet', 'More accounts found. Refine the search.') : available ? '' : t('timesheet', 'No matching accounts.');
+			} catch (error) {
+				if (personSearches.get(key) !== search || search.controller.signal.aborted) return;
+				controls.status.textContent = t('timesheet', 'Accounts could not be loaded. Try again.');
+			}
+		};
+		if (immediate) return runSearch();
+		search.timer = setTimeout(runSearch, 250);
+	}
+
 	function createRuleCard(rule, index, assignedEmployeeGroups) {
 		const ruleCard = document.createElement('div');
 		ruleCard.className = 'ts-rule';
@@ -306,6 +466,8 @@
             <label>${escapeHtml(t("timesheet", "HR groups"))}</label>
             <div class="ts-chips" data-kind="hrGroups">${renderGroupChips(rule.hrGroups, "hrGroups")}</div>
             <select class="ts-rule-select" data-kind="hrGroups">${hrGroupOptions}</select>
+			${renderPeoplePicker(rule, 'responsible')}
+			<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Assigned groups and people receive HR access to these employee groups.'))}</p>
           </div>
 
           <div class="ts-rule-col">
@@ -315,6 +477,7 @@
           </div>
         </div>
 
+		${renderMailRecipients(rule)}
         <div class="ts-rule-section">
           <div class="ts-rule-section-title">${escapeHtml(t("timesheet", "Time rules"))}</div>
           <div class="ts-rule-grid ts-rule-grid-compact">
@@ -350,6 +513,7 @@
 	}
 
 	function renderRules() {
+		cancelPersonSearches();
 		const normalizedRules = normalizeRules(accessRules);
 		const uniqueGroupResult = removeDuplicateEmployeeGroups(normalizedRules);
 		accessRules = uniqueGroupResult.rules;
@@ -361,7 +525,7 @@
 		if (accessRules.length === 0) {
 			const emptyMessage = document.createElement('div');
 			emptyMessage.className = 'ts-rule-empty';
-			emptyMessage.textContent = t('timesheet', 'No rules yet. Add one to restrict HR access based on groups.');
+			emptyMessage.textContent = t('timesheet', 'No rules yet. Add one to assign HR responsibility.');
 			rulesContainer.appendChild(emptyMessage);
 			return;
 		}
@@ -432,8 +596,21 @@
 	}
 
 	// Protect in-progress input from a pending save response.
-	rulesContainer.addEventListener('input', () => {
+	rulesContainer.addEventListener('input', event => {
 		ruleRevision++;
+		const searchInput = event.target?.closest('.ts-person-search');
+		if (searchInput) searchPeople(searchInput.closest('.ts-rule'), searchInput.dataset.personPurpose);
+	});
+	rulesContainer.addEventListener('focusin', event => {
+		const searchInput = event.target.closest('.ts-person-search');
+		if (searchInput) searchPeople(searchInput.closest('.ts-rule'), searchInput.dataset.personPurpose, true);
+	});
+	rulesContainer.addEventListener('keydown', event => {
+		const searchInput = event.target.closest('.ts-person-search');
+		if (searchInput && event.key === 'Enter') {
+			event.preventDefault();
+			searchPeople(searchInput.closest('.ts-rule'), searchInput.dataset.personPurpose, true);
+		}
 	});
 	addRuleButton?.addEventListener('click', async () => {
 		const updatedRules = normalizeRules(accessRules);
@@ -445,6 +622,41 @@
 			priority
 		}));
 		await saveAndRenderRules(updatedRules);
+	});
+	rulesContainer.addEventListener('change', async event => {
+		const resultSelect = event.target.closest('.ts-person-results');
+		if (resultSelect) {
+			const card = resultSelect.closest('.ts-rule');
+			const search = personSearches.get(`${card.dataset.ruleId}:${resultSelect.dataset.personPurpose}`);
+			const person = search?.people.get(resultSelect.value);
+			if (search) search.controls.addButton.disabled = !person?.enabled;
+			return;
+		}
+		const modeSelect = event.target.closest('.ts-mail-recipient-mode');
+		if (!modeSelect || !['all', 'selected'].includes(modeSelect.value)) return;
+		const card = modeSelect.closest('.ts-rule');
+		updateRule(card.dataset.ruleId, rule => ({ ...rule, mailRecipients: { mode: modeSelect.value, userIds: modeSelect.value === 'all' ? [] : rule.mailRecipients.userIds } }));
+		await saveAndRenderRules(accessRules);
+	});
+	rulesContainer.addEventListener('click', async event => {
+		const removeButton = event.target.closest('.ts-person-remove');
+		const addButton = event.target.closest('.ts-person-add');
+		if (!removeButton && !addButton) return;
+		event.preventDefault();
+		const card = event.target.closest('.ts-rule');
+		const purpose = (removeButton || addButton).dataset.personPurpose;
+		if (!card || !['responsible', 'mail'].includes(purpose)) return;
+		const search = personSearches.get(`${card.dataset.ruleId}:${purpose}`);
+		const userId = removeButton?.dataset.personId || search?.controls.results.value;
+		if (!userId || addButton && (search?.card !== card || !search.people.get(userId)?.enabled)) return;
+		updateRule(card.dataset.ruleId, rule => {
+			const currentIds = purpose === 'responsible' ? rule.hrUsers : rule.mailRecipients.userIds;
+			const updatedIds = removeButton ? currentIds.filter(id => id !== userId) : [...new Set([...currentIds, userId])];
+			if (purpose === 'responsible') rule.hrUsers = updatedIds;
+			else rule.mailRecipients = { ...rule.mailRecipients, userIds: updatedIds };
+			return rule;
+		});
+		await saveAndRenderRules(accessRules);
 	});
 	rulesContainer.addEventListener('click', async event => {
 		const removeGroupLink = event.target.closest('.ts-chip-remove');

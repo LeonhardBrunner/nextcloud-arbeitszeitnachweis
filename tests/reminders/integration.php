@@ -149,6 +149,14 @@ foreach (['employee-a', 'employee-b', 'no-region', 'no-mail', 'disabled', 'hr-a'
 	$testUsers[$suffix] = $user;
 }
 unset($password);
+$activityGroup = $groups->get('Zeitnachweis') ?? $groups->createGroup('Zeitnachweis');
+// Employee activity is independent of the groups that assign HR responsibility.
+foreach (['employee-a', 'employee-b', 'no-region', 'no-mail', 'disabled', 'late'] as $suffix) {
+	$activityGroup->addUser($testUsers[$suffix]);
+}
+foreach (['hr-a', 'hr-b'] as $suffix) {
+	$activityGroup->removeUser($testUsers[$suffix]);
+}
 $members = [
 	'reminder-employees-a' => ['employee-a', 'no-region', 'no-mail', 'disabled'],
 	'reminder-extra-a' => ['employee-a'],
@@ -177,11 +185,12 @@ foreach (['a', 'b'] as $letter) {
 	$appConfig->setAppValueString('missing_entry_rule_' . substr(hash('sha256', 'reminder-rule-' . $letter), 0, 32), '0');
 }
 $appConfig->setAppValueString('hr_access_rules', '[]');
-$makeService = static function (?HolidayService $holidays = null) use ($container, $entryMapper, $configMapper, $appConfig, $session, $groups, $users, $store, $clock, $capturingMailer, $logger): MissingEntryReminderService {
+$makeService = static function (?HolidayService $holidays = null) use ($container, $entryMapper, $configMapper, $appConfig, $session, $groups, $users, $store, $clock, $capturingMailer, $logger, $config): MissingEntryReminderService {
 	return new MissingEntryReminderService(
 		$container->get(GroupRuleService::class), $entryMapper, $configMapper,
-		new HrService($appConfig, $session, $groups), $holidays ?? $container->get(HolidayService::class), new MissingEntryDetector(new AbsenceCommentCatalog()),
-		$store, $capturingMailer, $groups, $users, $clock, $logger, $container->get(\OCA\Timesheet\Db\EmploymentStatusStore::class),
+		new HrService($appConfig, $session, $groups, $users), $holidays ?? $container->get(HolidayService::class), new MissingEntryDetector(new AbsenceCommentCatalog()),
+		$store, $capturingMailer, $groups, $users, $clock, $logger,
+		new \OCA\Timesheet\Db\EmploymentStatusStore($config, \OCP\Server::get(\OCP\Lock\ILockingProvider::class), $clock, $groups),
 	);
 };
 $makeService()->prepareRuleChanges([], $rules);

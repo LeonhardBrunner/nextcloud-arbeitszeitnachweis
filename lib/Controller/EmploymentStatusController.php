@@ -43,20 +43,6 @@ class EmploymentStatusController extends Controller {
 		return $this->save($userId, fn() => $this->statusStore->setFreelancerMode($userId, $freelancerMode, $statusRevision));
 	}
 
-	/** Only HR currently responsible for the target account may change its activity. */
-	#[NoAdminRequired]
-	public function setActivity(string $userId, mixed $isActive = null, mixed $statusRevision = null): DataResponse {
-		$currentUserId = $this->userSession->getUser()?->getUID();
-		if ($currentUserId === null || $currentUserId === '' || $userId === ''
-			|| !$this->hrService->isHr($currentUserId) || !$this->isAssignedEmployee($userId, $currentUserId)) {
-			return new DataResponse(['message' => 'Forbidden'], Http::STATUS_FORBIDDEN);
-		}
-		if (!is_bool($isActive) || !$this->isRevision($statusRevision)) {
-			return new DataResponse(['message' => 'Invalid employment status request'], Http::STATUS_BAD_REQUEST);
-		}
-		return $this->save($userId, fn() => $this->statusStore->setActive($userId, $isActive, $statusRevision));
-	}
-
 	private function save(string $userId, callable $update): DataResponse {
 		try {
 			try {
@@ -76,15 +62,5 @@ class EmploymentStatusController extends Controller {
 
 	private function isRevision(mixed $revision): bool {
 		return is_string($revision) && preg_match('/\A[0-9a-f]{64}\z/i', $revision) === 1;
-	}
-
-	private function isAssignedEmployee(string $employeeUserId, string $hrUserId): bool {
-		// General self-access does not establish an HR responsibility for the same account.
-		foreach ($this->hrService->getAccessibleUsers($hrUserId) as $employee) {
-			if (($employee['id'] ?? null) === $employeeUserId) {
-				return true;
-			}
-		}
-		return false;
 	}
 }

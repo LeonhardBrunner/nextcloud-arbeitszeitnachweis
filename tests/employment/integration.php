@@ -32,13 +32,14 @@ class EmploymentBalanceFixture extends MonthlyBalanceService {
 
 $initialChecks = $checks;
 $clock->current = new DateTimeImmutable('2026-10-19 10:00:00', new DateTimeZone('Europe/Berlin'));
-$statuses = new EmploymentStatusStore($config, \OCP\Server::get(\OCP\Lock\ILockingProvider::class), $clock);
+$statuses = new EmploymentStatusStore($config, \OCP\Server::get(\OCP\Lock\ILockingProvider::class), $clock, $groups);
 $employmentUsers = [];
 $password = getenv('REMINDER_TEST_PASSWORD');
 $names = ['active' => 'Marvin Adler', 'freelancer' => 'Marvin Berg', 'inactive' => 'Clara Inaktiv', 'returned' => 'Dora Rückkehr', 'never' => 'Erik Ohne Eintrag', 'foreign' => 'Marvin Fremd'];
 foreach (['active', 'freelancer', 'inactive', 'returned', 'never', 'foreign', 'hr-active', 'hr-freelancer', 'hr-inactive', 'hr-foreign'] as $suffix) {
 	$userId = 'employment-' . $suffix;
 	$user = $users->get($userId) ?? $users->createUser($userId, $password);
+	$user->setEnabled($suffix !== 'hr-inactive');
 	$user->setDisplayName($names[$suffix] ?? $userId);
 	$user->setEMailAddress($userId . '@example.test');
 	$config->setUserValue($userId, 'core', 'lang', 'de');
@@ -57,6 +58,13 @@ foreach (['active', 'freelancer', 'inactive', 'returned', 'never', 'foreign', 'h
 	$employmentUsers[$suffix] = $user;
 }
 unset($password);
+$activityGroup = $groups->get('Zeitnachweis') ?? $groups->createGroup('Zeitnachweis');
+foreach (['active', 'freelancer', 'returned', 'never', 'foreign'] as $suffix) {
+	$activityGroup->addUser($employmentUsers[$suffix]);
+}
+foreach (['inactive', 'hr-active', 'hr-freelancer', 'hr-inactive', 'hr-foreign'] as $suffix) {
+	$activityGroup->removeUser($employmentUsers[$suffix]);
+}
 $memberships = [
 	'employment-staff' => ['active', 'freelancer', 'inactive', 'returned', 'never'],
 	'employment-hr' => ['hr-active', 'hr-freelancer', 'hr-inactive'],
@@ -87,18 +95,16 @@ $appConfig->setAppValueString('hr_access_rules', json_encode($rules, JSON_THROW_
 $capturingMailer->deliver = false;
 $makeService()->prepareRuleChanges([], $rules);
 $statuses->setFreelancerMode('employment-freelancer', true, $statuses->getStatus('employment-freelancer')->statusRevision);
-$statuses->setActive('employment-inactive', false, $statuses->getStatus('employment-inactive')->statusRevision);
+$statuses->syncActivity('employment-inactive');
 $statuses->setFreelancerMode('employment-hr-freelancer', true, $statuses->getStatus('employment-hr-freelancer')->statusRevision);
-$statuses->setActive('employment-hr-inactive', false, $statuses->getStatus('employment-hr-inactive')->statusRevision);
-$statuses->setFreelancerMode('employment-returned', true, $statuses->getStatus('employment-returned')->statusRevision);
-$clock->current = $clock->current->modify('+3 days');
-$statuses->setActive('employment-returned', false, $statuses->getStatus('employment-returned')->statusRevision);
-$clock->current = $clock->current->modify('+2 days');
-$statuses->setFreelancerMode('employment-returned', false, $statuses->getStatus('employment-returned')->statusRevision);
-$clock->current = $clock->current->modify('+2 days');
-$statuses->setActive('employment-returned', true, $statuses->getStatus('employment-returned')->statusRevision);
-verifyReminder($statuses->getStatus('employment-returned')->getExcludedPeriods(), [['from' => '2026-10-19', 'to' => '2026-10-26']], 'Real preference store joins overlapping exemption types');
+// Existing dated exemptions survive the switch from manual status to group membership.
+$config->setUserValue('employment-returned', 'timesheet', 'employment_status', json_encode([
+	'version' => 1, 'nonce' => str_repeat('a', 32), 'isActive' => true, 'freelancerMode' => false,
+	'freelancerPeriods' => [['from' => '2026-10-19', 'to' => '2026-10-24']],
+	'inactivePeriods' => [['from' => '2026-10-22', 'to' => '2026-10-26']],
+], JSON_THROW_ON_ERROR));
 $clock->current = new DateTimeImmutable('2026-11-02 10:00:00', new DateTimeZone('Europe/Berlin'));
+verifyReminder($statuses->getStatus('employment-returned')->getExcludedPeriods(), [['from' => '2026-10-19', 'to' => '2026-10-26']], 'Group activity preserves overlapping historical exemptions');
 foreach (['active' => '2026-10-13', 'returned' => '2026-10-20'] as $suffix => $date) {
 	$entry = new \OCA\Timesheet\Db\Entry();
 	$entry->setUserId('employment-' . $suffix);
@@ -119,6 +125,7 @@ $employmentDelivery = $makeService()->sendReminders();
 verifyReminder(array_keys($capturingMailer->employees), ['employment-active', 'employment-returned', 'employment-never', 'employment-foreign'], 'Daily mail excludes current freelancers and inactive subjects');
 verifyReminder(isset($capturingMailer->hrSummaries['employment-hr-inactive']), false, 'Inactive HR receives no daily summary');
 verifyReminder(isset($capturingMailer->hrSummaries['employment-hr-freelancer']), true, 'Active freelance HR still receives assigned employee reminders');
+verifyReminder($groups->isInGroup('employment-hr-active', 'Zeitnachweis'), false, 'HR recipients do not need employee activity membership');
 $returnedDates = array_column($capturingMailer->employees['employment-returned'], 'date');
 verifyReminder(in_array('2026-10-12', $returnedDates, true), true, 'An earlier regular hole remains eligible after return');
 verifyReminder(in_array('2026-10-19', $returnedDates, true), false, 'Historical freelancer day remains excluded');
@@ -142,7 +149,7 @@ foreach (['hr-active', 'hr-freelancer', 'hr-inactive', 'hr-foreign'] as $suffix)
 $balances = new EmploymentBalanceFixture();
 $balances->summaries['employment-never'] = [];
 $balances->summaries['employment-returned'] = ['lastEntryDate' => null, 'to' => '2026-11-02', 'overtimeMinutes' => 120];
-$makeLegacy = static fn() => new HrNotificationService($entryMapper, $configMapper, new HrService($appConfig, $session, $groups), $balances, $statuses, $clock, $logger);
+$makeLegacy = static fn() => new HrNotificationService($entryMapper, $configMapper, new HrService($appConfig, $session, $groups, $users), $balances, $statuses, $clock, $logger, $users);
 $legacyWarnings = $makeLegacy()->doCron();
 verifyReminder(isset($legacyWarnings['employment-hr-inactive']), false, 'Inactive HR receives no legacy warnings');
 verifyReminder(isset($legacyWarnings['employment-hr-freelancer']), true, 'Freelance HR still receives other employees legacy warnings');
@@ -184,4 +191,30 @@ verifyReminder($realEmploymentDelivery['employeeSent'], 4, 'Status-aware employe
 verifyReminder($realEmploymentDelivery['hrSent'], 3, 'Status-aware scoped HR mails reach isolated Mailpit');
 verifyReminder($database->getQueryBuilder()->select('*')->from('ts_entries')->orderBy('id')->executeQuery()->fetchAll(), $unchangedEntries, 'Both reminder paths leave all time entries unchanged');
 verifyReminder($database->getQueryBuilder()->select('*')->from('ts_monthly_balances')->orderBy('id')->executeQuery()->fetchAll(), $unchangedBalances, 'Both reminder paths leave existing balances unchanged');
+
+// Exercise native group events with the real clock, without rewriting time data.
+\OCP\Server::get(\OC\AppFramework\Bootstrap\Coordinator::class)->bootApp('timesheet');
+$liveStatuses = $container->get(EmploymentStatusStore::class);
+$scopedHr = new HrService($appConfig, $session, $groups, $users);
+$scopeBefore = $scopedHr->getAccessibleUsers('employment-hr-active');
+verifyReminder(count($scopeBefore), 5, 'All assigned employees remain in the HR scope');
+verifyReminder(in_array('employment-foreign', array_column($scopeBefore, 'id'), true), false, 'Activity membership never extends HR responsibility');
+verifyReminder($scopedHr->isHr('employment-inactive'), false, 'An inactive assigned employee has no HR role');
+$liveStatuses->getStatus('employment-active');
+$activityGroup->removeUser($employmentUsers['active']);
+$removedState = $config->getUserValueForUsers('timesheet', 'employment_status', ['employment-active']);
+$removedState = json_decode($removedState['employment-active'] ?? 'null', true, 512, JSON_THROW_ON_ERROR);
+verifyReminder($removedState['isActive'] ?? null, false, 'Removing activity membership synchronizes the native event immediately');
+verifyReminder($liveStatuses->getStatus('employment-active')->isActive, false, 'Removed activity membership is inactive');
+verifyReminder($scopedHr->getAccessibleUsers('employment-hr-active'), $scopeBefore, 'Removing activity membership retains assigned HR access');
+$activityGroup->addUser($employmentUsers['active']);
+$restoredState = $config->getUserValueForUsers('timesheet', 'employment_status', ['employment-active']);
+$restoredState = json_decode($restoredState['employment-active'] ?? 'null', true, 512, JSON_THROW_ON_ERROR);
+verifyReminder($restoredState['isActive'] ?? null, true, 'Restoring activity membership synchronizes the native event immediately');
+verifyReminder($liveStatuses->getStatus('employment-active')->freelancerMode, false, 'Activity changes preserve freelancer classification');
+$registeredRoutes = require dirname(__DIR__, 2) . '/appinfo/routes.php';
+verifyReminder(count(array_filter($registeredRoutes['routes'], static fn(array $route): bool => $route['name'] === 'employmentStatus#setActivity')), 0, 'No manual activity route remains');
+verifyReminder(method_exists(\OCA\Timesheet\Controller\EmploymentStatusController::class, 'setActivity'), false, 'No manual controller method can override group activity');
+verifyReminder($database->getQueryBuilder()->select('*')->from('ts_entries')->orderBy('id')->executeQuery()->fetchAll(), $unchangedEntries, 'Native activity changes preserve existing time entries');
+verifyReminder($database->getQueryBuilder()->select('*')->from('ts_monthly_balances')->orderBy('id')->executeQuery()->fetchAll(), $unchangedBalances, 'Native activity changes preserve existing balances');
 echo json_encode(['employmentChecks' => $checks - $initialChecks, 'result' => 'passed', 'realDelivery' => $realEmploymentDelivery], JSON_UNESCAPED_SLASHES) . "\n";

@@ -8,6 +8,7 @@ use OCA\Timesheet\Db\UserConfigMapper;
 use OCA\Timesheet\Service\HrService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\IUserManager;
 use Psr\Log\LoggerInterface;
 
 class HrNotificationService {
@@ -27,13 +28,14 @@ class HrNotificationService {
 		private EmploymentStatusStore $employmentStatusStore,
 		private ITimeFactory $timeFactory,
 		private LoggerInterface $logger,
+		private IUserManager $userManager,
 	) {
 	}
 
 	public function doCron(): array {
 		$notificationsByHrUser = [];
 
-		$hrUserIds = $this->hrService->getAllHrUserIds();
+		$hrUserIds = $this->hrService->getMailRecipientUserIds();
 		if (!$hrUserIds) {
 			return $notificationsByHrUser;
 		}
@@ -41,8 +43,14 @@ class HrNotificationService {
 		$today = $this->timeFactory->getDateTime('today', new \DateTimeZone('Europe/Berlin'));
 
 		foreach ($hrUserIds as $hrUserId) {
-			$hrStatus = $this->loadEmploymentStatus($hrUserId);
-			if ($hrStatus === null || !$hrStatus->isActive) {
+			// HR recipients use account enablement, independently of employee activity groups.
+			try {
+				$hrUser = $this->userManager->get($hrUserId);
+				if (!$hrUser || !$hrUser->isEnabled()) {
+					continue;
+				}
+			} catch (\Throwable $recipientError) {
+				$this->logger->error('HR warnings skipped because the recipient could not be loaded.', ['userId' => $hrUserId, 'exception' => $recipientError]);
 				continue;
 			}
 			$hrConfig = null;
@@ -77,7 +85,7 @@ class HrNotificationService {
 				'negative' => [],
 			];
 
-			$accessibleUsers = $this->hrService->getAccessibleUsers($hrUserId);
+			$accessibleUsers = $this->hrService->getMailAccessibleUsers($hrUserId);
 			if (!$accessibleUsers) {
 				continue;
 			}

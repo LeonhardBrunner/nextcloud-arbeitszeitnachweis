@@ -10,6 +10,10 @@ namespace OCP {
 	interface IUser {
 		public function getUID(): string;
 	}
+	interface IUserManager {
+		public function get(string $userId): ?IUser;
+		public function searchDisplayName(string $pattern, ?int $limit = null, ?int $offset = null): array;
+	}
 	interface IUserSession {
 		public function getUser(): ?IUser;
 	}
@@ -140,6 +144,7 @@ namespace {
 	use OCA\Timesheet\Service\MissingEntryReminderService;
 	use OCA\Timesheet\Service\MonthlyBalanceService;
 
+	require_once __DIR__ . '/../../lib/Service/HrRuleAssignments.php';
 	require_once __DIR__ . '/../../lib/Service/HrService.php';
 	require_once __DIR__ . '/../../lib/Service/MissingEntryReminderSettings.php';
 	require_once __DIR__ . '/../../lib/Controller/SettingsController.php';
@@ -167,10 +172,30 @@ namespace {
 		}
 	}
 	class SettingsUserFixture implements \OCP\IUser {
-		public function __construct(private string $userId) {
+		public function __construct(private string $userId, private ?string $name = null, public bool $enabled = true) {
 		}
 		public function getUID(): string {
 			return $this->userId;
+		}
+		public function getDisplayName(): string { return $this->name ?? $this->userId; }
+		public function isEnabled(): bool { return $this->enabled; }
+	}
+	class SettingsUsersFixture implements \OCP\IUserManager {
+		public array $users = [];
+		public int $searches = 0;
+		public bool $rejectSearch = false;
+		public function __construct() {
+			foreach (['employee', 'hr', 'hr-admin', 'admin', 'anton', 'other-anton', 'disabled'] as $id) {
+				$name = match ($id) { 'anton', 'other-anton' => 'Anton Beispiel', default => $id };
+				$this->users[$id] = new SettingsUserFixture($id, $name, $id !== 'disabled');
+			}
+		}
+		public function get(string $userId): ?\OCP\IUser { return $this->users[$userId] ?? null; }
+		public function searchDisplayName(string $pattern, ?int $limit = null, ?int $offset = null): array {
+			$this->searches++;
+			if ($this->rejectSearch) throw new \RuntimeException('Private directory diagnostic.');
+			$matches = array_filter($this->users, static fn($user): bool => str_contains(mb_strtolower($user->getDisplayName()), mb_strtolower($pattern)) || str_contains(mb_strtolower($user->getUID()), mb_strtolower($pattern)));
+			return array_slice(array_values($matches), $offset ?? 0, $limit);
 		}
 	}
 	class SettingsSessionFixture implements \OCP\IUserSession {
@@ -181,11 +206,12 @@ namespace {
 		}
 	}
 	class SettingsGroupFixture {
-		public function __construct(private string $groupId) {
+		public function __construct(private string $groupId, private array $users = []) {
 		}
 		public function getGID(): string {
 			return $this->groupId;
 		}
+		public function getUsers(): array { return $this->users; }
 	}
 	class SettingsGroupsFixture implements \OCP\IGroupManager {
 		public int $searches = 0;
@@ -197,6 +223,14 @@ namespace {
 			'hr-admin' => ['HR', 'admin'],
 			'admin' => ['admin'],
 		];
+		public function get(string $groupId): ?SettingsGroupFixture {
+			if (!$this->groupExists($groupId)) return null;
+			$users = [];
+			foreach ($this->memberships as $id => $groups) {
+				if (in_array($groupId, $groups, true)) $users[] = new SettingsUserFixture($id);
+			}
+			return new SettingsGroupFixture($groupId, $users);
+		}
 		public function groupExists(string $groupId): bool {
 			return in_array($groupId, $this->groups, true);
 		}
@@ -252,20 +286,21 @@ namespace {
 	};
 	$defaultRule = ['id' => 'rule-a', 'hrGroups' => ['HR'], 'userGroups' => ['staff']];
 	$settingsClass = \OCA\Timesheet\Settings\HrSettings::class;
-	$fixture = static function (?string $userId = 'hr') use ($defaultRule, $settingsClass): array {
-		$config = new SettingsConfigFixture(['hr_access_rules' => json_encode([$defaultRule]), 'specialdays_check' => '0']);
+	$fixture = static function (?string $userId = 'hr', ?array $initialRules = null) use ($defaultRule, $settingsClass): array {
+		$config = new SettingsConfigFixture(['hr_access_rules' => json_encode($initialRules ?? [$defaultRule]), 'specialdays_check' => '0']);
 		$groups = new SettingsGroupsFixture();
 		$session = new SettingsSessionFixture($userId === null ? null : new SettingsUserFixture($userId));
-		$hrService = new HrService($config, $session, $groups);
+		$users = new SettingsUsersFixture();
+		$hrService = new HrService($config, $session, $groups, $users);
 		$request = new SettingsRequestFixture();
 		$balances = new MonthlyBalanceService();
 		$reminders = new MissingEntryReminderService();
-		$controller = new SettingsController('timesheet', $request, $config, $groups, $session, $balances, $reminders, new SettingsTimeFixture(), $hrService);
-		$provider = new $settingsClass($config, $groups, 'timesheet', $hrService);
+		$controller = new SettingsController('timesheet', $request, $config, $groups, $session, $balances, $reminders, new SettingsTimeFixture(), $hrService, $users);
+		$provider = new $settingsClass($config, $groups, 'timesheet', $hrService, $users);
 		// Role lookup may read rules; the protected form and mutators must not read settings after denial.
 		$config->reads = [];
 		\OCP\Util::$scripts = [];
-		return compact('config', 'groups', 'session', 'hrService', 'request', 'balances', 'reminders', 'controller', 'provider');
+		return compact('config', 'users', 'groups', 'session', 'hrService', 'request', 'balances', 'reminders', 'controller', 'provider');
 	};
 
 	// The native personal settings manager hides sections whose provider returns null.
@@ -337,7 +372,7 @@ namespace {
 			$state['request']->parameters['rules'] = json_encode($rules);
 			$response = $state['controller']->saveHrAccessRules();
 			$expectSame(400, $response->getStatus());
-			$expectSame(['message' => 'At least one HR group must remain assigned.'], $response->getData());
+			$expectSame(['message' => 'At least one HR group or enabled HR account must remain assigned.'], $response->getData());
 			$expectSame([], $state['config']->writes);
 			$expectSame([], $state['reminders']->preparations);
 		});
@@ -454,6 +489,118 @@ namespace {
 		$expectSame('timesheet', $section->getID());
 		$expectSame('Translated: Timesheet', $section->getName());
 		$expectSame('/apps/timesheet/img/app_dark.svg', $section->getIcon());
+	});
+
+
+	$test('Legacy rules load unchanged and default to all responsible HR recipients', static function () use ($fixture, $expectSame): void {
+		$state = $fixture(); $before = $state['config']->values;
+		$rule = $state['provider']->getForm()->getParams()['hrAccessRules'][0];
+		$expectSame([], $rule['hrUsers']);
+		$expectSame(['mode' => 'all', 'userIds' => []], $rule['mailRecipients']);
+		$expectSame($before, $state['config']->values);
+	});
+	$test('A direct enabled HR account can replace the group and receives the settings section', static function () use ($fixture, $expectSame): void {
+		$state = $fixture();
+		$rule = ['id' => 'direct', 'hrGroups' => [], 'hrUsers' => ['anton'], 'userGroups' => ['staff']];
+		$state['request']->parameters['rules'] = json_encode([$rule]);
+		$response = $state['controller']->saveHrAccessRules();
+		$expectSame(200, $response->getStatus()); $expectSame(['anton'], $response->getData()['rules'][0]['hrUsers']);
+		$direct = $fixture('anton', [$rule]);
+		$expectSame(true, $direct['hrService']->isHr());
+		$expectSame('timesheet', $direct['provider']->getSection());
+		$expectSame(200, $direct['provider']->getForm()->getStatus());
+		$expectSame(['staff'], $direct['hrService']->getAllowedUserGroups());
+		$expectSame([['id' => 'anton', 'name' => 'Anton Beispiel', 'enabled' => true]], $direct['provider']->getForm()->getParams()['hrPeople']);
+	});
+	$test('Saving an older payload retains individual HR and restricted recipients by stable rule ID', static function () use ($fixture, $defaultRule, $expectSame): void {
+		$rule = [...$defaultRule, 'hrUsers' => ['anton'], 'mailRecipients' => ['mode' => 'selected', 'userIds' => ['anton']]];
+		$state = $fixture('hr', [$rule]);
+		$state['request']->parameters['rules'] = json_encode([[...$defaultRule, 'maxHours' => 9]]);
+		$response = $state['controller']->saveHrAccessRules();
+		$expectSame(200, $response->getStatus());
+		$expectSame(['anton'], $response->getData()['rules'][0]['hrUsers']);
+		$expectSame(['mode' => 'selected', 'userIds' => ['anton']], $response->getData()['rules'][0]['mailRecipients']);
+		$expectSame(9.0, $response->getData()['rules'][0]['maxHours']);
+	});
+	$test('Older payloads retain assignments when stored rule IDs contain surrounding spaces', static function () use ($fixture, $defaultRule, $expectSame): void {
+		$rule = [...$defaultRule, 'id' => ' ' . $defaultRule['id'] . ' ', 'hrUsers' => ['anton'], 'mailRecipients' => ['mode' => 'selected', 'userIds' => ['anton']]];
+		$state = $fixture('hr', [$rule]);
+		$state['request']->parameters['rules'] = json_encode([$defaultRule]);
+		$response = $state['controller']->saveHrAccessRules();
+		$expectSame(200, $response->getStatus());
+		$expectSame(['anton'], $response->getData()['rules'][0]['hrUsers']);
+		$expectSame(['mode' => 'selected', 'userIds' => ['anton']], $response->getData()['rules'][0]['mailRecipients']);
+	});
+	$test('Empty selected recipients persist as no HR delivery instead of falling back to all', static function () use ($fixture, $defaultRule, $expectSame): void {
+		$state = $fixture();
+		$state['request']->parameters['rules'] = json_encode([[...$defaultRule, 'mailRecipients' => ['mode' => 'selected', 'userIds' => []]]]);
+		$response = $state['controller']->saveHrAccessRules(); $expectSame(200, $response->getStatus());
+		$stored = json_decode($state['config']->values['hr_access_rules'], true);
+		$expectSame(['mode' => 'selected', 'userIds' => []], $stored[0]['mailRecipients']);
+		$expectSame(['mode' => 'selected', 'userIds' => []], $state['provider']->getForm()->getParams()['hrAccessRules'][0]['mailRecipients']);
+	});
+	foreach ([
+		[['hrUsers' => 'anton'], 'Invalid HR account selection.'],
+		[['hrUsers' => ['unknown']], 'Invalid HR account selection.'],
+		[['mailRecipients' => ['mode' => 'unknown', 'userIds' => []]], 'Invalid mail recipient settings.'],
+		[['mailRecipients' => ['mode' => 'selected', 'userIds' => ['employee']]], 'Mail recipients must be responsible for this rule.'],
+	] as [$changes, $message]) {
+		$test('Invalid new assignments fail before enrollment or save: ' . $message . json_encode($changes), static function () use ($fixture, $defaultRule, $changes, $message, $expectSame): void {
+			$state = $fixture(); $state['request']->parameters['rules'] = json_encode([[...$defaultRule, ...$changes]]);
+			$response = $state['controller']->saveHrAccessRules();
+			$expectSame(400, $response->getStatus()); $expectSame($message, $response->getData()['message']);
+			$expectSame([], $state['config']->writes); $expectSame([], $state['reminders']->preparations);
+		});
+	}
+	$test('A disabled direct account alone cannot lock out future HR settings', static function () use ($fixture, $expectSame): void {
+		$state = $fixture(); $state['request']->parameters['rules'] = json_encode([['id' => 'disabled', 'hrGroups' => [], 'hrUsers' => ['disabled'], 'userGroups' => ['staff']]]);
+		$response = $state['controller']->saveHrAccessRules();
+		$expectSame(400, $response->getStatus()); $expectSame([], $state['config']->writes);
+	});
+	foreach ([null, 'employee', 'admin'] as $actor) {
+		$test('Account search is unavailable without HR responsibility: ' . ($actor ?? 'anonymous'), static function () use ($fixture, $actor, $expectSame): void {
+			$state = $fixture($actor); $state['request']->parameters = ['search' => 'Anton'];
+			$expectSame(403, $state['controller']->searchPeople()->getStatus()); $expectSame(0, $state['users']->searches);
+		});
+	}
+	$test('Account search finds names and IDs and returns only the documented display fields', static function () use ($fixture, $expectSame): void {
+		$state = $fixture(); $state['request']->parameters = ['search' => 'ANTON'];
+		$response = $state['controller']->searchPeople();
+		$expectSame(200, $response->getStatus()); $expectSame(['anton', 'other-anton'], array_column($response->getData()['users'], 'id'));
+		$expectSame(['id', 'name', 'enabled'], array_keys($response->getData()['users'][0]));
+		$expectSame(false, $response->getData()['hasMore']);
+		$state['request']->parameters = ['search' => 'disabled'];
+		$expectSame([], $state['controller']->searchPeople()->getData()['users']);
+	});
+	$test('Mail search is limited to proposed responsible accounts and includes direct HR', static function () use ($fixture, $expectSame): void {
+		$state = $fixture(); $state['request']->parameters = ['purpose' => 'mail', 'hrGroups' => ['HR'], 'hrUsers' => ['anton']];
+		$ids = array_column($state['controller']->searchPeople()->getData()['users'], 'id'); sort($ids);
+		$expectSame(['anton', 'hr', 'hr-admin'], $ids);
+		$state['request']->parameters = ['purpose' => 'mail'];
+		$expectSame([], $state['controller']->searchPeople()->getData()['users']);
+	});
+	$test('Directory results are bounded and short searches do not enumerate the directory', static function () use ($fixture, $expectSame): void {
+		$state = $fixture(); $state['request']->parameters = ['search' => 'A'];
+		$expectSame(['users' => [], 'hasMore' => false], $state['controller']->searchPeople()->getData());
+		$expectSame(0, $state['users']->searches);
+		for ($index = 0; $index < 25; $index++) $state['users']->users['many-' . $index] = new SettingsUserFixture('many-' . $index, 'Many accounts');
+		$state['request']->parameters = ['search' => 'Many'];
+		$result = $state['controller']->searchPeople()->getData();
+		$expectSame(20, count($result['users'])); $expectSame(true, $result['hasMore']);
+	});
+	$test('Directory failures return a generic error without changing settings', static function () use ($fixture, $expectSame): void {
+		$state = $fixture(); $state['users']->rejectSearch = true; $state['request']->parameters = ['search' => 'Anton'];
+		$response = $state['controller']->searchPeople();
+		$expectSame(500, $response->getStatus()); $expectSame(['message' => 'Accounts could not be loaded. Try again.'], $response->getData());
+		$expectSame([], $state['config']->writes);
+	});
+	$test('Account search is a read-only HR route while all settings writes retain CSRF', static function () use ($expectSame): void {
+		$method = new \ReflectionMethod(SettingsController::class, 'searchPeople');
+		$expectSame(1, count($method->getAttributes(\OCP\AppFramework\Http\Attribute\NoAdminRequired::class)));
+		$expectSame(1, count($method->getAttributes(\OCP\AppFramework\Http\Attribute\NoCSRFRequired::class)));
+		$routes = require __DIR__ . '/../../appinfo/routes.php';
+		$matches = array_values(array_filter($routes['routes'], static fn(array $route): bool => $route['name'] === 'settings#searchPeople'));
+		$expectSame([['name' => 'settings#searchPeople', 'url' => '/api/hr/people', 'verb' => 'GET']], $matches);
 	});
 
 	fwrite(STDOUT, 'HR settings: ' . $checks . ' checks, ' . $failures . " failures\n");

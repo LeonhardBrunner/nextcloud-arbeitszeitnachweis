@@ -4,270 +4,167 @@ namespace OCA\Timesheet\Service;
 
 use OCP\AppFramework\Services\IAppConfig;
 use OCP\IGroupManager;
+use OCP\IUserManager;
 use OCP\IUserSession;
 
+/** Resolves HR access and independently scoped email delivery from the same rules. */
 class HrService {
-
-	/** @var array<int, array{id:string,hrGroups:string[],userGroups:string[]}> */
-	private array $rules = [];
-
-	/** @var string[] */
-	private array $hrGroups = [];
+	private array $rules;
+	private HrRuleAssignments $assignments;
 
 	public function __construct(
 		private IAppConfig $appConfig,
 		private IUserSession $userSession,
-		private IGroupManager $groupManager
+		private IGroupManager $groupManager,
+		private IUserManager $userManager,
 	) {
+		$this->assignments = new HrRuleAssignments($groupManager, $userManager);
 		$this->rules = $this->loadRules();
-		$this->hrGroups = $this->collectAllHrGroups($this->rules);
 	}
 
 	public function isHr(?string $uid = null): bool {
-		if ($uid === null) {
-			$currentUser = $this->userSession->getUser();
-			if (!$currentUser) {
-				return false;
-			}
-			$uid = $currentUser->getUID();
+		$userId = $this->resolveUserId($uid);
+		if ($userId === null) {
+			return false;
 		}
-
 		foreach ($this->rules as $rule) {
-			foreach ($rule['hrGroups'] as $group) {
-				if ($group === '') {
-					continue;
-				}
-				if ($this->groupManager->isInGroup($uid, $group)) {
-					return true;
-				}
+			if ($this->assignments->isResponsible($rule, $userId)) {
+				return true;
 			}
 		}
-
 		return false;
 	}
 
+	/** @return string[] */
 	public function getAllHrUserIds(): array {
-		$hrUserIds = [];
-
-		foreach ($this->hrGroups as $groupId) {
-			if ($groupId === '') {
-				continue;
-			}
-			$group = $this->groupManager->get($groupId);
-			if (!$group) {
-				continue;
-			}
-			foreach ($group->getUsers() as $user) {
-				$hrUserIds[$user->getUID()] = true;
+		$userIds = [];
+		foreach ($this->rules as $rule) {
+			foreach ($this->assignments->getResponsibleUserIds($rule) as $userId) {
+				$userIds['user:' . $userId] = $userId;
 			}
 		}
-
-		return array_keys($hrUserIds);
+		return array_values($userIds);
 	}
 
-	/**
-	 * @return string[]
-	 */
-	public function getAllowedUserGroups(?string $hrUid = null): array {
-		if ($hrUid === null) {
-			$currentUser = $this->userSession->getUser();
-			if (!$currentUser) {
-				return [];
-			}
-			$hrUid = $currentUser->getUID();
-		}
-
-		$allowedGroupIds = [];
-
+	/** @return string[] */
+	public function getMailRecipientUserIds(): array {
+		$userIds = [];
 		foreach ($this->rules as $rule) {
-			$isInHrGroup = false;
-
-			foreach ($rule['hrGroups'] as $hrGroupId) {
-				if ($hrGroupId === '') {
-					continue;
-				}
-				if ($this->groupManager->isInGroup($hrUid, $hrGroupId)) {
-					$isInHrGroup = true;
-					break;
-				}
-			}
-
-			if (!$isInHrGroup) {
-				continue;
-			}
-
-			foreach ($rule['userGroups'] as $employeeGroupId) {
-				if ($employeeGroupId === '') {
-					continue;
-				}
-				$allowedGroupIds[$employeeGroupId] = true;
+			foreach ($this->assignments->getMailRecipientUserIds($rule) as $userId) {
+				$userIds['user:' . $userId] = $userId;
 			}
 		}
+		return array_values($userIds);
+	}
 
-		return array_keys($allowedGroupIds);
+	/** @return string[] */
+	public function getAllowedUserGroups(?string $hrUid = null): array {
+		return $this->allowedEmployeeGroups($hrUid, false);
 	}
 
 	public function canAccessUser(string $targetUid, ?string $hrUid = null): bool {
-		if ($hrUid === null) {
-			$currentUser = $this->userSession->getUser();
-			if (!$currentUser) {
-				return false;
-			}
-			$hrUid = $currentUser->getUID();
-		}
-
-		if ($targetUid === $hrUid) {
-			return true;
-		}
-		if (!$this->isHr($hrUid)) {
+		$userId = $this->resolveUserId($hrUid);
+		if ($userId === null) {
 			return false;
 		}
-
-		$allowedGroups = $this->getAllowedUserGroups($hrUid);
-		foreach ($allowedGroups as $groupId) {
+		if ($targetUid === $userId) {
+			return true;
+		}
+		foreach ($this->getAllowedUserGroups($userId) as $groupId) {
 			if ($this->groupManager->isInGroup($targetUid, $groupId)) {
 				return true;
 			}
 		}
-
 		return false;
 	}
 
-	/**
-	 * @return array<int, array{id:string,name:string}>
-	 */
+	/** @return array<int,array{id:string,name:string}> */
 	public function getAccessibleUsers(?string $hrUid = null): array {
-		if ($hrUid === null) {
-			$user = $this->userSession->getUser();
-			if (!$user) {
-				return [];
+		return $this->usersInGroups($this->allowedEmployeeGroups($hrUid, false));
+	}
+
+	/** Email lists exclude rules whose mail selection omits this otherwise responsible HR user. */
+	public function getMailAccessibleUsers(?string $hrUid = null): array {
+		return $this->usersInGroups($this->allowedEmployeeGroups($hrUid, true));
+	}
+
+	/** @return string[] */
+	public function getHrGroups(): array {
+		$groupIds = [];
+		foreach ($this->rules as $rule) {
+			foreach ($rule['hrGroups'] as $groupId) {
+				$groupIds['group:' . $groupId] = $groupId;
 			}
-			$hrUid = $user->getUID();
 		}
+		return array_values($groupIds);
+	}
 
-		if (!$this->isHr($hrUid)) {
+	private function resolveUserId(?string $userId): ?string {
+		return $userId ?? $this->userSession->getUser()?->getUID();
+	}
+
+	/** @return string[] */
+	private function allowedEmployeeGroups(?string $hrUserId, bool $forMail): array {
+		$userId = $this->resolveUserId($hrUserId);
+		if ($userId === null) {
 			return [];
 		}
-
-		$allowedGroups = $this->getAllowedUserGroups($hrUid);
-		if (!$allowedGroups) {
-			return [];
+		$groupIds = [];
+		foreach ($this->rules as $rule) {
+			if (!$this->assignments->isResponsible($rule, $userId)
+				|| ($forMail && !in_array($userId, $this->assignments->getMailRecipientUserIds($rule), true))) {
+				continue;
+			}
+			foreach ($rule['userGroups'] as $groupId) {
+				$groupIds['group:' . $groupId] = $groupId;
+			}
 		}
+		return array_values($groupIds);
+	}
 
+	/** @return array<int,array{id:string,name:string}> */
+	private function usersInGroups(array $groupIds): array {
 		$usersById = [];
-
-		foreach ($allowedGroups as $groupId) {
+		foreach ($groupIds as $groupId) {
 			$group = $this->groupManager->get($groupId);
 			if (!$group) {
 				continue;
 			}
-
 			foreach ($group->getUsers() as $user) {
 				$userId = $user->getUID();
-				$usersById[$userId] = [
-					'id' => $userId,
-					'name' => $user->getDisplayName(),
-				];
+				$usersById['user:' . $userId] = ['id' => $userId, 'name' => $user->getDisplayName()];
 			}
 		}
-
-		$accessibleUsers = array_values($usersById);
-		usort($accessibleUsers, fn($firstUser, $secondUser) => strnatcasecmp((string)$firstUser['name'], (string)$secondUser['name']));
-		return $accessibleUsers;
+		$users = array_values($usersById);
+		usort($users, static fn(array $first, array $second): int => strnatcasecmp($first['name'], $second['name']));
+		return $users;
 	}
 
-	/**
-	 * @return string[]
-	 */
-	public function getHrGroups(): array {
-		return $this->hrGroups;
-	}
-
-	/**
-	 * @return array<int, array{id:string,hrGroups:string[],userGroups:string[]}>
-	 */
 	private function loadRules(): array {
-		$rulesJson = (string)$this->appConfig->getAppValueString('hr_access_rules');
-		if (trim($rulesJson) === '') {
+		$decoded = json_decode((string)$this->appConfig->getAppValueString('hr_access_rules'), true);
+		if (!is_array($decoded)) {
 			return [];
 		}
-		$rules = json_decode($rulesJson, true);
-		if (!is_array($rules) || count($rules) === 0) {
-			return [];
-		}
-		$sanitizedRules = $this->sanitizeRules($rules);
-		return $sanitizedRules ?: [];
-	}
-
-	/**
-	 * @param array $rules
-	 * @return array<int, array{id:string,hrGroups:string[],userGroups:string[]}>
-	 */
-	private function sanitizeRules(array $rules): array {
-		$sanitizedRules = [];
-
-		foreach ($rules as $rule) {
-			if (!is_array($rule)) {
+		$rules = [];
+		foreach ($decoded as $rule) {
+			if (!is_array($rule) || !is_scalar($rule['id'] ?? null)) {
 				continue;
 			}
-
-			$ruleId = isset($rule['id']) ? trim((string)$rule['id']) : '';
+			$ruleId = trim((string)$rule['id']);
 			if ($ruleId === '') {
 				continue;
 			}
-
-			// Accept both stored key spellings for access rules.
-			$hrGroups = $rule['hrGroups'] ?? $rule['hr_groups'] ?? [];
-			$userGroups = $rule['userGroups'] ?? $rule['user_groups'] ?? [];
-
-			$hrGroups = is_array($hrGroups) ? $hrGroups : [];
-			$userGroups = is_array($userGroups) ? $userGroups : [];
-
-			$hrGroups = $this->cleanGroupList($hrGroups);
-			$userGroups = $this->cleanGroupList($userGroups);
-
-			if (!$hrGroups) {
+			$assignments = $this->assignments->normalize($rule);
+			if ($assignments['hrGroups'] === [] && $assignments['hrUsers'] === []) {
 				continue;
 			}
-
-			$sanitizedRules[] = [
-				'id' => $ruleId,
-				'hrGroups' => $hrGroups,
-				'userGroups' => $userGroups,
-			];
+			$employeeGroups = $rule['userGroups'] ?? $rule['user_groups'] ?? [];
+			$employeeGroups = is_array($employeeGroups) ? $employeeGroups : [];
+			$employeeGroups = array_values(array_unique(array_filter(array_map(
+				static fn(mixed $groupId): string => is_string($groupId) ? trim($groupId) : '', $employeeGroups
+			), fn(string $groupId): bool => $groupId !== '' && $this->groupManager->groupExists($groupId))));
+			$rules[] = ['id' => $ruleId, 'userGroups' => $employeeGroups, ...$assignments];
 		}
-
-		return $sanitizedRules;
-	}
-
-	/**
-	 * @param array $groups
-	 * @return string[]
-	 */
-	private function cleanGroupList(array $groups): array {
-		$groups = array_values(array_filter(array_map(fn($groupId) => trim((string)$groupId), $groups), fn($groupId) => $groupId !== ''));
-		$groups = array_values(array_unique($groups));
-
-		$existingGroupIds = [];
-		foreach ($groups as $groupId) {
-			if ($this->groupManager->groupExists($groupId)) {
-				$existingGroupIds[] = $groupId;
-			}
-		}
-		return $existingGroupIds;
-	}
-
-	/**
-	 * @param array<int, array{id:string,hrGroups:string[],userGroups:string[]}> $rules
-	 * @return string[]
-	 */
-	private function collectAllHrGroups(array $rules): array {
-		$hrGroupIds = [];
-		foreach ($rules as $rule) {
-			foreach (($rule['hrGroups'] ?? []) as $hrGroupId) {
-				$hrGroupIds[$hrGroupId] = true;
-			}
-		}
-		return array_keys($hrGroupIds);
+		return $rules;
 	}
 }

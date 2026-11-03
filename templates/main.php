@@ -320,12 +320,9 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 				</div>
 
 				<!-- Month controls, statistics and settings -->
-				<div class="hr-employee-status-controls">
-					<label for="hr-employment-status"><?php p($l->t('Employment status')); ?></label>
-					<select id="hr-employment-status" aria-describedby="hr-employment-status-feedback" disabled>
-						<option value="active"><?php p($l->t('Active')); ?></option>
-						<option value="inactive"><?php p($l->t('Inactive')); ?></option>
-					</select>
+				<div class="hr-employee-status-controls" role="group" aria-labelledby="hr-employment-status-label">
+					<span id="hr-employment-status-label"><?php p($l->t('Employment status')); ?>:</span>
+					<span id="hr-employment-status" aria-describedby="hr-employment-status-feedback">-</span>
 					<span id="hr-employee-freelancer" class="ts-freelancer-badge" hidden><?php p($l->t('Freelancer')); ?></span>
 					<span id="hr-employment-status-feedback" class="ts-employment-feedback" role="status"></span>
 				</div>

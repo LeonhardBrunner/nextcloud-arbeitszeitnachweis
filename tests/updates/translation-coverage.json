@@ -16,7 +16,9 @@
     "Break display preferences are saved for each account.",
     "HR manages group assignments and time rules in personal settings.",
     "The formal German interface and removal icons display correctly.",
-    "Open the update notes."
+    "Open the update notes.",
+    "HR responsibility can be assigned to groups and individual accounts.",
+    "HR email recipients can be selected separately for each rule."
   ],
   "locales": {
     "ar": "nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;",

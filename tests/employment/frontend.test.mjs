@@ -69,6 +69,7 @@ async function openApp({ available = true, respond = null, records = employees, 
 	const app = element('section', 'timesheet-app');
 	Object.assign(app.dataset, { employmentStatusAvailable: String(available), employmentIsActive: 'true', freelancerMode: 'false', employmentStatusRevision: 'alice-1' });
 	for (const id of ['freelancer-mode-switch', 'freelancer-mode-feedback', 'hr-employment-status', 'hr-employment-status-feedback', 'hr-employee-freelancer', 'hr-employee-count', 'hr-employee-list-message', 'hr-employee-list-retry', 'hr-employee-filter-button', 'hr-employee-filter-popup', 'hr-employee-search', 'hr-employee-filter-mode', 'hr-employee-filter-close', 'hr-employee-filter-clear', 'hr-back-button']) element(id.includes('switch') || id.includes('search') ? 'input' : 'div', id, app);
+	elements.get('hr-employment-status').tagName = 'SPAN';
 	elements.get('hr-employee-filter-mode').value = 'active';
 	elements.get('hr-employee-filter-popup').hidden = true;
 	elements.get('freelancer-mode-switch').className = 'ts-freelancer-toggle-switch';
@@ -97,7 +98,8 @@ async function openApp({ available = true, respond = null, records = employees, 
 			requests.push(copy(request));
 			if (respond) { const result = await respond(request, requests.length); if (result !== undefined) return result; }
 			if (request.method === 'GET') return path === '/api/hr/userlist' ? copy(serverRecords) : { dailyMin: 480, state: 'BY' };
-			const userId = path === '/api/preferences/freelancer-mode' ? 'alice' : decodeURIComponent(path.match(/\/employees\/(.+)\/activity/)[1]);
+			assert.equal(path, '/api/preferences/freelancer-mode', 'HR details never submit an activity change');
+			const userId = 'alice';
 			const record = serverRecords.find(employee => employee.id === userId);
 			Object.assign(record, request.body); record.statusRevision += '-next';
 			return { isActive: record.isActive, freelancerMode: record.freelancerMode, statusRevision: record.statusRevision };
@@ -232,38 +234,46 @@ test('unavailable initial state stays disabled and does not write', async () => 
 	await app.fire(app.elements.get('freelancer-mode-switch'), 'change'); assert.equal(app.requests.length, 0);
 });
 
-test('HR selects the actual employee and saves only activity through the dedicated assigned-user endpoint', async () => {
+test('HR details display the selected account status without providing an activity write', async () => {
 	const app = await openApp(); await app.load();
 	const row = app.rows().find(item => item.querySelector('.hr-load-user').dataset.user === 'bob/slash');
 	await app.fire(row.querySelector('.hr-load-user'), 'click');
 	assert.equal(app.elements.get('hr-employee-freelancer').hidden, false);
-	const activity = app.elements.get('hr-employment-status'); activity.value = 'inactive'; await app.fire(activity, 'change');
-	const write = app.requests.find(request => request.method === 'PUT');
-	assert.deepEqual(write, { path: '/api/hr/employees/bob%2Fslash/activity', method: 'PUT', body: { isActive: false, statusRevision: 'bob-1' } });
-	assert.equal(app.elements.get('freelancer-mode-switch').checked, false);
-	assert.equal(app.elements.get('hr-employee-freelancer').hidden, false);
-	await flush(); assert.equal(app.rows().length, 3);
-});
-
-test('a rejected HR write restores the selected employee without changing freelancer mode or other accounts', async () => {
-	const app = await openApp({ respond: request => { if (request.method === 'PUT') throw new Error('Forbidden'); } }); await app.load();
-	app.context.Timesheet.employmentStatus.setHrEmployee('bob/slash', app.serverRecords[1]);
-	const activity = app.elements.get('hr-employment-status'); activity.value = 'inactive'; await app.fire(activity, 'change');
-	assert.equal(activity.value, 'active'); assert.equal(activity.disabled, false);
-	assert.equal(app.elements.get('hr-employee-freelancer').hidden, false);
-	assert.equal(app.elements.get('hr-employment-status-feedback').textContent, 'Employment status could not be saved.');
-	assert.equal(app.elements.get('freelancer-mode-switch').checked, false);
+	const activity = app.elements.get('hr-employment-status');
+	assert.equal(activity.tagName, 'SPAN');
+	assert.equal(activity.textContent, 'Active');
+	// A stale change event from the former control cannot change a group-derived status.
+	activity.value = 'inactive'; await app.fire(activity, 'change');
+	assert.equal(app.requests.filter(request => request.method === 'PUT').length, 0);
 	assert.equal(app.serverRecords[1].isActive, true);
+	assert.equal(app.elements.get('freelancer-mode-switch').checked, false);
+	assert.equal(app.elements.get('hr-employee-freelancer').hidden, false);
 });
 
-test('HR conflicts use the returned activity and freelancer state without retrying stale data', async () => {
-	const app = await openApp({ respond: request => {
-		if (request.method === 'PUT') throw new Error(JSON.stringify({ code: 'employment_status_conflict', isActive: false, freelancerMode: false, statusRevision: 'bob-new' }));
-	} }); await app.load();
-	app.context.Timesheet.employmentStatus.setHrEmployee('bob/slash', app.serverRecords[1]);
-	const activity = app.elements.get('hr-employment-status'); activity.value = 'inactive'; await app.fire(activity, 'change');
-	assert.equal(activity.value, 'inactive'); assert.equal(activity.disabled, false);
+test('updated server status changes the detail label and filters without changing any account', async () => {
+	const app = await openApp(); await app.load();
+	const employee = app.serverRecords[1];
+	app.context.Timesheet.employmentStatus.setHrEmployee(employee.id, employee);
+	assert.equal(app.elements.get('hr-employment-status').textContent, 'Active');
+	employee.isActive = false;
+	app.context.Timesheet.employmentStatus.setHrEmployee(employee.id, employee);
+	assert.equal(app.elements.get('hr-employment-status').textContent, 'Inactive');
+	assert.equal(app.elements.get('hr-employee-freelancer').hidden, false);
+	await app.load();
+	assert.equal(app.rows().length, 3);
+	const mode = app.elements.get('hr-employee-filter-mode'); mode.value = 'inactive'; await app.fire(mode, 'change');
+	assert.equal(app.rows().length, 3);
+	assert.ok(app.rows().some(row => row.querySelector('.hr-load-user').dataset.user === employee.id));
+	assert.ok(app.requests.every(request => request.method === 'GET'));
+});
+
+test('an unavailable employee status stays unknown instead of being presented as active', async () => {
+	const app = await openApp();
+	app.context.Timesheet.employmentStatus.setHrEmployee('unknown', null);
+	const activity = app.elements.get('hr-employment-status');
+	assert.equal(activity.textContent, '-');
 	assert.equal(app.elements.get('hr-employee-freelancer').hidden, true);
-	assert.match(app.elements.get('hr-employment-status-feedback').textContent, /another window/);
-	assert.equal(app.requests.filter(request => request.method === 'PUT').length, 1);
+	assert.match(app.elements.get('hr-employment-status-feedback').textContent, /could not be loaded/);
+	activity.value = 'active'; await app.fire(activity, 'change');
+	assert.equal(app.requests.length, 0);
 });

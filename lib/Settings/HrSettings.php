@@ -8,10 +8,13 @@ use OCP\AppFramework\Services\IAppConfig;
 use OCP\Settings\ISettings;
 use OCP\Util;
 use OCP\IGroupManager;
+use OCP\IUserManager;
 use OCA\Timesheet\Service\HrService;
+use OCA\Timesheet\Service\HrRuleAssignments;
 use OCA\Timesheet\Service\MissingEntryReminderSettings;
 
 class HrSettings implements ISettings {
+	private HrRuleAssignments $hrAssignments;
 
 	private const DEFAULT_RULE_SETTINGS = [
 		'priority' => 1,
@@ -27,7 +30,9 @@ class HrSettings implements ISettings {
 		private IGroupManager $groupManager,
 		private string $appName,
 		private HrService $hrService,
+		private IUserManager $userManager,
 	) {
+		$this->hrAssignments = new HrRuleAssignments($groupManager, $userManager);
 	}
 
 	public function getForm(): TemplateResponse {
@@ -49,7 +54,22 @@ class HrSettings implements ISettings {
 		return new TemplateResponse($this->appName, 'settings-hr', [
 			'allGroups'     => $allGroups,
 			'hrAccessRules' => $accessRules,
+			'hrPeople' => $this->selectedPeople($accessRules),
 		]);
+	}
+
+	/** Only selected accounts are embedded; the directory is searched on demand. */
+	private function selectedPeople(array $rules): array {
+		$people = [];
+		foreach ($rules as $rule) {
+			foreach (array_merge($rule['hrUsers'], $rule['mailRecipients']['userIds']) as $userId) {
+				$user = $this->userManager->get($userId);
+				if ($user !== null) {
+					$people['user:' . $userId] = ['id' => $userId, 'name' => (string)$user->getDisplayName(), 'enabled' => $user->isEnabled()];
+				}
+			}
+		}
+		return array_values($people);
 	}
 
 	private function loadRules(): array {
@@ -76,15 +96,13 @@ class HrSettings implements ISettings {
 				continue;
 			}
 
-			$hrGroups = isset($rule['hrGroups']) && is_array($rule['hrGroups']) ? $rule['hrGroups'] : [];
 			$userGroups = isset($rule['userGroups']) && is_array($rule['userGroups']) ? $rule['userGroups'] : [];
 
-			$hrGroups = array_values(array_unique(array_values(array_filter(array_map('trim', $hrGroups), fn($groupId) => $groupId !== ''))));
 			$userGroups = array_values(array_unique(array_values(array_filter(array_map('trim', $userGroups), fn($groupId) => $groupId !== ''))));
 
 			$sanitizedRules[] = array_merge([
 				'id' => $ruleId,
-				'hrGroups' => $hrGroups,
+				...$this->hrAssignments->normalize($rule),
 				'userGroups' => $userGroups,
 				'missingEntryReminders' => MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null),
 			], $this->sanitizeRuleThresholds($rule));

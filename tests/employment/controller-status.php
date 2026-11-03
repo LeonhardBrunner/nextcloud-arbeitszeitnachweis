@@ -15,12 +15,12 @@ $fixture = static function (?string $actor = 'alice'): array {
 	$locks = new EmploymentLockFixture();
 	$config = new EmploymentConfigFixture($locks);
 	$clock = new EmploymentClockFixture();
-	$store = new EmploymentStatusStore($config, $locks, $clock);
+	$groups = new EmploymentGroupFixture();
+	$store = new EmploymentStatusStore($config, $locks, $clock, $groups);
 	$session = new EmploymentSessionFixture($actor === null ? null : new EmploymentUserFixture($actor));
 	$request = new EmploymentRequestFixture();
 	$hr = new HrService($session);
 	$logger = new EmploymentLoggerFixture();
-	$groups = new EmploymentGroupFixture();
 	$controller = new EmploymentStatusController('timesheet', $request, $store, $session, $hr, $logger, $groups);
 	$balances = new \OCA\Timesheet\Service\MonthlyBalanceService();
 	$page = new PageController('timesheet', $request, $hr, new \OCA\Timesheet\Db\UserPreferencesStore(), $session, new \OCA\Timesheet\Db\TourProgressStore(), $logger, $groups, new \OCA\Timesheet\Service\AbsenceCommentCatalog(), new EmploymentTranslationFixture(), $store);
@@ -63,6 +63,7 @@ foreach ([null, 'alice', 'hr', 'admin', 'hr-admin'] as $actor) {
 		$suite->same($actor === 'alice', str_contains($html, 'id="freelancer-mode-switch"'));
 		$suite->same($actor === 'alice', str_contains($html, 'id="freelancer-mode-feedback"'));
 		$suite->same(in_array($actor, ['hr', 'hr-admin'], true), str_contains($html, 'id="hr-employee-freelancer"'));
+		$suite->same(false, preg_match('/<select[^>]+id="hr-employment-status"/', $html) === 1);
 	});
 }
 $suite->test('A role gained after page load rejects both freelancer choices without changing history', static function () use ($suite, $fixture): void {
@@ -82,75 +83,44 @@ $suite->test('A role gained after page load rejects both freelancer choices with
 		$suite->same([], $state['config']->writes);
 	}
 });
-foreach ([[null, 'alice', false], ['alice', 'alice', false], ['admin', 'alice', false], ['hr', 'mallory', false], ['hr', 'alice', true], ['hr-admin', 'alice', true], ['hr', 'hr', false]] as [$actor, $target, $allowed]) {
-	$suite->test('Activity update requires HR and current target access: ' . ($actor ?? 'anonymous') . '/' . $target, static function () use ($suite, $fixture, $actor, $target, $allowed): void {
-		$state = $fixture($actor);
-		$response = $state['controller']->setActivity($target, false, hash('sha256', ''));
-		$suite->same($allowed ? 200 : 403, $response->getStatus());
-		if (!$allowed) {
-			$suite->same([], $state['config']->reads);
-			$suite->same([], $state['config']->writes);
-		} else {
-			$suite->same(false, $response->getData()['isActive']);
-			$suite->same(false, $response->getData()['freelancerMode']);
-			$suite->same([$target], array_keys($state['config']->values));
-		}
-	});
-}
-$suite->test('HR may change its own activity only when that account is also an assigned employee', static function () use ($suite, $fixture): void {
-	$state = $fixture('hr');
-	$state['hr']->accessible[] = ['id' => 'hr', 'name' => 'HR employee'];
-	$response = $state['controller']->setActivity('hr', false, hash('sha256', ''));
-	$suite->same(200, $response->getStatus());
-	$suite->same(false, $response->getData()['isActive']);
-	$suite->same(['hr'], array_keys($state['config']->values));
-});
-$suite->test('A removed HR role or target assignment is checked for every activity request', static function () use ($suite, $fixture): void {
-	$state = $fixture('hr');
-	$state['hr']->hrUsers = [];
-	$suite->same(403, $state['controller']->setActivity('alice', false, hash('sha256', ''))->getStatus());
-	$state['hr']->hrUsers = ['hr'];
-	$state['hr']->accessible = [];
-	$suite->same(403, $state['controller']->setActivity('alice', false, hash('sha256', ''))->getStatus());
-	$suite->same([], $state['config']->reads);
-	$suite->same([], $state['config']->writes);
+$suite->test('Employee activity is read-only and the manual write method is removed', static function () use ($suite): void {
+	$suite->same(false, method_exists(EmploymentStatusController::class, 'setActivity'));
 });
 foreach ([null, 0, 1, 'false', 'true', [], new \stdClass()] as $badBoolean) {
-	$suite->test('Both write methods require real booleans: ' . get_debug_type($badBoolean), static function () use ($suite, $fixture, $badBoolean): void {
-		$state = $fixture('hr');
-		$selfState = $fixture('alice');
-		$suite->same(400, $selfState['controller']->setFreelancerMode($badBoolean, hash('sha256', ''))->getStatus());
-		$suite->same(400, $state['controller']->setActivity('alice', $badBoolean, hash('sha256', ''))->getStatus());
-		$suite->same([], $state['config']->reads);
+	$suite->test('Freelancer updates require real booleans: ' . get_debug_type($badBoolean), static function () use ($suite, $fixture, $badBoolean): void {
+		$state = $fixture('alice');
+		$suite->same(400, $state['controller']->setFreelancerMode($badBoolean, hash('sha256', ''))->getStatus());
 		$suite->same([], $state['config']->writes);
 	});
 }
 foreach ([null, '', 'bad', 123, []] as $badRevision) {
-	$suite->test('Both write methods require a status revision: ' . get_debug_type($badRevision), static function () use ($suite, $fixture, $badRevision): void {
-		$state = $fixture('hr');
-		$selfState = $fixture('alice');
-		$suite->same(400, $selfState['controller']->setFreelancerMode(false, $badRevision)->getStatus());
-		$suite->same(400, $state['controller']->setActivity('alice', true, $badRevision)->getStatus());
+	$suite->test('Freelancer updates require a status revision: ' . get_debug_type($badRevision), static function () use ($suite, $fixture, $badRevision): void {
+		$state = $fixture('alice');
+		$suite->same(400, $state['controller']->setFreelancerMode(false, $badRevision)->getStatus());
 		$suite->same([], $state['config']->writes);
 	});
 }
-$suite->test('A stale shared revision returns current flags without losing the other owner change', static function () use ($suite, $fixture): void {
-	$state = $fixture('hr');
-	$current = $state['store']->setFreelancerMode('alice', true, hash('sha256', ''));
-	$response = $state['controller']->setActivity('alice', false, hash('sha256', ''));
+$suite->test('A group change returns a fresh conflict before a stale freelancer request can overwrite it', static function () use ($suite, $fixture): void {
+	$state = $fixture('alice');
+	$state['groups']->membersByGroup['Zeitnachweis'] = ['bob'];
+	$response = $state['controller']->setFreelancerMode(true, hash('sha256', ''));
+	$current = $state['store']->getStatus('alice');
 	$suite->same(409, $response->getStatus());
 	$suite->same(['code' => 'employment_status_conflict', ...$current->toPublicArray()], $response->getData());
-	$suite->same(1, count($state['config']->writes));
+	$suite->same(false, $current->isActive);
+	$suite->same(false, $current->freelancerMode);
 });
-$suite->test('A fresh HR activity change preserves the employee-owned flag and server dates', static function () use ($suite, $fixture): void {
-	$state = $fixture('hr');
-	$current = $state['store']->setFreelancerMode('alice', true, hash('sha256', ''));
-	$state['request']->parameters = ['freelancerMode' => false, 'inactivePeriods' => [], 'from' => '1900-01-01'];
-	$response = $state['controller']->setActivity('alice', false, $current->statusRevision);
+$suite->test('Extra request fields cannot override group membership or HR responsibilities', static function () use ($suite, $fixture): void {
+	$state = $fixture('alice');
+	$state['groups']->membersByGroup['Zeitnachweis'] = ['bob'];
+	$current = $state['store']->getStatus('alice');
+	$state['request']->parameters = ['isActive' => true, 'userId' => 'bob', 'hrGroups' => ['admin']];
+	$response = $state['controller']->setFreelancerMode(true, $current->statusRevision);
 	$suite->same(200, $response->getStatus());
-	$suite->same(true, $response->getData()['freelancerMode']);
 	$suite->same(false, $response->getData()['isActive']);
-	$suite->same([['from' => '2026-11-02', 'to' => null]], $state['store']->getStatus('alice')->getExcludedPeriods());
+	$suite->same(true, $response->getData()['freelancerMode']);
+	$suite->same(['alice'], array_keys($state['config']->values));
+	$suite->same(false, $state['hr']->isHr('alice'));
 });
 $suite->test('A busy account returns a usable conflict snapshot', static function () use ($suite, $fixture): void {
 	$state = $fixture();
@@ -219,7 +189,8 @@ $suite->test('HR list only enriches assigned IDs and retains balances for inacti
 	$state['clock']->instant = '2026-10-20T12:00:00+00:00';
 	$state['store']->setFreelancerMode('alice', false, $alice->statusRevision);
 	$state['clock']->instant = '2026-11-02T12:00:00+00:00';
-	$state['store']->setActive('bob', false, hash('sha256', ''));
+	$state['groups']->membersByGroup['Zeitnachweis'] = ['alice'];
+	$state['store']->syncActivity('bob');
 	$state['config']->values['unassigned'] = 'malformed-but-outside-HR-scope';
 	$state['config']->reads = [];
 	$state['config']->writes = [];
@@ -246,8 +217,8 @@ foreach (['read', 'malformed'] as $failure) {
 		$suite->same([], $state['balances']->calls);
 	});
 }
-$suite->test('Both PUT methods preserve CSRF and use the registered routes', static function () use ($suite): void {
-	foreach (['setFreelancerMode', 'setActivity'] as $methodName) {
+$suite->test('Only the personal freelancer route remains writable and keeps CSRF protection', static function () use ($suite): void {
+	foreach (['setFreelancerMode'] as $methodName) {
 		$method = new \ReflectionMethod(EmploymentStatusController::class, $methodName);
 		$suite->same(1, count($method->getAttributes(\OCP\AppFramework\Http\Attribute\NoAdminRequired::class)));
 		$suite->same([], $method->getAttributes(\OCP\AppFramework\Http\Attribute\NoCSRFRequired::class));
@@ -256,7 +227,6 @@ $suite->test('Both PUT methods preserve CSRF and use the registered routes', sta
 	$routes = array_values(array_filter($routes['routes'], static fn(array $route): bool => str_starts_with($route['name'], 'employmentStatus#')));
 	$suite->same([
 		['name' => 'employmentStatus#setFreelancerMode', 'url' => '/api/preferences/freelancer-mode', 'verb' => 'PUT'],
-		['name' => 'employmentStatus#setActivity', 'url' => '/api/hr/employees/{userId}/activity', 'verb' => 'PUT'],
 	], $routes);
 });
 $suite->finish('Employment controllers');

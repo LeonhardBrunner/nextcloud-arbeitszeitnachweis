@@ -13,6 +13,7 @@ return [
 
 		// REST: Overview
 		['name' => 'overview#users',              'url' => '/api/hr/users',         'verb' => 'GET'],
+		['name' => 'settings#searchPeople',       'url' => '/api/hr/people',        'verb' => 'GET'],
 		['name' => 'overview#getHrUserListData',  'url' => '/api/hr/userlist',      'verb' => 'GET'],
 		['name' => 'overview#getOvertimeSummary', 'url' => '/api/overtime/summary', 'verb' => 'GET'],
 
@@ -22,7 +23,6 @@ return [
 		// REST: User config
 		['name' => 'preferences#setBreakInputMode', 'url' => '/api/preferences/break-input-mode', 'verb' => 'PUT'],
 		['name' => 'employmentStatus#setFreelancerMode', 'url' => '/api/preferences/freelancer-mode', 'verb' => 'PUT'],
-		['name' => 'employmentStatus#setActivity', 'url' => '/api/hr/employees/{userId}/activity', 'verb' => 'PUT'],
 		['name' => 'tour#complete', 'url' => '/api/preferences/tour/complete', 'verb' => 'POST'],
 		['name' => 'updateNotes#load', 'url' => '/api/update-notes', 'verb' => 'POST'],
 		['name' => 'updateNotes#shown', 'url' => '/api/update-notes/shown', 'verb' => 'POST'],

@@ -10,7 +10,6 @@
 	let selectedEmployeeId = null;
 	let initialized = false;
 	let selfFeedback = '';
-	let employeeFeedback = '';
 	const currentUserId = timesheet.state.currentUserId;
 
 	function validStatus(status) {
@@ -36,31 +35,30 @@
 		const selfMessage = document.getElementById('freelancer-mode-feedback');
 		if (selfMessage) selfMessage.textContent = selfFeedback || (!selfStatus ? translate('Employment status could not be loaded. Reload the page to try again.') : '');
 		const selectedStatus = pendingUsers.get(selectedEmployeeId) || confirmedStatuses.get(selectedEmployeeId);
-		const activitySelect = document.getElementById('hr-employment-status');
-		if (activitySelect) {
-			activitySelect.value = selectedStatus?.isActive === false ? 'inactive' : 'active';
-			activitySelect.disabled = !selectedStatus || pendingUsers.has(selectedEmployeeId);
+		const activityLabel = document.getElementById('hr-employment-status');
+		if (activityLabel) {
+			// Group membership determines activity; HR only reads the server-provided value.
+			activityLabel.textContent = selectedStatus ? translate(selectedStatus.isActive ? 'Active' : 'Inactive') : '-';
 		}
 		const badge = document.getElementById('hr-employee-freelancer');
 		if (badge) badge.hidden = !selectedStatus?.freelancerMode;
 		const employeeMessage = document.getElementById('hr-employment-status-feedback');
-		if (employeeMessage) employeeMessage.textContent = employeeFeedback || (selectedEmployeeId && !selectedStatus ? translate('Employment status could not be loaded. Reload the page to try again.') : '');
+		if (employeeMessage) employeeMessage.textContent = selectedEmployeeId && !selectedStatus ? translate('Employment status could not be loaded. Reload the page to try again.') : '';
 	}
 
-	async function saveStatus(userId, path, changes) {
+	// The only writable classification in this interface is the account's own freelancer mode.
+	async function saveFreelancerMode(freelancerMode) {
+		const userId = currentUserId;
 		const previousStatus = confirmedStatuses.get(userId);
 		if (!previousStatus || pendingUsers.has(userId)) return;
-		pendingUsers.set(userId, { ...previousStatus, ...changes });
-		const isSelfSave = Object.hasOwn(changes, 'freelancerMode');
-		if (isSelfSave) selfFeedback = translate('Saving employment status…');
-		else employeeFeedback = translate('Saving employment status…');
+		pendingUsers.set(userId, { ...previousStatus, freelancerMode });
+		selfFeedback = translate('Saving employment status…');
 		refresh();
 		try {
-			const result = await timesheet.api(path, { method: 'PUT', body: JSON.stringify({ ...changes, statusRevision: previousStatus.statusRevision }) });
+			const result = await timesheet.api('/api/preferences/freelancer-mode', { method: 'PUT', body: JSON.stringify({ freelancerMode, statusRevision: previousStatus.statusRevision }) });
 			if (!validStatus(result)) throw new Error('Invalid employment status response');
 			remember(userId, result);
-			if (isSelfSave) selfFeedback = '';
-			else if (selectedEmployeeId === userId) employeeFeedback = '';
+			selfFeedback = '';
 			for (const listener of listeners) listener(userId, confirmedStatuses.get(userId));
 		} catch (error) {
 			let conflict;
@@ -70,9 +68,7 @@
 				remember(userId, conflict);
 				for (const listener of listeners) listener(userId, confirmedStatuses.get(userId));
 			}
-			const message = translate(isConflict ? 'Employment status changed in another window. The current value has been restored.' : 'Employment status could not be saved.');
-			if (isSelfSave) selfFeedback = message;
-			else if (selectedEmployeeId === userId) employeeFeedback = message;
+			selfFeedback = translate(isConflict ? 'Employment status changed in another window. The current value has been restored.' : 'Employment status could not be saved.');
 		} finally {
 			pendingUsers.delete(userId);
 			refresh();
@@ -81,7 +77,6 @@
 
 	function setHrEmployee(userId, status) {
 		selectedEmployeeId = userId;
-		employeeFeedback = '';
 		if (!pendingUsers.has(userId)) remember(userId, status);
 		refresh();
 	}
@@ -99,12 +94,7 @@
 		}
 		document.getElementById('freelancer-mode-switch')?.addEventListener('change', async event => {
 			const choice = event.target.checked;
-			await saveStatus(currentUserId, '/api/preferences/freelancer-mode', { freelancerMode: choice });
-		});
-		document.getElementById('hr-employment-status')?.addEventListener('change', async event => {
-			if (!selectedEmployeeId) return;
-			const userId = selectedEmployeeId;
-			await saveStatus(userId, `/api/hr/employees/${encodeURIComponent(userId)}/activity`, { isActive: event.target.value === 'active' });
+			await saveFreelancerMode(choice);
 		});
 		refresh();
 	}

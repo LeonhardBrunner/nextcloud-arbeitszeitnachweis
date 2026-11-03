@@ -113,16 +113,16 @@ class MissingEntryReminderService {
 
 		// Recheck current HR scope before composing each separate summary.
 		if ($findingsByUser !== []) {
-			foreach ($this->hrService->getAllHrUserIds() as $hrUserId) {
+			foreach ($this->hrService->getMailRecipientUserIds() as $hrUserId) {
 				try {
 					$hrUser = $this->userManager->get($hrUserId);
-					$hrStatus = $this->loadEmploymentStatus($hrUserId);
-					if (!$hrUser || !$hrUser->isEnabled() || $hrStatus === null || !$hrStatus->isActive
+					// Employee activity does not determine whether a responsible HR account receives mail.
+					if (!$hrUser || !$hrUser->isEnabled()
 						|| !$this->reminderStore->isDeliveryDue($hrUserId, 'hr', $now)) {
 						continue;
 					}
 					$hrFindings = [];
-					foreach ($this->hrService->getAccessibleUsers($hrUserId) as $accessibleEmployee) {
+					foreach ($this->hrService->getMailAccessibleUsers($hrUserId) as $accessibleEmployee) {
 						$currentStatus = $this->loadEmploymentStatus((string)$accessibleEmployee['id']);
 						if ($currentStatus !== null && $currentStatus->isActive && !$currentStatus->freelancerMode
 							&& isset($findingsByUser[$accessibleEmployee['id']])) {
