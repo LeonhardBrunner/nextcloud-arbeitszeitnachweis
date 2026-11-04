@@ -292,7 +292,10 @@ namespace {
 			$expectSame(false, in_array('timesheet-tour', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-main', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-header', \OCP\Util::$scripts, true));
-			$expectSame($isAdmin ? ['style'] : ['style', 'timesheet-update-notes'], \OCP\Util::$styles);
+			$expectedStyles = ['style'];
+			if ($isHr) $expectedStyles[] = 'timesheet-change-history';
+			if (!$isAdmin) $expectedStyles[] = 'timesheet-update-notes';
+			$expectSame($expectedStyles, \OCP\Util::$styles);
 			$expectSame(!$isAdmin, $parameters['updateNotesEnabled']);
 			$expectSame([], array_values(array_filter($config->reads, static fn(string $key): bool => str_starts_with($key, 'tour_'))));
 			$expectSame([], $config->writes);

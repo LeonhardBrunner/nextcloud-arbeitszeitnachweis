@@ -22,6 +22,7 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 		<?php if ($_['isHR']): ?>
 			<button class="ts-tab active" data-tab="mine"><?php p($l->t('Timesheet')) ?></button>
 			<button class="ts-tab" data-tab="hr"><?php p($l->t('HR overview')) ?></button>
+			<button class="ts-tab" data-tab="change-history"><?php p($l->t('Change history')) ?></button>
 		<?php endif; ?>
 	</div>
 
@@ -409,6 +410,38 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 					<span class="ts-break-mode-option<?php p($usesHoursFormat ? ' is-active' : ''); ?>" data-break-mode-label="hours"><?php p($l->t('Hours')) ?></span>
 				</div>
 			</div>
+		</div>
+		<!-- HR changes are read-only and limited to the current employee assignments. -->
+		<div id="tab-change-history" class="ts-tabview" aria-labelledby="history-heading">
+			<div class="ts-history-heading">
+				<h3 id="history-heading"><?php p($l->t('Change history')); ?></h3>
+				<div class="ts-history-toolbar">
+					<button type="button" id="history-refresh"><?php p($l->t('Refresh')); ?></button>
+					<button type="button" id="history-reset"><?php p($l->t('Clear filters')); ?></button>
+				</div>
+			</div>
+			<p id="history-recording" class="ts-history-note"></p>
+			<p class="ts-history-note"><?php p($l->t('Changes are kept for twelve months.')); ?></p>
+			<form id="history-filters" class="ts-history-filters">
+				<label for="history-from"><?php p($l->t('Changed from')); ?><input type="date" id="history-from" required></label>
+				<label for="history-to"><?php p($l->t('Changed through')); ?><input type="date" id="history-to" required></label>
+				<label for="history-employee"><?php p($l->t('Employee')); ?><select id="history-employee"><option value=""><?php p($l->t('All employees')); ?></option></select></label>
+				<label for="history-actor"><?php p($l->t('Changed by')); ?><select id="history-actor"><option value=""><?php p($l->t('All editors')); ?></option></select></label>
+				<label for="history-kind"><?php p($l->t('Change type')); ?><select id="history-kind">
+					<option value=""><?php p($l->t('All changes')); ?></option>
+					<option value="created"><?php p($l->t('Time entry created')); ?></option>
+					<option value="updated"><?php p($l->t('Time entry updated')); ?></option>
+					<option value="comment"><?php p($l->t('Comment changed')); ?></option>
+					<option value="deleted"><?php p($l->t('Time entry deleted')); ?></option>
+					<option value="settings"><?php p($l->t('Work settings updated')); ?></option>
+				</select></label>
+				<div class="ts-history-filter-actions">
+					<button type="submit" id="history-apply"><?php p($l->t('Apply filters')); ?></button>
+				</div>
+			</form>
+			<p id="history-message" class="ts-history-message" role="status" aria-live="polite"></p>
+			<ol id="history-list" class="ts-history-list"></ol>
+			<button type="button" id="history-more" hidden><?php p($l->t('Load more')); ?></button>
 		</div>
 	<?php endif; ?>
 </section>

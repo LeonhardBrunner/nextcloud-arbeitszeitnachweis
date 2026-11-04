@@ -1,6 +1,29 @@
 {
 	"releases": [
 		{
+			"version": "1.4.0",
+			"sections": [
+				{
+					"title": "New features",
+					"items": [
+						"HR can review changes to assigned employee time entries and work settings, including previous and new values."
+					]
+				},
+				{
+					"title": "Improvements",
+					"items": [
+						"HR changes are kept for twelve months; deleted accounts are removed or anonymised."
+					]
+				},
+				{
+					"title": "Bug fixes",
+					"items": [
+						"Access checks for employee entries and work settings follow HR responsibility."
+					]
+				}
+			]
+		},
+		{
 			"version": "1.3.1",
 			"sections": [
 				{

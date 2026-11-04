@@ -224,10 +224,16 @@
 				text: 'Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.',
 				selectors: ['#ts-body tr:first-child .ts-warn', '#ts-table thead th:nth-child(9)'],
 			},
+			{
+				id: 'freelancer-mode', title: 'Freelancer mode',
+				text: 'For irregular working days, freelancer mode pauses reminders about missing or incomplete times for the employee and HR. Other warnings remain active.',
+				selectors: ['#tab-mine .ts-employment-toggle'],
+				onlyWhenAvailable: true,
+			},
 			{ id: 'profile', title: 'Profile menu', text: 'The profile menu provides access to personal details, account settings, appearance and accessibility options.', getTargets: () => [header.profileTrigger()].filter(Boolean) },
 			{ id: 'help', title: 'Help and privacy', text: 'Questions, help and privacy information about Nextcloud in general.', getTargets: () => [header.helpItem()].filter(Boolean) },
 			{ id: 'tour-access', title: 'Help and tour', text: 'Questions and suggestions for HR. The guide can be restarted using the tour icon.', getTargets: () => [launcher] },
-		];
+		].filter(step => !step.onlyWhenAvailable || queryTargets(step.selectors).length > 0);
 	}
 
 	function createSvgElement(name, attributes = {}) {

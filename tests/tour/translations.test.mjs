@@ -15,6 +15,7 @@ const commentsExplanation = 'Comments add context to a day. An absence can be ma
 const generalHelpExplanation = 'Questions, help and privacy information about Nextcloud in general.';
 const restartExplanation = 'Questions and suggestions for HR. The guide can be restarted using the tour icon.';
 const warningsExplanation = 'Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.';
+const freelancerExplanation = 'For irregular working days, freelancer mode pauses reminders about missing or incomplete times for the employee and HR. Other warnings remain active.';
 const emailHelpMessages = {
 	'Opening the default mail app…': 'Standard-Mailprogramm wird aufgerufen.',
 	'No mail app opened?': 'Kein Mailprogramm geöffnet?',
@@ -54,7 +55,7 @@ for (const [locale, pluralForm] of Object.entries(coverage.locales)) {
 		assert.ok(absenceTerms[locale], 'The displayed absence terms are available for this account language');
 		if (!locale.startsWith('en')) {
 			assert.notEqual(server.translations['A short tour explains the main features.'], 'A short tour explains the main features.', 'An English copy is not a translated tour');
-			for (const message of [workingTimeExplanation, federalStateExplanation, generalHelpExplanation, 'Help and tour', 'Tour guide', 'Questions for HR', 'Suggestions for improvement', restartExplanation, 'Time entry warnings', warningsExplanation, ...Object.keys(emailHelpMessages)]) {
+			for (const message of [workingTimeExplanation, federalStateExplanation, generalHelpExplanation, 'Help and tour', 'Tour guide', 'Questions for HR', 'Suggestions for improvement', restartExplanation, 'Time entry warnings', warningsExplanation, 'Freelancer mode', freelancerExplanation, ...Object.keys(emailHelpMessages)]) {
 				assert.notEqual(server.translations[message], message, 'New explanations are translated into the account language');
 			}
 		}
@@ -104,6 +105,8 @@ test('German employee guidance uses the shortened copy and company guidelines wi
 		assert.equal(translations[commentsExplanation], 'Kommentare ergänzen Informationen zum Tag. Abwesenheiten können mit „{vacation}“ oder „{timeOffInLieu}“ eingetragen werden.');
 		assert.doesNotMatch(translations[commentsExplanation], /Freigabe|Genehmigung|Warnung|Strg\+C|Command\+C/u);
 		assert.equal(translations['Time entry warnings'], 'Warnungen');
+		assert.equal(translations['Freelancer mode'], 'Freelancer-Modus');
+		assert.equal(translations[freelancerExplanation], 'Bei unregelmäßigen Arbeitstagen pausiert der Freelancer-Modus Erinnerungen an fehlende oder unvollständige Zeiten für Mitarbeitende und HR. Andere Warnungen bleiben bestehen.');
 		assert.equal(translations[warningsExplanation], 'Warnungen bei Über- oder Unterschreitungen von Pausen sowie fehlende Arbeitszeitnachweise führen zu Warnungen und sollten umgehend korrigiert werden.');
 		assert.equal(translations['Warnings'], 'Fehlermeldungen');
 		assert.equal(translations[generalHelpExplanation], 'Fragen, Hilfe und Datenschutzhinweise zur allgemeinen Nextcloud.');

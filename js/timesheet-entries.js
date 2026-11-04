@@ -9,6 +9,58 @@
 	const utils = timesheet.util;
 	timesheet.entries = timesheet.entries || {};
 	const entryModule = timesheet.entries;
+	const pendingSaves = new Set();
+	const failedSaveTargets = new Set();
+	const rowSaveTargets = new WeakMap();
+
+	function saveTargetKey(target) {
+		if (!target || typeof target !== 'object' || !target.dataset?.date) return target;
+		if (!rowSaveTargets.has(target)) {
+			const isHrView = !!target.closest('#hr-user-entries');
+			const userId = isHrView ? document.querySelector('#hr-user-title span')?.textContent : appState.currentUserId;
+			rowSaveTargets.set(target, JSON.stringify(['entry', userId, target.dataset.date]));
+		}
+		return rowSaveTargets.get(target);
+	}
+
+	function clearSaveFailure(target) {
+		failedSaveTargets.delete(saveTargetKey(target));
+	}
+
+	// Keep later history reads behind completed entry and configuration writes.
+	function trackPendingSave(savePromise, target) {
+		const targetKey = saveTargetKey(target);
+		const pending = Promise.resolve(savePromise);
+		pendingSaves.add(pending);
+		pending.then(() => {
+			pendingSaves.delete(pending);
+		}, () => {
+			failedSaveTargets.add(targetKey);
+			pendingSaves.delete(pending);
+		});
+		return pending;
+	}
+
+	async function awaitPendingSaves() {
+		while (pendingSaves.size) await Promise.allSettled([...pendingSaves]);
+		return failedSaveTargets.size === 0;
+	}
+
+	function reportSaveFailure(target) {
+		failedSaveTargets.add(saveTargetKey(target));
+		timesheet.notify(t(appState.appName, 'Changes could not be saved. Please try again.'));
+	}
+
+	function saveTrackedEntryRow(row) {
+		return trackPendingSave(saveEntryRowIfChanged(row), row);
+	}
+
+	function deleteTrackedEntryRow(row) {
+		return trackPendingSave(deleteEntryRow(row).catch(error => {
+			reportSaveFailure(row);
+			throw error;
+		}), row);
+	}
 
 	// Effective time rules and holiday caches
 	appState.ruleThresholdsByUser = appState.ruleThresholdsByUser || new Map();
@@ -399,6 +451,7 @@
 			await refreshOvertimeTotal(targetUserId, isHrView ? document.getElementById('tab-hr') : document);
 		}
 		utils.showRowSavedFeedback(row);
+		clearSaveFailure(row);
 	}
 
 	// Keep the lock and queued retry in this function so overlapping events share one save.
@@ -450,7 +503,7 @@
 				try {
 					await deleteEntryRow(row);
 				} catch (error) {
-					console.error('❌ Auto-Delete failed:', error);
+					reportSaveFailure(row);
 				} finally {
 					delete row.dataset.saving;
 				}
@@ -460,6 +513,7 @@
 				}
 			} else {
 				clearEntryRowSummary(fields);
+				clearSaveFailure(row);
 			}
 			return;
 		}
@@ -490,6 +544,7 @@
 
 				// Check if anything changed
 				if (startValue === savedStart && endValue === savedEnd && breakMinutes === savedBreakMinutes && comment === savedComment) {
+					clearSaveFailure(row);
 					return;
 				}
 			} else {
@@ -497,6 +552,7 @@
 
 				// Check if anything changed
 				if (startValue === savedStart && endValue === savedEnd && breakMinutes === savedBreakMinutes && comment === savedComment) {
+					clearSaveFailure(row);
 					return;
 				}
 			}
@@ -507,6 +563,7 @@
 
 			// Check if anything changed
 			if (!(savedStart !== '' || savedEnd !== '' || (Number.isFinite(savedBreakMinutes) ? savedBreakMinutes : 0) !== 0) && comment === savedComment) {
+				clearSaveFailure(row);
 				return;
 			}
 		}
@@ -563,8 +620,9 @@
 				await refreshOvertimeTotal(targetUserId, isHrView ? document.getElementById('tab-hr') : document);
 			}
 			utils.showRowSavedFeedback(row);
+			clearSaveFailure(row);
 		} catch (error) {
-			console.error('❌ Auto-Save failed:', error);
+			reportSaveFailure(row);
 		} finally {
 			delete row.dataset.saving;
 			if (row.dataset.saveQueued === '1') {
@@ -629,6 +687,9 @@
 	entryModule.updateWorkedHours = updateMonthTotals;
 	entryModule.refreshOvertimeTotal = refreshOvertimeTotal;
 	entryModule.refreshMonthlyBalanceStatus = refreshMonthlyBalanceSnapshot;
-	entryModule.deleteEntryForRow = deleteEntryRow;
-	entryModule.saveRowIfNeeded = saveEntryRowIfChanged;
+	entryModule.deleteEntryForRow = deleteTrackedEntryRow;
+	entryModule.saveRowIfNeeded = saveTrackedEntryRow;
+	entryModule.trackPendingSave = trackPendingSave;
+	entryModule.clearSaveFailure = clearSaveFailure;
+	entryModule.awaitPendingSaves = awaitPendingSaves;
 })();

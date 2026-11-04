@@ -7,6 +7,7 @@ use OCA\Timesheet\Db\UserConfigMapper;
 use OCA\Timesheet\Service\GroupRuleService;
 use OCA\Timesheet\Service\HrService;
 use OCA\Timesheet\Service\MonthlyBalanceService;
+use OCA\Timesheet\Service\WorkSettingsService;
 use OCP\AppFramework\Annotations\NoAdminRequired;
 use OCP\AppFramework\Annotations\NoCSRFRequired;
 use OCP\AppFramework\Annotations\Route;
@@ -29,6 +30,7 @@ class ConfigController extends Controller {
 		private UserConfigMapper $userConfigMapper,
 		private GroupRuleService $groupRuleService,
 		private MonthlyBalanceService $monthlyBalanceService,
+		private WorkSettingsService $workSettingsService,
 	) {
 		parent::__construct($appName, $request);
 		$this->userSession = $userSession;
@@ -42,39 +44,31 @@ class ConfigController extends Controller {
 	 * Returns the configuration for the given user (dailyMin and state).
 	 */
 	public function getUserConfig(string $userId): DataResponse {
-		$this->assertConfigAccess($userId);
+		try {
+			$this->assertConfigAccess($userId);
+		} catch (\OC\ForbiddenException) {
+			return new DataResponse(['error' => 'Forbidden'], 403);
+		}
 		$data = $this->userConfigMapper->getConfigData($userId);
 		return new DataResponse($data, Http::STATUS_OK);
 	}
 
 	/**
 	 * @NoAdminRequired
-	 * @NoCSRFRequired
 	 * @Route("/api/hr/config/{userId}", methods={"PUT"})
 	 *
 	 * Creates or updates the configuration for the given user.
 	 * Expects JSON body with fields "dailyMin" and "state".
 	 */
 	public function setUserConfig(string $userId, int $dailyMin, string $state): DataResponse {
-		$this->assertConfigAccess($userId);
-		$previousConfig = $this->userConfigMapper->getConfigData($userId);
-		$data = $this->userConfigMapper->upsertConfigData($userId, $dailyMin, $state);
-
-		$previousDailyMinutes = isset($previousConfig['dailyMin']) ? (int)$previousConfig['dailyMin'] : null;
-		$previousState = trim((string)($previousConfig['state'] ?? ''));
-		if ($previousState === 'null') {
-			$previousState = '';
+		try {
+			$this->assertConfigAccess($userId);
+			return new DataResponse($this->workSettingsService->save($userId, $dailyMin, $state));
+		} catch (\OC\ForbiddenException) {
+			return new DataResponse(['error' => 'Forbidden'], 403);
+		} catch (\Throwable) {
+			return new DataResponse(['error' => 'Changes could not be saved. Please try again.'], 500);
 		}
-		$updatedState = trim((string)$state);
-		if ($updatedState === 'null') {
-			$updatedState = '';
-		}
-
-		if ($previousDailyMinutes !== (int)$dailyMin || $previousState !== $updatedState) {
-			$this->monthlyBalanceService->markAllDirtyForUser($userId);
-		}
-
-		return new DataResponse($data, Http::STATUS_OK);
 	}
 
 	/**
@@ -163,7 +157,11 @@ class ConfigController extends Controller {
 	 * Returns effective rule thresholds for the given user (HR or self access).
 	 */
 	public function getEffectiveRulesForUser(string $userId): DataResponse {
-		$this->assertConfigAccess($userId);
+		try {
+			$this->assertConfigAccess($userId);
+		} catch (\OC\ForbiddenException) {
+			return new DataResponse(['error' => 'Forbidden'], 403);
+		}
 		$rules = $this->groupRuleService->getEffectiveRules($userId);
 		return new DataResponse($rules, Http::STATUS_OK);
 	}
@@ -186,22 +184,22 @@ class ConfigController extends Controller {
 	}
 
 	/**
-	 * Allow the current user to access their own configuration or any HR user to access it.
+	 * Allow own settings and settings within the current HR employee scope.
 	 */
 	private function assertConfigAccess(string $targetUserId): void {
 		$currentUser = $this->userSession->getUser();
 		if (!$currentUser) {
-			throw new \Exception("Not logged in", Http::STATUS_FORBIDDEN);
+			throw new \OC\ForbiddenException();
 		}
 
 		$currentUserId = $currentUser->getUID();
 		if ($currentUserId === $targetUserId) {
 			return;
 		}
-		if ($this->hrService->isHr($currentUserId)) {
+		if ($this->hrService->canAccessUser($targetUserId, $currentUserId)) {
 			return;
 		}
 
-		throw new \Exception("Access denied", Http::STATUS_FORBIDDEN);
+		throw new \OC\ForbiddenException();
 	}
 }

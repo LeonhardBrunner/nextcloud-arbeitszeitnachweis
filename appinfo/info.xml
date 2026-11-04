@@ -95,7 +95,7 @@ Mit Timesheet erhalten Mitarbeitende eine einfache Möglichkeit, ihre Arbeitszei
 	<screenshot>https://nextcloud-agentur.de/timesheet/timesheet_hrOverview.png</screenshot>
 	<screenshot>https://nextcloud-agentur.de/timesheet/timesheet_englishSupport.png</screenshot>
 
-	<version>1.3.1</version>
+	<version>1.4.0</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="dgu@xiller.com">David Gun (www.xiller-academy.de)</author>
 	<category>tools</category>
@@ -114,5 +114,6 @@ Mit Timesheet erhalten Mitarbeitende eine einfache Möglichkeit, ihre Arbeitszei
 	<background-jobs>
 		<job>OCA\Timesheet\BackgroundJob\HrNotificationJob</job>
 		<job>OCA\Timesheet\BackgroundJob\MissingEntryReminderJob</job>
+		<job>OCA\Timesheet\BackgroundJob\ChangeHistoryCleanupJob</job>
 	</background-jobs>
 </info>

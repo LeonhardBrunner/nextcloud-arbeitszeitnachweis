@@ -107,6 +107,11 @@
 				if (tabButton.dataset.tab === 'hr') {
 					timesheet.hr.loadHrUserList();
 				}
+				if (tabButton.dataset.tab === 'change-history') {
+					timesheet.changeHistory?.show();
+				} else {
+					timesheet.changeHistory?.hide();
+				}
 			});
 		});
 	}
@@ -403,6 +408,7 @@
 		timesheet.copy.init();
 		timesheet.hr.init();
 		timesheet.config.init();
+		timesheet.changeHistory?.init();
 		bindMonthNavigation();
 		bindTabSwitching();
 		bindAutoSave();

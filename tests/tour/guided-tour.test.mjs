@@ -11,7 +11,7 @@ const tourSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-tour.js'),
 const flush = () => new Promise(setImmediate);
 
 // Exercise the real tour with a small DOM and read-only application fixtures.
-function createFixture({ hr = false, hrDom = false, enabled = true, employeeCompleted = false, available = true, headerPresent = true, nestedSearch = false, helpPresent = true, viewportWidth = 1000, viewportHeight = 800, absenceTerms = { vacation: 'Vacation', timeOffInLieu: 'Time off in lieu' }, translate = message => message, respond = null, scheduleTimeout = callback => { setImmediate(callback); return 1; } } = {}) {
+function createFixture({ hr = false, hrDom = false, enabled = true, employeeCompleted = false, available = true, headerPresent = true, nestedSearch = false, helpPresent = true, freelancerControl = true, freelancerEnabled = false, viewportWidth = 1000, viewportHeight = 800, absenceTerms = { vacation: 'Vacation', timeOffInLieu: 'Time off in lieu' }, translate = message => message, respond = null, scheduleTimeout = callback => { setImmediate(callback); return 1; } } = {}) {
 	const events = new Map();
 	const windowEvents = new Map();
 	const requests = [];
@@ -186,6 +186,21 @@ function createFixture({ hr = false, hrDom = false, enabled = true, employeeComp
 	const row = element('tr', '', '', body);
 	for (const className of ['startTime', 'breakMinutes', 'endTime', 'ts-duration', 'ts-diff', 'ts-warn', 'ts-status', 'commentInput']) element(className.endsWith('Input') ? 'textarea' : className.includes('Time') || className === 'breakMinutes' ? 'input' : 'td', '', className, row);
 	element('div', 'ts-break-toggle', '', mine);
+	if (freelancerControl && !hr) {
+		const freelancerGroup = element('div', '', 'ts-employment-toggle', mine);
+		freelancerGroup.setAttribute('role', 'group');
+		freelancerGroup.setAttribute('aria-labelledby', 'freelancer-mode-label');
+		element('span', 'freelancer-mode-label', '', freelancerGroup).textContent = 'Freelancer mode:';
+		element('span', '', '', freelancerGroup).textContent = 'Off';
+		const freelancerLabel = element('label', '', 'ts-break-switch', freelancerGroup);
+		const freelancerSwitch = element('input', 'freelancer-mode-switch', 'ts-freelancer-toggle-switch', freelancerLabel);
+		freelancerSwitch.setAttribute('type', 'checkbox');
+		freelancerSwitch.setAttribute('role', 'switch');
+		freelancerSwitch.setAttribute('aria-checked', String(freelancerEnabled));
+		freelancerSwitch.checked = freelancerEnabled;
+		element('span', '', 'ts-break-switch-slider', freelancerLabel);
+		element('span', '', '', freelancerGroup).textContent = 'On';
+	}
 	if (hr || hrDom) {
 		const hrTab = element('div', 'tab-hr', 'ts-tabview', app);
 		for (const id of ['hr-userlist-section', 'hr-stats-section', 'hr-notifications-section', 'hr-warning-thresholds-section', 'hr-user-entries']) {
@@ -418,7 +433,7 @@ test('the menu tour choice starts the existing tour and restores focus to the he
 	assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, true);
 	assert.equal(launcher.getAttribute('aria-expanded'), 'false');
 	assert.equal(fixture.tour.getState().step, 'export');
-	assert.equal(fixture.tour.getState().total, 8);
+	assert.equal(fixture.tour.getState().total, 9);
 	await fixture.tour.end();
 	assert.equal(fixture.document.activeElement, launcher);
 	assert.equal(fixture.requests.length, 0);
@@ -495,7 +510,7 @@ test('the open help menu remains inside the viewport and repositions on resize i
 	}
 });
 
-test('the warning explanation highlights the empty warning cell and its heading between comments and profile', async () => {
+test('the warning explanation highlights the empty warning cell and its heading before freelancer mode', async () => {
 	const fixture = createFixture();
 	const warningCell = fixture.document.querySelector('#ts-body tr:first-child .ts-warn');
 	const warningHeading = fixture.document.querySelector('#ts-table thead th:nth-child(9)');
@@ -522,6 +537,9 @@ test('the warning explanation highlights the empty warning cell and its heading 
 	fixture.document.getElementById('ts-tour-next').click();
 	await flush(); await flush();
 	assert.equal(fixture.tour.getState().step, 'warnings');
+	fixture.document.getElementById('ts-tour-next').click();
+	await flush(); await flush();
+	assert.equal(fixture.tour.getState().step, 'freelancer-mode');
 	fixture.document.getElementById('ts-tour-next').click();
 	await flush(); await flush();
 	assert.equal(fixture.tour.getState().step, 'profile');
@@ -579,23 +597,76 @@ test('the warning row moves above the explanation when a short screen has no fre
 	assert.equal(fixture.app.scrollTop, 0);
 });
 
-test('the employee tour explains eight sections in the requested order', async () => {
+test('the employee tour explains nine sections in the requested order', async () => {
 	const fixture = createFixture();
 	await fixture.tour.start();
 	const visitedSteps = [];
 	for (let index = 0; index < fixture.tour.getState().total; index++) {
 		visitedSteps.push(fixture.tour.getState().step);
-		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, `Step ${index + 1} of 8`);
+		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, `Step ${index + 1} of 9`);
 		if (index < fixture.tour.getState().total - 1) {
 			fixture.document.getElementById('ts-tour-next').click();
 			await flush(); await flush();
 		}
 	}
-	assert.deepEqual(visitedSteps, ['export', 'working-time', 'federal-state', 'comments', 'warnings', 'profile', 'help', 'tour-access']);
+	assert.deepEqual(visitedSteps, ['export', 'working-time', 'federal-state', 'comments', 'warnings', 'freelancer-mode', 'profile', 'help', 'tour-access']);
 	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Help and tour');
 	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Questions and suggestions for HR. The guide can be restarted using the tour icon.');
 	assert.equal(fixture.requests.length, 0);
 	await fixture.tour.end();
+});
+
+test('freelancer mode highlights the complete switch without changing either saved state', async () => {
+	for (const freelancerEnabled of [false, true]) {
+		const fixture = createFixture({ freelancerEnabled });
+		const group = fixture.document.querySelector('#tab-mine .ts-employment-toggle');
+		const control = fixture.document.getElementById('freelancer-mode-switch');
+		group.getBoundingClientRect = () => ({ left: 220, top: 200, right: 620, bottom: 244, width: 400, height: 44 });
+		let changed = 0;
+		control.addEventListener('click', () => { changed++; control.checked = !control.checked; });
+		control.addEventListener('change', () => { changed++; });
+		await fixture.tour.start();
+		await advanceToStep(fixture, 'freelancer-mode');
+		assert.equal(fixture.tour.getState().index, 5, 'Freelancer mode immediately follows the fifth warning step');
+		assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Freelancer mode');
+		assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'For irregular working days, freelancer mode pauses reminders about missing or incomplete times for the employee and HR. Other warnings remain active.');
+		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, 'Step 6 of 9');
+		const holes = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+		assert.equal(holes.length, 1, 'The label and both switch states share one highlight');
+		assert.deepEqual(['x', 'y', 'width', 'height'].map(attribute => Number(holes[0].getAttribute(attribute))), [215, 195, 410, 54]);
+		for (const name of ['pointerdown', 'click']) {
+			const event = fixture.dispatch(fixture.event(name, control));
+			assert.equal(event.prevented, true, 'Highlighted controls remain read-only during the tour');
+		}
+		assert.equal(changed, 0);
+		assert.equal(control.checked, freelancerEnabled);
+		assert.equal(control.getAttribute('aria-checked'), String(freelancerEnabled));
+		assert.equal(fixture.requests.length, 0);
+		fixture.document.getElementById('ts-tour-back').click();
+		await flush(); await flush();
+		assert.equal(fixture.tour.getState().step, 'warnings');
+		await advanceToStep(fixture, 'profile');
+		await fixture.tour.end();
+		assert.equal(control.checked, freelancerEnabled);
+		assert.equal(changed, 0);
+		assert.equal(fixture.requests.length, 0);
+	}
+});
+
+test('a missing or hidden freelancer switch omits only its optional tour step', async () => {
+	for (const hidden of [false, true]) {
+		const fixture = createFixture({ freelancerControl: hidden });
+		if (hidden) fixture.document.querySelector('#tab-mine .ts-employment-toggle').hidden = true;
+		await fixture.tour.start();
+		assert.equal(fixture.tour.getState().total, 8);
+		await advanceToStep(fixture, 'warnings');
+		fixture.document.getElementById('ts-tour-next').click();
+		await flush(); await flush();
+		assert.equal(fixture.tour.getState().step, 'profile');
+		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, 'Step 6 of 8');
+		await fixture.tour.end();
+		assert.equal(fixture.requests.length, 0);
+	}
 });
 
 test('export uses one continuous frame around the button and both export choices', async () => {
@@ -785,7 +856,7 @@ test('completed accounts retain manual access; unavailable progress never auto-s
 	assert.equal(completed.document.getElementById('ts-tour-invitation'), null);
 	await completed.tour.start();
 	assert.equal(completed.tour.getState().step, 'export');
-	assert.equal(completed.tour.getState().total, 8);
+	assert.equal(completed.tour.getState().total, 9);
 	await completed.tour.end();
 	const unavailable = createFixture({ available: false });
 	assert.equal(unavailable.document.getElementById('ts-tour-invitation'), null);
@@ -869,7 +940,7 @@ test('employee tours never load HR data even when unrelated HR markup is present
 	const fixture = createFixture({ hrDom: true });
 	const originalTitle = fixture.document.querySelector('#hr-user-title span').textContent;
 	await fixture.tour.start();
-	assert.equal(fixture.tour.getState().total, 8);
+	assert.equal(fixture.tour.getState().total, 9);
 	await advanceToEnd(fixture);
 	fixture.document.getElementById('ts-tour-next').click();
 	await flush(); await flush();

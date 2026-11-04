@@ -1,0 +1,163 @@
+/* Read-only history follows the account theme and remains separate from HR list filters. */
+#tab-change-history {
+	min-width: 0;
+	box-sizing: border-box;
+	margin-top: 12px;
+	padding: 16px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--border-radius-large, 10px);
+	background: var(--color-main-background);
+	color: var(--color-main-text);
+}
+/* HR navigation can wrap without widening the app on small screens. */
+#timesheet-app > .ts-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+#timesheet-app > .ts-tabs .ts-tab {
+	max-width: 100%;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+#timesheet-app > .ts-tabs .ts-tab:not(.active) {
+	color: var(--color-main-text);
+	border-color: var(--color-border);
+}
+.ts-history-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+.ts-history-toolbar {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.ts-history-note {
+	margin: 6px 0;
+	color: var(--color-main-text);
+}
+.ts-history-filters {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 12px;
+	margin: 20px 0 12px;
+	align-items: end;
+}
+.ts-history-filters label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+.ts-history-filters input,
+.ts-history-filters select {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+}
+.ts-history-filter-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 8px;
+}
+#tab-change-history button {
+	background: var(--color-background-dark);
+	color: var(--color-main-text);
+	border: 1px solid var(--color-border);
+}
+#tab-change-history button:hover,
+#tab-change-history button:focus-visible {
+	background: var(--color-background-hover);
+}
+.ts-history-message {
+	min-height: 24px;
+	margin: 12px 0;
+}
+.ts-history-message.is-error {
+	color: var(--color-error-text, var(--color-error));
+}
+.ts-history-list {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+	display: grid;
+	gap: 12px;
+}
+.ts-history-card {
+	border: 1px solid var(--color-border);
+	border-radius: var(--border-radius-large, 10px);
+	padding: 16px;
+	background: var(--color-main-background);
+}
+.ts-history-card h4 {
+	margin: 0 0 12px;
+}
+.ts-history-metadata {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 8px 16px;
+	margin: 0 0 12px;
+}
+.ts-history-metadata div,
+.ts-history-values div {
+	min-width: 0;
+}
+#tab-change-history .ts-history-metadata,
+#tab-change-history .ts-history-values {
+	padding: 0;
+}
+/* Override Nextcloud's generic inline definition-list layout within this view only. */
+#tab-change-history .ts-history-card dt,
+#tab-change-history .ts-history-card dd {
+	display: block;
+	padding: 0;
+	width: auto;
+	text-align: start;
+}
+#tab-change-history .ts-history-card dt {
+	margin: 0;
+	color: var(--color-main-text);
+	font-size: 0.9em;
+	font-weight: 600;
+}
+#tab-change-history .ts-history-card dd {
+	margin: 4px 0 0;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+.ts-history-card summary {
+	cursor: pointer;
+	padding: 8px 0;
+}
+.ts-history-change {
+	border-top: 1px solid var(--color-border);
+	padding: 12px 0;
+}
+.ts-history-change h5 {
+	margin: 0 0 8px;
+}
+.ts-history-values {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px;
+	margin: 0;
+}
+#history-more {
+	margin-top: 16px;
+}
+@media (max-width: 600px) {
+	.ts-history-filters,
+	.ts-history-metadata,
+	.ts-history-values {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.ts-history-card {
+		padding: 12px;
+	}
+}

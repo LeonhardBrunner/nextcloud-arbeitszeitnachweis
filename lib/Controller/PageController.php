@@ -57,6 +57,9 @@ class PageController extends Controller {
 		Util::addScript('timesheet', 'timesheet-export');
 		Util::addScript('timesheet', 'timesheet-copy');
 		Util::addScript('timesheet', 'timesheet-config');
+		if ($isHr) {
+			Util::addScript('timesheet', 'timesheet-change-history');
+		}
 		if ($updateNotesEnabled) {
 			Util::addScript('timesheet', 'timesheet-update-notes');
 		}
@@ -67,6 +70,9 @@ class PageController extends Controller {
 		Util::addScript('timesheet', 'timesheet-main');
 
 		Util::addStyle('timesheet', 'style');
+		if ($isHr) {
+			Util::addStyle('timesheet', 'timesheet-change-history');
+		}
 		if ($updateNotesEnabled) {
 			Util::addStyle('timesheet', 'timesheet-update-notes');
 		}

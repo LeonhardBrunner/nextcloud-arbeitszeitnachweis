@@ -178,14 +178,17 @@
 					}
 				}
 				saveButton.disabled = true;
+				const saveTarget = JSON.stringify(['config', targetUserId]);
 				try {
-					await timesheet.api(`/api/hr/config/${encodeURIComponent(targetUserId)}`, {
+					const saveRequest = timesheet.api(`/api/hr/config/${encodeURIComponent(targetUserId)}`, {
 						method: 'PUT',
 						body: JSON.stringify({
 							dailyMin: dailyMinimumMinutes,
 							state: stateCode
 						})
 					});
+					await (timesheet.entries.trackPendingSave ? timesheet.entries.trackPendingSave(saveRequest, saveTarget) : saveRequest);
+					timesheet.entries.clearSaveFailure?.(saveTarget);
 					if (targetUserId === appState.currentUserId) {
 						appState.userConfig = {
 							...(appState.userConfig || {}),
@@ -207,7 +210,7 @@
 						await timesheet.entries.refreshOvertimeTotal(targetUserId, document.getElementById('tab-hr'));
 					}
 				} catch (error) {
-					console.error('❌ Failed to save configuration:', error);
+					timesheet.notify(t(appState.appName, 'Changes could not be saved. Please try again.'));
 				} finally {
 					saveButton.disabled = false;
 				}

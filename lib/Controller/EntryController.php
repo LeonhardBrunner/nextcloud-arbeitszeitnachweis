@@ -38,9 +38,11 @@ class EntryController extends Controller {
 
 		$currentUserId = $this->userSession->getUser()->getUID();
 
-		if ($user !== null && $this->hrService->isHr()) {
-			$entries = $this->entryMapper->findByUserAndRange($user, $from, $to);
-			return new DataResponse($entries);
+		if ($user !== null && $user !== '') {
+			if (!$this->hrService->canAccessUser($user, $currentUserId)) {
+				return new DataResponse(['error' => 'Forbidden'], 403);
+			}
+			return new DataResponse($this->entryMapper->findByUserAndRange($user, $from, $to));
 		}
 
 		$entries = $this->entryMapper->findByUserAndRange($currentUserId, $from, $to);
@@ -56,7 +58,10 @@ class EntryController extends Controller {
 		$currentUserId = $currentUser->getUID();
 		$targetUserId = $currentUserId;
 		$userParameter = $this->request->getParam('user');
-		if ($userParameter !== null && $this->hrService->isHr($currentUserId)) {
+		if ($userParameter !== null && $userParameter !== '') {
+			if (!is_string($userParameter) || !$this->hrService->canAccessUser($userParameter, $currentUserId)) {
+				return new DataResponse(['error' => 'Forbidden'], 403);
+			}
 			$targetUserId = $userParameter;
 		}
 
@@ -99,8 +104,7 @@ class EntryController extends Controller {
 		$hasEnd = ($endMinutes !== null);
 
 		if ($commentOnly || (!$hasStart && !$hasEnd && $trimmedComment !== '')) {
-			$entry = $this->entryService->upsertCommentOnly($targetUserId, $workDate, $trimmedComment);
-			return new DataResponse($entry);
+			return $this->saveEntryResponse(fn() => $this->entryService->upsertCommentOnly($targetUserId, $workDate, $trimmedComment));
 		}
 
 		if (!$hasStart && !$hasEnd) {
@@ -115,15 +119,7 @@ class EntryController extends Controller {
 			'comment' => $comment,
 		];
 
-		try {
-			$entry = $this->entryService->create($payload, $targetUserId);
-		} catch (\DomainException $exception) {
-			if ($exception->getCode() === 409) {
-				return new DataResponse(['error' => 'Entry already exists'], 409);
-			}
-			throw $exception;
-		}
-		return new DataResponse($entry);
+		return $this->saveEntryResponse(fn() => $this->entryService->create($payload, $targetUserId));
 	}
 
 	#[NoAdminRequired]
@@ -211,21 +207,32 @@ class EntryController extends Controller {
 	}
 
 	private function updateEntryWithConflictHandling(int $id, array $changes): DataResponse {
+		return $this->saveEntryResponse(fn() => $this->entryService->update($id, $changes, $this->hrService->isHr()));
+	}
+
+	private function saveEntryResponse(callable $save): DataResponse {
 		try {
-			$entry = $this->entryService->update($id, $changes, $this->hrService->isHr());
+			return new DataResponse($save());
+		} catch (ForbiddenException) {
+			return new DataResponse(['error' => 'Forbidden'], 403);
+		} catch (\OCP\AppFramework\Db\DoesNotExistException) {
+			return new DataResponse(['error' => 'Entry not found'], 404);
 		} catch (\DomainException $exception) {
-			if ($exception->getCode() === 409) {
-				return new DataResponse(['error' => 'Entry already exists'], 409);
+			if (in_array($exception->getCode(), [404, 409], true)) {
+				return new DataResponse(['error' => $exception->getCode() === 409 ? 'Entry already exists' : 'Entry not found'], $exception->getCode());
 			}
-			throw $exception;
+			return new DataResponse(['error' => 'Changes could not be saved. Please try again.'], 500);
+		} catch (\Throwable) {
+			return new DataResponse(['error' => 'Changes could not be saved. Please try again.'], 500);
 		}
-		return new DataResponse($entry);
 	}
 
 	#[NoAdminRequired]
 	public function delete(int $id): DataResponse {
-		$this->entryService->delete($id, $this->hrService->isHr());
-		return new DataResponse(['ok' => true]);
+		return $this->saveEntryResponse(function () use ($id): array {
+			$this->entryService->delete($id, $this->hrService->isHr());
+			return ['ok' => true];
+		});
 	}
 
 	private static function parseOptionalTimeMinutes(?string $timeString): ?int {
@@ -289,19 +296,19 @@ class EntryController extends Controller {
 
 	#[NoAdminRequired]
 	#[NoCSRFRequired]
-	public function exportXlsx(?string $from = null, ?string $to = null, ?string $user = null): DataDownloadResponse {
+	public function exportXlsx(?string $from = null, ?string $to = null, ?string $user = null): DataDownloadResponse|DataResponse {
 		$timeZone = new \DateTimeZone('Europe/Berlin');
 
 		$currentUser = $this->userSession->getUser();
 		if (!$currentUser) {
-			throw new ForbiddenException();
+			return new DataResponse(['error' => 'Forbidden'], 403);
 		}
 		$currentUserId = $currentUser->getUID();
 
 		$targetUserId = $currentUserId;
 		if ($user !== null && $user !== '') {
-			if (!$this->hrService->isHr()) {
-				throw new ForbiddenException();
+			if (!$this->hrService->canAccessUser($user, $currentUserId)) {
+				return new DataResponse(['error' => 'Forbidden'], 403);
 			}
 			$targetUserId = $user;
 		}
