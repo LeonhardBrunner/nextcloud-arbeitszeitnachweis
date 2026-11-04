@@ -144,7 +144,8 @@ class UpdateNotesService {
 	}
 
 	public function icon(): string {
-		return $this->urlGenerator->getAbsoluteURL($this->urlGenerator->imagePath('timesheet', 'app.svg'));
+		// Native notifications invert dark icons to match the text in dark themes.
+		return $this->urlGenerator->getAbsoluteURL($this->urlGenerator->imagePath('timesheet', 'app_dark.svg'));
 	}
 
 	private function synchronizeBell(string $userId, string $version, array &$state, bool $hasPending): void {

@@ -191,6 +191,7 @@ namespace {
 		public string $parsedSubject = '';
 		public string $parsedMessage = '';
 		public string $link = '';
+		public string $icon = '';
 		public function setApp(string $value): self { $this->app = $value; return $this; }
 		public function getApp(): string { return $this->app; }
 		public function setUser(string $value): self { $this->user = $value; return $this; }
@@ -202,7 +203,7 @@ namespace {
 		public function getSubject(): string { return $this->subject; }
 		public function setDateTime(\DateTime $time): self { return $this; }
 		public function setLink(string $value): self { $this->link = $value; return $this; }
-		public function setIcon(string $value): self { return $this; }
+		public function setIcon(string $value): self { $this->icon = $value; return $this; }
 		public function setParsedSubject(string $value): self { $this->parsedSubject = $value; return $this; }
 		public function setParsedMessage(string $value): self { $this->parsedMessage = $value; return $this; }
 	}
@@ -407,6 +408,7 @@ namespace {
 		sameNotes('ja:Timesheet updated to 1.4.0', $note->parsedSubject);
 		sameNotes('ja:Open the update notes.', $note->parsedMessage);
 		sameNotes('https://example.test/apps/timesheet/?update-notes=1', $note->link);
+		sameNotes('https://example.test/custom_apps/timesheet/img/app_dark.svg', $note->icon);
 	});
 	checkNotes('The notifier leaves unrelated application notifications untouched', function (): void {
 		$f = notesFixture(); $note = new NotesNotification(); $note->setApp('calendar');

@@ -62,7 +62,9 @@
 		const header = createElement('div', 'ts-update-notes-header');
 		header.append(heading);
 		const content = createElement('div', 'ts-update-notes-content');
-		for (const release of notes.releases) addRelease(content, release);
+		// Reverse only the display order; account progress uses the chronological API order.
+		const releasesNewestFirst = [...notes.releases].reverse();
+		for (const release of releasesNewestFirst) addRelease(content, release);
 		const footer = createElement('div', 'ts-update-notes-footer');
 		const closeButton = createElement('button', 'ts-update-notes-action', translate('Close'));
 		closeButton.type = 'button';

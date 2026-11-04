@@ -255,14 +255,25 @@ test('a rendering failure restores the page without falsely recording a displaye
 	assert.equal(app.requests.length, 1);
 });
 
-test('several release versions retain the server ordering in one dialog', async () => {
-	const payload = copy(notes);
-	payload.releases.push({ version: '1.4.0', sections: [{ title: 'Improvements', items: ['Second release.'] }] });
-	payload.throughVersion = '1.4.0';
-	const app = fixture({ payload }); const complete = app.init(); await flush(); await app.paint();
-	assert.ok(app.get('ts-update-notes-dialog').textContent.indexOf('Version 1.3.0') < app.get('ts-update-notes-dialog').textContent.indexOf('Version 1.4.0'));
-	assert.equal(app.requests[1].body.throughVersion, '1.4.0');
-	app.key('Escape'); await complete;
+test('automatic and manually reopened notes show the newest release first without changing progress', async () => {
+	for (const mode of ['automatic', 'manual']) {
+		const payload = copy(notes);
+		payload.releases.push(
+			{ version: '1.3.1', sections: [{ title: 'Improvements', items: ['Second release.'] }] },
+			{ version: '1.4.0', sections: [{ title: 'Bug fixes', items: ['Third release.'] }] },
+		);
+		payload.throughVersion = '1.4.0';
+		const app = fixture({ payload,
+			url: 'http://localhost:8133/apps/timesheet/' + (mode === 'manual' ? '?update-notes=1' : ''),
+			respond: request => request.path === '/api/update-notes' ? payload : undefined,
+		});
+		const complete = app.init(); await flush(); await app.paint();
+		assert.deepEqual(app.all('ts-update-notes-release').map(section => section.children[0].textContent), ['Version 1.4.0', 'Version 1.3.1', 'Version 1.3.0']);
+		assert.deepEqual(payload.releases.map(release => release.version), ['1.3.0', '1.3.1', '1.4.0']);
+		assert.equal(app.requests[0].body.mode, mode);
+		assert.equal(app.requests[1].body.throughVersion, '1.4.0');
+		app.key('Escape'); await complete;
+	}
 });
 
 test('real application startup finishes update notes before offering the tour', async () => {
