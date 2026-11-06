@@ -45,7 +45,7 @@ class PageController extends Controller {
 		$isEmployeeAccount = $currentUser !== null && !$isHr && !$this->groupManager->isAdmin($currentUser->getUID());
 		// The introduction and personal classification controls belong to ordinary employees.
 		$tourEnabled = $isEmployeeAccount;
-		$updateNotesEnabled = $currentUser !== null && !$this->groupManager->isAdmin($currentUser->getUID());
+		$updateNotesEnabled = $currentUser !== null;
 		Util::addTranslations('timesheet');
 
 		// Load modules in dependency order.
@@ -83,6 +83,17 @@ class PageController extends Controller {
 		$breakPreference = $currentUser
 			? $this->userPreferencesStore->getBreakInputPreference($currentUser->getUID())
 			: ['breakInputMode' => 'minutes', 'revision' => hash('sha256', '')];
+		$historyPreference = ['historyView' => 'cards', 'revision' => hash('sha256', '')];
+		$historyPreferenceAvailable = false;
+		if ($isHr && $currentUser !== null) {
+			try {
+				$historyPreference = $this->userPreferencesStore->getHistoryViewPreference($currentUser->getUID());
+				$historyPreferenceAvailable = true;
+			} catch (\Throwable $loadError) {
+				// Display preferences must not block access to the employee history.
+				$this->logger->warning('Change history view could not be loaded.', ['exception' => $loadError]);
+			}
+		}
 		$employmentStatus = (new EmploymentStatus())->toPublicArray();
 		$employmentStatusAvailable = false;
 		if ($currentUser !== null) {
@@ -113,6 +124,9 @@ class PageController extends Controller {
 			'updateNotesEnabled' => $updateNotesEnabled,
 			'breakInputMode' => $breakPreference['breakInputMode'],
 			'breakInputRevision' => $breakPreference['revision'],
+			'historyView' => $historyPreference['historyView'],
+			'historyViewRevision' => $historyPreference['revision'],
+			'historyViewAvailable' => $historyPreferenceAvailable,
 			'employmentStatus' => $employmentStatus,
 			'employmentStatusAvailable' => $employmentStatusAvailable,
 			'canSetFreelancerMode' => $isEmployeeAccount,

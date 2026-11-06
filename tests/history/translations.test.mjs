@@ -14,7 +14,7 @@ const messages = [...coverage.messages, ...coverage.reusedMessages];
 test('history covers all supported account languages and unique message keys', () => {
 	assert.deepEqual(coverage.locales, languages);
 	assert.equal(new Set(messages).size, messages.length);
-	assert.equal(coverage.messages.length, 42);
+	assert.equal(coverage.messages.length, 45);
 });
 
 // Every history label, explanation and release item has matching browser and server wording.
@@ -54,6 +54,9 @@ test('both German variants use matching neutral history text', () => {
 	assert.equal(catalogs[0]['Change history'], 'Änderungsverlauf');
 	assert.equal(catalogs[0]['Changed by'], 'Bearbeiter');
 	assert.equal(catalogs[0]['Comment changed'], 'Kommentar geändert');
+	assert.equal(catalogs[0]['History view'], 'Ansicht des Änderungsverlaufs');
+	assert.equal(catalogs[0]['Tile view'], 'Kachelansicht');
+	assert.equal(catalogs[0]['Table view'], 'Tabellenansicht');
 	assert.equal(catalogs[0]['Before'], 'Vorher');
 	assert.equal(catalogs[0]['After'], 'Nachher');
 	assert.equal(catalogs[0]['Deleted account'], 'Gelöschtes Konto');

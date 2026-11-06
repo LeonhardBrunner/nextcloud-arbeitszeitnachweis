@@ -41,7 +41,10 @@
     "Break",
     "Comment",
     "Daily working time",
-    "Minutes"
+    "Minutes",
+    "History view",
+    "Tile view",
+    "Table view"
   ],
   "reusedMessages": [
     "All employees",

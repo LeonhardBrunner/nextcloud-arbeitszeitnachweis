@@ -124,7 +124,7 @@ $capturingMailer->hrSummaries = [];
 $employmentDelivery = $makeService()->sendReminders();
 verifyReminder(array_keys($capturingMailer->employees), ['employment-active', 'employment-returned', 'employment-never', 'employment-foreign'], 'Daily mail excludes current freelancers and inactive subjects');
 verifyReminder(isset($capturingMailer->hrSummaries['employment-hr-inactive']), false, 'Inactive HR receives no daily summary');
-verifyReminder(isset($capturingMailer->hrSummaries['employment-hr-freelancer']), true, 'Active freelance HR still receives assigned employee reminders');
+verifyReminder(isset($capturingMailer->hrSummaries['employment-hr-freelancer']), false, 'Freelance HR receives no assigned employee reminders');
 verifyReminder($groups->isInGroup('employment-hr-active', 'Zeitnachweis'), false, 'HR recipients do not need employee activity membership');
 $returnedDates = array_column($capturingMailer->employees['employment-returned'], 'date');
 verifyReminder(in_array('2026-10-12', $returnedDates, true), true, 'An earlier regular hole remains eligible after return');
@@ -142,7 +142,7 @@ $statuses->setFreelancerMode('employment-active', false, $statuses->getStatus('e
 verifyReminder($config->getUserValue('employment-active', 'timesheet', 'missing_entry_employee_last_sent', ''), $cooldownBefore, 'Same-day mode changes preserve successful-delivery cooldown');
 verifyReminder($makeService()->sendReminders()['employeeSent'], 0, 'Status changes do not bypass the seven-day limit');
 
-// Keep other warning categories in the legacy HR path, with a fresh full absence delay.
+// Exclude freelancers from every legacy warning category and preserve regular return delays.
 foreach (['hr-active', 'hr-freelancer', 'hr-inactive', 'hr-foreign'] as $suffix) {
 	$hrPreferences->saveNotificationSettings('employment-' . $suffix, ['noEntryEnabled' => true, 'noEntryDays' => 14, 'overtimeEnabled' => true, 'overtimeThresholdMinutes' => 60, 'negativeOvertimeEnabled' => true, 'negativeOvertimeThresholdMinutes' => 60]);
 }
@@ -152,12 +152,12 @@ $balances->summaries['employment-returned'] = ['lastEntryDate' => null, 'to' => 
 $makeLegacy = static fn() => new HrNotificationService($entryMapper, $configMapper, new HrService($appConfig, $session, $groups, $users), $balances, $statuses, $clock, $logger, $users);
 $legacyWarnings = $makeLegacy()->doCron();
 verifyReminder(isset($legacyWarnings['employment-hr-inactive']), false, 'Inactive HR receives no legacy warnings');
-verifyReminder(isset($legacyWarnings['employment-hr-freelancer']), true, 'Freelance HR still receives other employees legacy warnings');
+verifyReminder(isset($legacyWarnings['employment-hr-freelancer']), false, 'Freelance HR receives no legacy warnings');
 verifyReminder(array_column($legacyWarnings['employment-hr-active']['noEntry'], 'user'), ['Erik Ohne Eintrag', 'Marvin Adler'], 'Legacy absence warning excludes current exemptions and waits after return');
-verifyReminder(array_column($legacyWarnings['employment-hr-active']['overtime'], 'user'), ['Dora Rückkehr', 'Marvin Adler', 'Marvin Berg'], 'Freelancers retain overtime warning while inactive subjects are excluded');
+verifyReminder(array_column($legacyWarnings['employment-hr-active']['overtime'], 'user'), ['Dora Rückkehr', 'Marvin Adler'], 'Overtime warnings exclude freelancers and inactive subjects');
 $balances->summaries['employment-freelancer'] = ['lastEntryDate' => '2026-10-01', 'to' => '2026-10-01', 'overtimeMinutes' => -120];
 $negativeWarnings = $makeLegacy()->doCron();
-verifyReminder(array_column($negativeWarnings['employment-hr-active']['negative'], 'user'), ['Marvin Berg'], 'Freelancers retain negative-balance warnings');
+verifyReminder(array_column($negativeWarnings['employment-hr-active']['negative'], 'user'), [], 'Negative-balance warnings exclude freelancers');
 $clock->current = $clock->current->modify('+7 days');
 $balances->summaries['employment-returned']['to'] = '2026-11-09';
 $afterFullDelay = $makeLegacy()->doCron();
@@ -188,7 +188,7 @@ foreach (['active', 'returned', 'never', 'foreign', 'hr-active', 'hr-freelancer'
 }
 $realEmploymentDelivery = $makeService()->sendReminders();
 verifyReminder($realEmploymentDelivery['employeeSent'], 4, 'Status-aware employee mails reach isolated Mailpit');
-verifyReminder($realEmploymentDelivery['hrSent'], 3, 'Status-aware scoped HR mails reach isolated Mailpit');
+verifyReminder($realEmploymentDelivery['hrSent'], 2, 'Status-aware scoped HR mails exclude freelancer recipients in isolated Mailpit');
 verifyReminder($database->getQueryBuilder()->select('*')->from('ts_entries')->orderBy('id')->executeQuery()->fetchAll(), $unchangedEntries, 'Both reminder paths leave all time entries unchanged');
 verifyReminder($database->getQueryBuilder()->select('*')->from('ts_monthly_balances')->orderBy('id')->executeQuery()->fetchAll(), $unchangedBalances, 'Both reminder paths leave existing balances unchanged');
 

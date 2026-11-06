@@ -43,10 +43,14 @@ class HrNotificationService {
 		$today = $this->timeFactory->getDateTime('today', new \DateTimeZone('Europe/Berlin'));
 
 		foreach ($hrUserIds as $hrUserId) {
-			// HR recipients use account enablement, independently of employee activity groups.
+			// HR activity groups do not restrict delivery, but freelancer accounts receive no warnings.
 			try {
 				$hrUser = $this->userManager->get($hrUserId);
 				if (!$hrUser || !$hrUser->isEnabled()) {
+					continue;
+				}
+				$recipientStatus = $this->loadEmploymentStatus($hrUserId);
+				if ($recipientStatus === null || $recipientStatus->freelancerMode) {
 					continue;
 				}
 			} catch (\Throwable $recipientError) {
@@ -96,7 +100,7 @@ class HrNotificationService {
 					continue;
 				}
 				$employmentStatus = $this->loadEmploymentStatus($userId);
-				if ($employmentStatus === null || !$employmentStatus->isActive) {
+				if ($employmentStatus === null || !$employmentStatus->isActive || $employmentStatus->freelancerMode) {
 					continue;
 				}
 
@@ -123,7 +127,7 @@ class HrNotificationService {
 					$daysSinceLastEntry = $reference > $today ? 0 : (int)$reference->diff($today)->format('%a');
 				}
 
-				if ($noEntryEnabled && !$employmentStatus->freelancerMode) {
+				if ($noEntryEnabled) {
 					if ($referenceDate === null || ($daysSinceLastEntry !== null && $daysSinceLastEntry >= $noEntryDays)) {
 						$hrNotifications['noEntry'][] = [
 							'user' => $displayName,

@@ -1,5 +1,6 @@
 <?php
 $usesHoursFormat = ($_['breakInputMode'] ?? 'minutes') === 'hours';
+$usesHistoryTable = ($_['historyView'] ?? 'cards') === 'table';
 $absenceCommentTerms = $_['absenceCommentTerms'];
 $employmentStatus = $_['employmentStatus'] ?? [];
 ?>
@@ -223,7 +224,7 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 
 				<!-- Email notification settings -->
 				<div id="hr-notifications-section" class="ts-hr-section">
-					<h4><?php p($l->t('Email notifications')) ?></h4>
+					<h4><?php p($l->t('My HR email settings')) ?></h4>
 
 					<table class="grid hr-notifications-table">
 						<thead>
@@ -412,7 +413,10 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 			</div>
 		</div>
 		<!-- HR changes are read-only and limited to the current employee assignments. -->
-		<div id="tab-change-history" class="ts-tabview" aria-labelledby="history-heading">
+		<div id="tab-change-history" class="ts-tabview" aria-labelledby="history-heading"
+			data-history-view="<?php p($usesHistoryTable ? 'table' : 'cards'); ?>"
+			data-history-view-revision="<?php p($_['historyViewRevision'] ?? ''); ?>"
+			data-history-view-available="<?php p(($_['historyViewAvailable'] ?? false) ? '1' : '0'); ?>">
 			<div class="ts-history-heading">
 				<h3 id="history-heading"><?php p($l->t('Change history')); ?></h3>
 				<div class="ts-history-toolbar">
@@ -440,7 +444,24 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 				</div>
 			</form>
 			<p id="history-message" class="ts-history-message" role="status" aria-live="polite"></p>
-			<ol id="history-list" class="ts-history-list"></ol>
+			<div class="ts-history-view-switch" role="group" aria-label="<?php p($l->t('History view')); ?>">
+				<button type="button" id="history-view-cards" aria-pressed="<?php p($usesHistoryTable ? 'false' : 'true'); ?>"><?php p($l->t('Tile view')); ?></button>
+				<button type="button" id="history-view-table" aria-pressed="<?php p($usesHistoryTable ? 'true' : 'false'); ?>"><?php p($l->t('Table view')); ?></button>
+			</div>
+			<ol id="history-list" class="ts-history-list"<?php if ($usesHistoryTable): ?> hidden<?php endif; ?>></ol>
+			<div id="history-table-container" class="ts-history-table-container" role="region" aria-label="<?php p($l->t('Table view')); ?>" tabindex="0"<?php if (!$usesHistoryTable): ?> hidden<?php endif; ?>>
+				<table class="ts-history-table">
+					<thead><tr>
+						<th scope="col"><?php p($l->t('Changed at')); ?></th>
+						<th scope="col"><?php p($l->t('Changed by')); ?></th>
+						<th scope="col"><?php p($l->t('Employee')); ?></th>
+						<th scope="col"><?php p($l->t('Work date')); ?></th>
+						<th scope="col"><?php p($l->t('Change type')); ?></th>
+						<th scope="col"><?php p($l->t('Details')); ?></th>
+					</tr></thead>
+					<tbody id="history-table-body"></tbody>
+				</table>
+			</div>
 			<button type="button" id="history-more" hidden><?php p($l->t('Load more')); ?></button>
 		</div>
 	<?php endif; ?>

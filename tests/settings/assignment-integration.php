@@ -84,8 +84,8 @@ $assignmentPublish = static function (array $updatedRules) use ($appConfig, $ass
 // Legacy rules keep the same rights, recipients and stored representation.
 $assignmentResetDelivery();
 verifyReminder($assignmentScope()->getMailRecipientUserIds(), ['employment-hr-active', 'employment-hr-freelancer', 'employment-hr-foreign'], 'Existing rules keep all enabled responsible HR recipients');
-verifyReminder($makeService()->sendReminders()['hrSent'], 3, 'Existing daily HR delivery is unchanged');
-verifyReminder(array_keys($assignmentLegacy()->doCron()), ['employment-hr-active', 'employment-hr-freelancer', 'employment-hr-foreign'], 'Existing legacy HR delivery is unchanged');
+verifyReminder($makeService()->sendReminders()['hrSent'], 2, 'Existing daily HR delivery excludes freelancer recipients');
+verifyReminder(array_keys($assignmentLegacy()->doCron()), ['employment-hr-active', 'employment-hr-foreign'], 'Existing legacy HR delivery excludes freelancer recipients');
 verifyReminder($appConfig->getAppValueString('hr_access_rules'), $assignmentOriginalRulesJson, 'Reading legacy assignments never rewrites stored rules');
 
 // The same HR account may see both rules but receive email from only one of them.
@@ -114,7 +114,7 @@ verifyReminder(array_column($capturingMailer->hrSummaries['employment-hr-active'
 verifyReminder(isset($capturingMailer->hrSummaries['employment-hr-freelancer']), false, 'Unselected group members keep access but receive no daily HR mail');
 $mixedLegacy = $assignmentLegacy()->doCron();
 verifyReminder(array_keys($mixedLegacy), ['assignment-direct', 'employment-hr-active'], 'The older warning path uses the same selected recipients');
-verifyReminder($assignmentWarningNames($mixedLegacy['assignment-direct']), ['Dora Rückkehr', 'Erik Ohne Eintrag', 'Marvin Adler', 'Marvin Berg'], 'Direct legacy warnings contain only its selected employee group');
+verifyReminder($assignmentWarningNames($mixedLegacy['assignment-direct']), ['Dora Rückkehr', 'Erik Ohne Eintrag', 'Marvin Adler'], 'Direct legacy warnings exclude freelancers within its selected employee group');
 verifyReminder($assignmentWarningNames($mixedLegacy['employment-hr-active']), ['Marvin Fremd'], 'Group legacy warnings exclude the unselected rule');
 
 // Verify actual legacy email delivery and bodies in the isolated Mailpit instance.
@@ -124,7 +124,7 @@ $assignmentMailbox = static function (): array {
 	return json_decode($content, true, 512, JSON_THROW_ON_ERROR)['messages'];
 };
 $beforeMessageIds = array_column($assignmentMailbox(), 'ID');
-$assignmentJob = new HrNotificationJob($clock, $users, $container->get(\OCP\Mail\IMailer::class), $assignmentLegacy(), $appConfig, $logger, $container->get(\OCP\L10N\IFactory::class));
+$assignmentJob = new HrNotificationJob($clock, $users, $container->get(\OCP\Mail\IMailer::class), $assignmentLegacy(), $appConfig, $logger, $container->get(\OCP\L10N\IFactory::class), $container->get(\OCA\Timesheet\Service\EmployeeBalanceNotificationService::class));
 (new ReflectionMethod($assignmentJob, 'run'))->invoke($assignmentJob, []);
 $newLegacyMessages = array_values(array_filter($assignmentMailbox(), static fn(array $message): bool => !in_array($message['ID'], $beforeMessageIds, true)));
 verifyReminder(count($newLegacyMessages), 2, 'Only two selected HR messages reach Mailpit through the older job');
@@ -160,8 +160,9 @@ $overlapRules[0]['mailRecipients'] = ['mode' => 'all', 'userIds' => []];
 $assignmentPublish($overlapRules);
 $overlapIds = $assignmentScope()->getMailRecipientUserIds();
 verifyReminder(count(array_filter($overlapIds, static fn(string $userId): bool => $userId === 'employment-hr-active')), 1, 'Overlapping group and direct assignments do not duplicate recipients');
-verifyReminder($makeService()->sendReminders()['hrSent'], count($overlapIds), 'Overlapping assignment produces one daily summary per recipient');
-verifyReminder(count($assignmentLegacy()->doCron()), count($overlapIds), 'Overlapping assignment produces one older summary per recipient');
+verifyReminder($makeService()->sendReminders()['hrSent'], 2, 'Overlapping assignment produces one daily summary per non-freelancer recipient');
+verifyReminder(array_keys($capturingMailer->hrSummaries), ['employment-hr-active', 'assignment-direct'], 'Freelancer recipients stay muted despite overlapping assignments');
+verifyReminder(array_keys($assignmentLegacy()->doCron()), ['employment-hr-active', 'assignment-direct'], 'Overlapping assignment produces one older summary per non-freelancer recipient');
 
 // Empty selection and disabled or no-longer-responsible accounts never broaden delivery.
 $emptyRules = $assignmentMixedRules;

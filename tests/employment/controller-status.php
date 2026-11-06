@@ -23,9 +23,10 @@ $fixture = static function (?string $actor = 'alice'): array {
 	$logger = new EmploymentLoggerFixture();
 	$controller = new EmploymentStatusController('timesheet', $request, $store, $session, $hr, $logger, $groups);
 	$balances = new \OCA\Timesheet\Service\MonthlyBalanceService();
-	$page = new PageController('timesheet', $request, $hr, new \OCA\Timesheet\Db\UserPreferencesStore(), $session, new \OCA\Timesheet\Db\TourProgressStore(), $logger, $groups, new \OCA\Timesheet\Service\AbsenceCommentCatalog(), new EmploymentTranslationFixture(), $store);
+	$preferences = new \OCA\Timesheet\Db\UserPreferencesStore();
+	$page = new PageController('timesheet', $request, $hr, $preferences, $session, new \OCA\Timesheet\Db\TourProgressStore(), $logger, $groups, new \OCA\Timesheet\Service\AbsenceCommentCatalog(), new EmploymentTranslationFixture(), $store);
 	$overview = new OverviewController('timesheet', $request, new EmploymentAppConfigFixture(), new \OCA\Timesheet\Db\EntryMapper(), new \OCA\Timesheet\Db\UserConfigMapper(), $session, $hr, new \OCA\Timesheet\Service\HolidayService(), $balances, $store);
-	return compact('locks', 'config', 'clock', 'store', 'session', 'request', 'hr', 'logger', 'groups', 'controller', 'balances', 'page', 'overview');
+	return compact('locks', 'config', 'clock', 'store', 'session', 'request', 'hr', 'logger', 'groups', 'controller', 'balances', 'page', 'overview', 'preferences');
 };
 
 foreach ([null, 'alice', 'hr', 'admin', 'hr-admin'] as $actor) {
@@ -49,7 +50,8 @@ foreach ([null, 'alice', 'hr', 'admin', 'hr-admin'] as $actor) {
 		$state = $fixture($actor);
 		$parameters = $state['page']->index()->getParams();
 		$suite->same($actor === 'alice', $parameters['canSetFreelancerMode'] ?? false);
-		$suite->same(in_array($actor, ['alice', 'hr'], true), $parameters['updateNotesEnabled'] ?? false);
+		$suite->same($actor !== null, $parameters['updateNotesEnabled'] ?? false);
+		$suite->same($actor === 'alice', $parameters['tourEnabled'] ?? false);
 		$html = (static function (array $_): string {
 			$l = new EmploymentTranslationFixture();
 			ob_start();
@@ -229,4 +231,50 @@ $suite->test('Only the personal freelancer route remains writable and keeps CSRF
 		['name' => 'employmentStatus#setFreelancerMode', 'url' => '/api/preferences/freelancer-mode', 'verb' => 'PUT'],
 	], $routes);
 });
+foreach (['cards', 'table'] as $historyView) {
+	$suite->test('Page startup renders the account history view before JavaScript: ' . $historyView, static function () use ($suite, $fixture, $historyView): void {
+		$state = $fixture('hr');
+		$revision = hash('sha256', $historyView);
+		$state['preferences']->historyPreferences['hr'] = ['historyView' => $historyView, 'revision' => $revision];
+		$parameters = $state['page']->index()->getParams();
+		$suite->same($historyView, $parameters['historyView']);
+		$suite->same($revision, $parameters['historyViewRevision']);
+		$suite->same(true, $parameters['historyViewAvailable']);
+		$suite->same(['hr'], $state['preferences']->historyReads);
+		$html = (static function (array $_): string {
+			$l = new EmploymentTranslationFixture();
+			ob_start();
+			try {
+				require __DIR__ . '/../../templates/main.php';
+				return ob_get_contents();
+			} finally {
+				ob_end_clean();
+			}
+		})($parameters);
+		$suite->same(true, str_contains($html, 'data-history-view="' . $historyView . '"'));
+		$suite->same(true, str_contains($html, 'data-history-view-revision="' . $revision . '"'));
+		$suite->same(true, str_contains($html, 'data-history-view-available="1"'));
+		$suite->same($historyView === 'table', preg_match('/id="history-list"[^>]* hidden/', $html) === 1);
+		$suite->same($historyView === 'cards', preg_match('/id="history-table-container"[^>]* hidden/', $html) === 1);
+		$suite->same($historyView === 'table', preg_match('/id="history-view-table" aria-pressed="true"/', $html) === 1);
+	});
+}
+$suite->test('A failed history preference read keeps the page usable without an assumed writable revision', static function () use ($suite, $fixture): void {
+	$state = $fixture('hr');
+	$state['preferences']->rejectHistoryReads = true;
+	$parameters = $state['page']->index()->getParams();
+	$suite->same('cards', $parameters['historyView']);
+	$suite->same(false, $parameters['historyViewAvailable']);
+	$suite->same(['hr'], $state['preferences']->historyReads);
+	$suite->same(1, count($state['logger']->warnings));
+	$suite->same(true, $parameters['isHR']);
+});
+foreach ([null, 'alice', 'admin'] as $actor) {
+	$suite->test('Accounts without the history tab do not read its preference: ' . ($actor ?? 'anonymous'), static function () use ($suite, $fixture, $actor): void {
+		$state = $fixture($actor);
+		$parameters = $state['page']->index()->getParams();
+		$suite->same(false, $parameters['historyViewAvailable']);
+		$suite->same([], $state['preferences']->historyReads);
+	});
+}
 $suite->finish('Employment controllers');

@@ -28,6 +28,7 @@ namespace {
 	use OCA\Timesheet\Service\MissingEntryReminderSettings;
 
 	require_once __DIR__ . '/../../lib/Service/MissingEntryReminderSettings.php';
+	require_once __DIR__ . '/../../lib/Service/EmployeeBalanceNotificationSettings.php';
 	require_once __DIR__ . '/../../lib/Service/HrRuleAssignments.php';
 	require_once __DIR__ . '/../../lib/Service/GroupRuleService.php';
 
@@ -49,23 +50,48 @@ namespace {
 	};
 
 	// Legacy rules remain disabled and keep their familiar numeric time thresholds.
-	$defaults = ['enabled' => false, 'graceDays' => 14, 'weekdays' => [1, 2, 3, 4, 5], 'startDate' => ''];
+	$defaults = ['enabled' => false, 'notifyEmployees' => false, 'notifyHr' => false, 'graceDays' => 14, 'weekdays' => [1, 2, 3, 4, 5], 'startDate' => ''];
 	$expectSame($defaults, MissingEntryReminderSettings::normalize(null), 'legacy defaults');
 	$expectSame($defaults, MissingEntryReminderSettings::validateForSave(null, '2026-10-29'), 'legacy save');
 	$activeSettings = ['enabled' => true, 'graceDays' => 7, 'weekdays' => [1, 3, 5], 'startDate' => '2026-10-01'];
-	$expectSame($activeSettings, MissingEntryReminderSettings::normalize($activeSettings), 'active settings survive loading');
-	$expectSame($activeSettings, MissingEntryReminderSettings::validateForSave($activeSettings, '2026-10-29'), 'active settings survive saving');
+	$expandedActiveSettings = ['enabled' => true, 'notifyEmployees' => true, 'notifyHr' => true, 'graceDays' => 7, 'weekdays' => [1, 3, 5], 'startDate' => '2026-10-01'];
+	$expectSame($expandedActiveSettings, MissingEntryReminderSettings::normalize($activeSettings), 'legacy active settings keep both recipients on loading');
+	$expectSame($expandedActiveSettings, MissingEntryReminderSettings::validateForSave($activeSettings, '2026-10-29'), 'legacy active settings keep both recipients on saving');
 	$expectSame('2026-10-29', MissingEntryReminderSettings::validateForSave(['enabled' => true], '2026-10-29')['startDate'], 'first enable uses today');
 	$expectSame('2026-10-01', MissingEntryReminderSettings::validateForSave(['enabled' => true], '2026-10-29', $activeSettings)['startDate'], 'omitted date preserves saved beginning');
 	$expectSame([1, 3, 7], MissingEntryReminderSettings::validateForSave(['weekdays' => [7, 1, 3, 1]], '2026-10-29')['weekdays'], 'weekday duplicates and order are normalized');
 	$expectSame('2024-02-29', MissingEntryReminderSettings::validateForSave(['startDate' => '2024-02-29'], '2026-10-29')['startDate'], 'leap date accepted');
 	$expectSame(false, MissingEntryReminderSettings::normalize(array_replace($activeSettings, ['startDate' => 'invalid']))['enabled'], 'corrupt stored start disables reminders');
 	$expectSame(false, MissingEntryReminderSettings::normalize(array_replace($activeSettings, ['graceDays' => null]))['enabled'], 'corrupt stored grace disables reminders');
+	foreach ([false, true] as $notifyEmployees) {
+		foreach ([false, true] as $notifyHr) {
+			$choices = ['notifyEmployees' => $notifyEmployees, 'notifyHr' => $notifyHr];
+			$expected = array_replace($expandedActiveSettings, $choices, ['enabled' => $notifyEmployees || $notifyHr]);
+			$submitted = array_replace($activeSettings, $choices);
+			$expectSame($expected, MissingEntryReminderSettings::normalize($submitted), 'each recipient combination loads independently');
+			$expectSame($expected, MissingEntryReminderSettings::validateForSave($submitted, '2026-10-29'), 'each recipient combination saves independently');
+		}
+	}
+	foreach (['notifyEmployees', 'notifyHr'] as $recipient) {
+		$single = MissingEntryReminderSettings::normalize(array_replace($activeSettings, [$recipient => true]));
+		$expectSame(true, $single[$recipient], 'an explicit recipient can be enabled alone');
+		$expectSame(false, $single[$recipient === 'notifyEmployees' ? 'notifyHr' : 'notifyEmployees'], 'missing split recipient never inherits the old enabled switch');
+		$expectSame('2026-10-29', MissingEntryReminderSettings::validateForSave([$recipient => true], '2026-10-29')['startDate'], 'either first recipient initializes the date');
+		$expectSame('2026-10-01', MissingEntryReminderSettings::validateForSave([$recipient => true], '2026-10-29', $activeSettings)['startDate'], 'switching recipients preserves the existing date');
+		$broken = MissingEntryReminderSettings::normalize(array_replace($activeSettings, ['notifyEmployees' => true, 'notifyHr' => true, $recipient => 'true']));
+		$expectSame([false, false, false], [$broken['enabled'], $broken['notifyEmployees'], $broken['notifyHr']], 'a malformed stored recipient fails closed');
+	}
 
 	$invalidSettings = [
 		'scalar policy' => 'enabled',
 		'non-boolean enabled' => ['enabled' => 'true'],
 		'null enabled' => ['enabled' => null],
+		'non-boolean employee recipient' => ['notifyEmployees' => 'true'],
+		'null employee recipient' => ['notifyEmployees' => null],
+		'non-boolean HR recipient' => ['notifyHr' => 1],
+		'null HR recipient' => ['notifyHr' => null],
+		'employee recipient with no weekdays' => ['notifyEmployees' => true, 'weekdays' => []],
+		'HR recipient with no start date' => ['notifyHr' => true, 'startDate' => ''],
 		'zero grace' => ['graceDays' => 0],
 		'grace above maximum' => ['graceDays' => 366],
 		'fractional grace' => ['graceDays' => 7.5],
@@ -131,6 +157,21 @@ namespace {
 	$expectSame(null, $rules->getMissingEntryReminderPolicy('employee'), 'user without groups has no policy');
 	$appConfig->rules = [['id' => 'legacy', 'userGroups' => ['alpha']]];
 	$expectSame($defaults, $rules->getReminderRules()[0]['missingEntryReminders'], 'legacy rules are returned with disabled defaults');
+	$balanceDefaults = \OCA\Timesheet\Service\EmployeeBalanceNotificationSettings::normalize(null);
+	$expectSame($balanceDefaults, $rules->getReminderRules()[0]['employeeBalanceNotifications'], 'legacy balance reminders default to off');
+	$groupManager->userGroups = ['alpha', 'beta'];
+	$enabledBalance = ['overtimeEnabled' => true, 'overtimeThresholdMinutes' => 300, 'negativeOvertimeEnabled' => false, 'negativeOvertimeThresholdMinutes' => 600];
+	$appConfig->rules = [
+		[...$firstRule, 'employeeBalanceNotifications' => $balanceDefaults],
+		[...$secondRule, 'employeeBalanceNotifications' => $enabledBalance],
+	];
+	$expectSame('first', $rules->getEmployeeBalanceNotificationPolicy('employee')['id'], 'balance policy uses the same first priority winner');
+	$expectSame(false, $rules->getEmployeeBalanceNotificationPolicy('employee')['employeeBalanceNotifications']['overtimeEnabled'], 'disabled winner never falls through to enabled balance rules');
+	$appConfig->rules[1]['priority'] = 1;
+	$expectSame('first', $rules->getEmployeeBalanceNotificationPolicy('employee')['id'], 'equal balance priority keeps stored order');
+	$appConfig->rules[1]['priority'] = 0;
+	$expectSame($enabledBalance, $rules->getEmployeeBalanceNotificationPolicy('employee')['employeeBalanceNotifications'], 'balance settings retain independent choices and minute thresholds');
+	$expectSame(null, $rules->getEmployeeBalanceNotificationPolicy('missing-user'), 'missing account has no balance policy');
 
 	fwrite(STDOUT, 'Group policy: ' . $checks . " checks passed.\n");
 }

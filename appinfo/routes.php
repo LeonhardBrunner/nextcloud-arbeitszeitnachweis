@@ -23,6 +23,7 @@ return [
 
 		// REST: User config
 		['name' => 'preferences#setBreakInputMode', 'url' => '/api/preferences/break-input-mode', 'verb' => 'PUT'],
+		['name' => 'preferences#setHistoryView', 'url' => '/api/preferences/change-history-view', 'verb' => 'PUT'],
 		['name' => 'employmentStatus#setFreelancerMode', 'url' => '/api/preferences/freelancer-mode', 'verb' => 'PUT'],
 		['name' => 'tour#complete', 'url' => '/api/preferences/tour/complete', 'verb' => 'POST'],
 		['name' => 'updateNotes#load', 'url' => '/api/update-notes', 'verb' => 'POST'],
@@ -41,8 +42,9 @@ return [
 		// REST: Holidays
 		['name' => 'holiday#getHolidays', 'url' => '/api/holidays', 'verb' => 'GET'],
 
-		// Shared HR settings; the read-only special-days flag also serves employee calculations.
+		// Administrator assignments and HR policies use separate protected write paths.
 		['name' => 'settings#saveHrAccessRules',    'url' => '/settings/hr_access_rules',   'verb' => 'POST'],
+		['name' => 'settings#saveHrPolicyRules',    'url' => '/settings/hr_policy_rules',   'verb' => 'POST'],
 		['name' => 'settings#saveSpecialDaysCheck', 'url' => '/settings/specialdays_check', 'verb' => 'POST'],
 		['name' => 'settings#loadSpecialDaysCheck', 'url' => '/settings/specialdays_check', 'verb' => 'GET'],
 	],

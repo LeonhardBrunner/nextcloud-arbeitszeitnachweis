@@ -45,6 +45,11 @@ class GroupRuleService {
 		return $this->findEffectiveRule($userId);
 	}
 
+	/** @return array<string, mixed>|null */
+	public function getEmployeeBalanceNotificationPolicy(string $userId): ?array {
+		return $this->findEffectiveRule($userId);
+	}
+
 	/** @return array<int, array<string, mixed>> */
 	public function getReminderRules(): array {
 		return $this->loadRules();
@@ -146,6 +151,7 @@ class GroupRuleService {
 				...$this->hrAssignments->normalize($rule),
 				'userGroups' => $userGroups,
 				'missingEntryReminders' => MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null),
+				'employeeBalanceNotifications' => EmployeeBalanceNotificationSettings::normalize($rule['employeeBalanceNotifications'] ?? null),
 			], $this->sanitizeRuleThresholds($rule));
 		}
 

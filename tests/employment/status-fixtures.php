@@ -180,8 +180,18 @@ namespace OCA\Timesheet\Db {
 	class UserConfigMapper {
 	}
 	class UserPreferencesStore {
+		public array $historyPreferences = [];
+		public array $historyReads = [];
+		public bool $rejectHistoryReads = false;
 		public function getBreakInputPreference(string $userId): array {
 			return ['breakInputMode' => 'minutes', 'revision' => hash('sha256', '')];
+		}
+		public function getHistoryViewPreference(string $userId): array {
+			$this->historyReads[] = $userId;
+			if ($this->rejectHistoryReads) {
+				throw new \RuntimeException('Synthetic history preference read failure.');
+			}
+			return $this->historyPreferences[$userId] ?? ['historyView' => 'cards', 'revision' => hash('sha256', '')];
 		}
 	}
 	class TourProgressStore {

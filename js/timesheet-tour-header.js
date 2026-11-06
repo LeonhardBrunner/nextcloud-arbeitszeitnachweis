@@ -163,8 +163,15 @@
 			[questions, 'Frage zum Arbeitszeitnachweis'],
 			[suggestions, 'Feedback für Arbeitszeitnachweis'],
 		];
+		const emailBody = [
+			'Hallo liebes Arbeitszeitnachweis-Team,',
+			'',
+			'',
+			'Mit freundlichen Grüßen',
+			'Dein Name',
+		].join('\r\n');
 		for (const [link, subject] of emailChoices) {
-			link.setAttribute('href', `mailto:karriere@xiller.com?subject=${encodeURIComponent(subject)}`);
+			link.setAttribute('href', `mailto:karriere@xiller.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`);
 			link.addEventListener('click', () => {
 				closeMenu(true);
 				showEmailHelp();

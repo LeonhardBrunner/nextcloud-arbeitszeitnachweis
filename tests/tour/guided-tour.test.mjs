@@ -293,7 +293,7 @@ test('the help button opens three menu choices without starting the tour', () =>
 	assert.equal(fixture.requests.length, 0);
 });
 
-test('question and improvement choices are real email links with only the agreed recipient and subjects', () => {
+test('question and improvement choices open the agreed email drafts with a greeting and signature', () => {
 	const fixture = createFixture();
 	const launcher = fixture.document.getElementById('ts-tour-launcher');
 	for (const [itemId, subject] of [
@@ -306,7 +306,10 @@ test('question and improvement choices are real email links with only the agreed
 		const email = new URL(link.getAttribute('href'));
 		assert.equal(email.protocol, 'mailto:');
 		assert.equal(email.pathname, 'karriere@xiller.com');
-		assert.deepEqual([...email.searchParams], [['subject', subject]]);
+		assert.deepEqual([...email.searchParams], [
+			['subject', subject],
+			['body', 'Hallo liebes Arbeitszeitnachweis-Team,\r\n\r\n\r\nMit freundlichen Grüßen\r\nDein Name'],
+		]);
 		link.click();
 		assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, true);
 		assert.equal(fixture.document.activeElement, launcher);
@@ -629,7 +632,7 @@ test('freelancer mode highlights the complete switch without changing either sav
 		await advanceToStep(fixture, 'freelancer-mode');
 		assert.equal(fixture.tour.getState().index, 5, 'Freelancer mode immediately follows the fifth warning step');
 		assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Freelancer mode');
-		assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'For irregular working days, freelancer mode pauses reminders about missing or incomplete times for the employee and HR. Other warnings remain active.');
+		assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Freelancer mode disables warning emails about missing or incomplete entries, overtime and negative balances for the employee and HR.');
 		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, 'Step 6 of 9');
 		const holes = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
 		assert.equal(holes.length, 1, 'The label and both switch states share one highlight');

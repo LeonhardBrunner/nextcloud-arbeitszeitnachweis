@@ -21,7 +21,6 @@ require '/var/www/html/lib/base.php';
 use OCA\Timesheet\AppInfo\Application;
 use OCA\Timesheet\Db\UpdateNotesStore;
 use OCA\Timesheet\Service\UpdateNotesService;
-use OCP\Notification\AlreadyProcessedException;
 
 $config = \OCP\Server::get(\OCP\IConfig::class);
 $database = \OCP\Server::get(\OCP\IDBConnection::class);
@@ -138,26 +137,30 @@ verifyUpdate($handler->deleteByUser('update-hr'),true,'The actual native clear-a
 verifyUpdate($store->read('update-hr')['dismissedVersion'],'1.3.0','Native clear-all persists dismissal');
 verifyUpdate(count($notesFor('update-other')),1,'Clearing one account leaves other accounts intact');
 
-foreach (['admin','hr-admin','disabled'] as $suffix) {
+foreach (['admin','hr-admin'] as $suffix) {
 	$session->setUser($accounts[$suffix]);
 	$controller=$container->get(\OCA\Timesheet\Controller\UpdateNotesController::class);
-	verifyUpdate($controller->load()->getStatus(),403,'Excluded account cannot load notes: '.$suffix);
-	verifyUpdate($controller->shown('1.3.0')->getStatus(),403,'Excluded account cannot mark notes: '.$suffix);
-	verifyUpdate(count($notesFor($accounts[$suffix]->getUID())),0,'Excluded account has no native note: '.$suffix);
+	verifyUpdate($controller->load()->getStatus(),200,'Administrator can load notes: '.$suffix);
+	verifyUpdate(count($notesFor($accounts[$suffix]->getUID())),1,'Administrator receives a native note: '.$suffix);
+	verifyUpdate($controller->shown('1.3.0')->getStatus(),200,'Administrator can mark notes as shown: '.$suffix);
+	verifyUpdate($controller->load()->getData()['shouldShow'],false,'Administrator acknowledgement prevents repeat popups: '.$suffix);
+	verifyUpdate($controller->load('manual')->getData()['shouldShow'],true,'Administrator can reopen the current release: '.$suffix);
+	verifyUpdate(count($notesFor($accounts[$suffix]->getUID())),1,'Popup acknowledgement leaves the administrator bell note available: '.$suffix);
 }
+$session->setUser($accounts['disabled']);
+$controller=$container->get(\OCA\Timesheet\Controller\UpdateNotesController::class);
+verifyUpdate($controller->load()->getStatus(),403,'Disabled account cannot load notes');
+verifyUpdate($controller->shown('1.3.0')->getStatus(),403,'Disabled account cannot mark notes');
+verifyUpdate(count($notesFor($accounts['disabled']->getUID())),0,'Disabled account has no native note');
 
 $service->open('update-promoted','automatic',$de);
 $promoted=$notesFor('update-promoted')[0];
 $adminGroup->addUser($accounts['promoted']);
-$hidden=false;
-try {
-	$manager->prepare($handler->getById((int)$promoted['notification_id'],'update-promoted'),'de');
-} catch (AlreadyProcessedException) {
-	$hidden=true;
-}
-verifyUpdate($hidden,true,'A newly promoted administrator no longer sees the native note');
-verifyUpdate(count($notesFor('update-promoted')),0,'Native preparation removes the excluded administrator note');
-verifyUpdate($store->read('update-promoted')['dismissedVersion'],null,'Role cleanup does not acknowledge unread changes');
+$preparedPromoted=$manager->prepare($handler->getById((int)$promoted['notification_id'],'update-promoted'),'de');
+verifyUpdate($preparedPromoted->getParsedSubject() !== '',true,'A newly promoted administrator retains the native note');
+verifyUpdate(count($notesFor('update-promoted')),1,'Native preparation preserves the administrator note');
+verifyUpdate($store->read('update-promoted')['dismissedVersion'],null,'Role promotion does not acknowledge unread changes');
+verifyUpdate($service->open('update-promoted','automatic',$de)['shouldShow'],true,'Role promotion preserves unread popup access');
 $adminGroup->removeUser($accounts['promoted']);
 
 $installedVersion=$appConfig->getAppValueString('installed_version');

@@ -266,7 +266,7 @@ namespace {
 		$apps->blocked[] = 'blocked';
 		$appConfig = new NotesAppConfig(); $manager = new NotesManager($locks); $translator = new NotesTranslator(); $logger = new NotesLogger();
 		$catalog = new UpdateNotesCatalog(__DIR__ . '/fixtures/release-notes.json');
-		$store = new UpdateNotesStore($config, $locks); $eligibility = new UpdateNotesEligibility($users, $groups, $apps);
+		$store = new UpdateNotesStore($config, $locks); $eligibility = new UpdateNotesEligibility($users, $apps);
 		$service = new UpdateNotesService($catalog, $store, $eligibility, $appConfig, $manager, new NotesUrl(), new NotesClock(), $logger);
 		$notifier = new UpdateNotesNotifier($service, new NotesTranslationFactory(), $logger); $manager->notifier = $notifier;
 		$controller = new UpdateNotesController('timesheet', new NotesRequest(), $users, $service, $translator, $logger);
@@ -340,10 +340,14 @@ namespace {
 		$listener->handle(new \OCP\User\Events\UserCreatedEvent(new NotesUser('fresh')));
 		sameNotes([], $f['config']->markerWrites); sameNotes(1, count($f['logger']->warnings)); sameNotes(0, $f['manager']->sends);
 	});
-	checkNotes('A newly created administrator still receives no update notice', function (): void {
+	checkNotes('A newly created administrator receives only the currently installed release', function (): void {
 		$f = notesFixture(); $listener = new UpdateNotesUserCreatedListener($f['store'], $f['logger']);
 		$listener->handle(new \OCP\User\Events\UserCreatedEvent($f['users']->get('admin'))); $f['users']->current = 'admin';
-		sameNotes(403, $f['controller']->load()->getStatus()); sameNotes([], $f['config']->values); sameNotes(0, $f['manager']->sends);
+		$f['appConfig']->version = '1.5.0';
+		$result = $f['controller']->load();
+		sameNotes(200, $result->getStatus()); sameNotes(['1.5.0'], versionsNotes($result->getData()));
+		sameNotes('1.5.0', $f['store']->read('admin')['floorVersion']); sameNotes(1, $f['manager']->sends);
+		sameNotes(['admin/1.5.0'], array_keys($f['manager']->records));
 	});
 	checkNotes('Skipped releases accumulate but technical replacement never acknowledges them', function (): void {
 		$f = notesFixture(); $f['controller']->load(); $f['appConfig']->version = '1.5.0';
@@ -385,7 +389,7 @@ namespace {
 		$f = notesFixture(); $f['controller']->load(); $f['controller']->shown('1.3.0'); $f['users']->current = 'other';
 		sameNotes(true, $f['controller']->load()->getData()['shouldShow']); sameNotes(2, count($f['manager']->records));
 	});
-	foreach ([null, 'admin', 'hr-admin', 'disabled', 'blocked', 'unknown'] as $actor) checkNotes('Ineligible account has no update access or preference side effects: ' . ($actor ?? 'anonymous'), function () use ($actor): void {
+	foreach ([null, 'disabled', 'blocked', 'unknown'] as $actor) checkNotes('Ineligible account has no update access or preference side effects: ' . ($actor ?? 'anonymous'), function () use ($actor): void {
 		$f = notesFixture(); $f['users']->current = $actor;
 		sameNotes(403, $f['controller']->load()->getStatus()); sameNotes(403, $f['controller']->shown('1.3.0')->getStatus());
 		sameNotes([], $f['config']->writes); sameNotes(0, $f['manager']->sends);
@@ -393,10 +397,40 @@ namespace {
 	checkNotes('HR without administrator rights receives the same update capability', function (): void {
 		$f = notesFixture(); $f['users']->current = 'hr'; sameNotes(200, $f['controller']->load()->getStatus());
 	});
-	checkNotes('Role promotion hides an existing native notification without marking it read', function (): void {
+	foreach (['admin', 'hr-admin'] as $actor) checkNotes('Administrator update progress and native dismissal work independently: ' . $actor, function () use ($actor): void {
+		$f = notesFixture(); $f['users']->current = $actor;
+		$result = $f['controller']->load(); sameNotes(200, $result->getStatus()); sameNotes(true, $result->getData()['shouldShow']);
+		sameNotes(['1.3.0'], versionsNotes($result->getData())); sameNotes([$actor . '/1.3.0'], array_keys($f['manager']->records));
+		$f['controller']->load(); sameNotes(1, $f['manager']->sends);
+		sameNotes(200, $f['controller']->shown('1.3.0')->getStatus()); sameNotes(false, $f['controller']->load()->getData()['shouldShow']);
+		sameNotes(['1.3.0'], versionsNotes($f['controller']->load('manual')->getData())); sameNotes(1, count($f['manager']->records));
+		$note = $f['notifier']->prepare(clone $f['manager']->records[$actor . '/1.3.0'], 'de');
+		sameNotes('de:Timesheet updated to 1.3.0', $note->parsedSubject);
+		$f['manager']->clearAll($actor); sameNotes([], $f['manager']->records);
+		sameNotes('1.3.0', $f['store']->read($actor)['dismissedVersion']);
+		$f['appConfig']->version = '1.4.0'; sameNotes(['1.4.0'], versionsNotes($f['controller']->load()->getData()));
+		sameNotes([$actor . '/1.4.0'], array_keys($f['manager']->records));
+		sameNotes(null, $f['store']->read('employee'));
+	});
+	checkNotes('An existing administrator without prior progress receives missed catalog releases', function (): void {
+		$f = notesFixture(); $f['users']->current = 'admin'; $f['appConfig']->version = '1.5.0';
+		sameNotes(['1.3.0', '1.4.0', '1.5.0'], versionsNotes($f['controller']->load()->getData()));
+		sameNotes('1.3.0', $f['store']->read('admin')['floorVersion']); sameNotes([], $f['config']->markerWrites);
+	});
+	foreach (['admin', 'hr-admin'] as $actor) foreach (['disabled', 'blocked'] as $restriction) checkNotes('Administrator privileges do not bypass ' . $restriction . ' accounts: ' . $actor, function () use ($actor, $restriction): void {
+		$f = notesFixture(); $f['users']->current = $actor;
+		if ($restriction === 'disabled') $f['users']->records[$actor]->enabled = false;
+		else $f['apps']->blocked[] = $actor;
+		sameNotes(403, $f['controller']->load()->getStatus()); sameNotes(403, $f['controller']->shown('1.3.0')->getStatus());
+		sameNotes([], $f['config']->writes); sameNotes(0, $f['manager']->sends);
+	});
+	checkNotes('Administrator promotion preserves an existing native notification and update progress', function (): void {
 		$f = notesFixture(); $f['controller']->load(); $note = clone $f['manager']->records['employee/1.3.0']; $state = $f['config']->values;
-		$f['groups']->admins[] = 'employee'; throwsNotes(\OCP\Notification\AlreadyProcessedException::class, fn() => $f['notifier']->prepare($note, 'de'));
-		$f['notifier']->dismissNotification($note); sameNotes($state, $f['config']->values); sameNotes(403, $f['controller']->load()->getStatus());
+		$f['groups']->admins[] = 'employee'; $prepared = $f['notifier']->prepare($note, 'de');
+		sameNotes('de:Timesheet updated to 1.3.0', $prepared->parsedSubject); sameNotes($state, $f['config']->values);
+		sameNotes(['employee/1.3.0'], array_keys($f['manager']->records)); sameNotes(200, $f['controller']->load()->getStatus());
+		sameNotes(null, $f['store']->read('employee')['dismissedVersion']);
+		$f['manager']->userDismiss('employee', '1.3.0'); sameNotes('1.3.0', $f['store']->read('employee')['dismissedVersion']);
 	});
 	checkNotes('The native bell stays concise while the linked popup keeps all pending releases', function (): void {
 		$f = notesFixture(); $f['controller']->load(); $f['appConfig']->version = '1.4.0'; $f['controller']->load();

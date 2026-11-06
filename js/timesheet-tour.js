@@ -226,7 +226,7 @@
 			},
 			{
 				id: 'freelancer-mode', title: 'Freelancer mode',
-				text: 'For irregular working days, freelancer mode pauses reminders about missing or incomplete times for the employee and HR. Other warnings remain active.',
+				text: 'Freelancer mode disables warning emails about missing or incomplete entries, overtime and negative balances for the employee and HR.',
 				selectors: ['#tab-mine .ts-employment-toggle'],
 				onlyWhenAvailable: true,
 			},

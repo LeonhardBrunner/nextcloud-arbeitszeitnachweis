@@ -8,15 +8,17 @@ import vm from 'node:vm';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const hrSettingsSource = readFileSync(resolve(repositoryRoot, 'js/hr-settings.js'), 'utf8');
 const copy = value => JSON.parse(JSON.stringify(value));
+const rulesRevision = value => String(value).padStart(64, '0');
 
 // Exercise the actual HR settings event handlers with a small DOM containing the rendered inputs.
-async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], userGroups: ['Staff'], priority: 2 }], respondToSave = null, language = 'en', peopleOptions = {}) {
+async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], userGroups: ['Staff'], priority: 2 }], respondToSave = null, language = 'en', peopleOptions = {}, scope = 'policy', includeHelp = false) {
 	const elements = new Map();
 	const events = new Map();
 	const requests = [];
 	const messages = [];
 	const translations = {};
 	const searchRequests = [];
+	const otherRequests = [];
 	const timers = new Map();
 	let timerId = 0;
 	let generatedElementId = 0;
@@ -41,6 +43,8 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 				const key = `${id}:${name}`;
 				events.set(key, [...(events.get(key) || []), callback]);
 			},
+			setAttribute(name, value) { this.attributes[name] = String(value); },
+			getAttribute(name) { return this.attributes[name] ?? null; },
 			appendChild(child) { this.children.push(child); child.parentElement = this; },
 			replaceChildren(...children) { this.children = []; children.forEach(child => this.appendChild(child)); },
 			set textContent(value) { this._text = String(value); this.children = []; },
@@ -85,7 +89,12 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 		return current;
 	}
 
-	for (const id of ['timesheet-hr-settings', 'timesheet-hr-rules', 'timesheet-add-hr-rule', 'timesheet-specialdays-overtime']) element(id);
+	for (const id of ['timesheet-hr-settings', 'timesheet-hr-rules', scope === 'assignments' ? 'timesheet-add-hr-rule' : 'timesheet-specialdays-overtime']) element(id);
+	elements.get('timesheet-hr-settings').dataset = { settingsScope: scope, rulesRevision: rulesRevision(0) };
+	if (includeHelp) {
+		element('timesheet-rules-help-toggle', 'button', { 'aria-expanded': 'false', 'aria-controls': 'timesheet-rules-help' });
+		element('timesheet-rules-help', 'div', { hidden: '' });
+	}
 	element('timesheet-all-groups-data').textContent = JSON.stringify(['HR', 'Staff']);
 	element('timesheet-hr-rules-data').textContent = JSON.stringify(initialRules);
 	element('timesheet-hr-people-data').textContent = JSON.stringify(peopleOptions.labels || []);
@@ -120,6 +129,7 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 				const request = {
 					url, headers: options.headers, signal: options.signal,
 					search: parameters.get('search'), purpose: parameters.get('purpose'),
+					ruleId: parameters.get('ruleId'),
 					hrGroups: parameters.getAll('hrGroups[]'), hrUsers: parameters.getAll('hrUsers[]'),
 				};
 				searchRequests.push(request);
@@ -129,10 +139,13 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 				return { ok: true, json: async () => ({ users, hasMore: false }) };
 			}
 			const rules = options.body?.get('rules');
-			if (!rules) return { ok: true, status: 200, json: async () => ({ check: false }) };
-			const request = { url, headers: options.headers, rules: JSON.parse(rules) };
+			if (!rules) {
+				otherRequests.push({ url, method: options.method });
+				return { ok: true, status: 200, json: async () => ({ check: false }) };
+			}
+			const request = { url, headers: options.headers, rules: JSON.parse(rules), rulesRevision: options.body.get('rulesRevision'), nextRevision: rulesRevision(requests.length + 1) };
 			requests.push(request);
-			return respondToSave ? respondToSave(request, requests.length) : { ok: true, status: 200, json: async () => ({ rules: request.rules }) };
+			return respondToSave ? respondToSave(request, requests.length) : saveResponse(request);
 		},
 	});
 	context.window = context;
@@ -143,7 +156,7 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 	await new Promise(setImmediate);
 
 	return {
-		requests, messages, searchRequests,
+		requests, messages, searchRequests, otherRequests, elements,
 		card: () => elements.get('timesheet-hr-rules').children[0],
 		picker(purpose) {
 			const wrapper = this.card().querySelector(`[data-person-picker="${purpose}"]`);
@@ -179,9 +192,11 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 			await this.change(select);
 		},
 		async click(target) {
-			await Promise.all((events.get('timesheet-hr-rules:click') || []).map(callback => callback({ target, preventDefault() {} })));
+			const callbacks = events.get(`${target.id}:click`) || events.get('timesheet-hr-rules:click') || [];
+			await Promise.all(callbacks.map(callback => callback({ target, preventDefault() {} })));
 		},
 		input: key => elements.get('timesheet-hr-rules').children[0].querySelector(`[data-reminder-key="${key}"]`),
+		balanceInput: key => elements.get('timesheet-hr-rules').children[0].querySelector(`[data-balance-key="${key}"]`),
 		weekday: day => elements.get('timesheet-hr-rules').children[0].controls.find(control => control.dataset.reminderDay === String(day)),
 		async change(input) {
 			for (const callback of events.get('timesheet-hr-rules:input') || []) callback({ target: input });
@@ -206,16 +221,22 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 }
 
 function saveResponse(request) {
-	return { ok: true, status: 200, json: async () => ({ rules: request.rules }) };
+	return { ok: true, status: 200, json: async () => ({ rules: request.rules, rulesRevision: request.nextRevision }) };
+}
+
+function openAdminSettings(initialRules, respondToSave, language, peopleOptions) {
+	return openHrSettings(initialRules, respondToSave, language, peopleOptions, 'assignments');
 }
 
 for (const language of ['de', 'de_DE']) {
-	test(`German HR settings cards translate group rules, priorities and reminder controls (${language})`, async () => {
+	test(`German settings keep translated labels in their respective role (${language})`, async () => {
 		const hrSettings = await openHrSettings(undefined, null, language);
 		const cardHtml = hrSettings.card().innerHTML;
-		for (const label of ['Gruppenregel', 'Priorität', 'Zeitregeln', 'Erinnerungen an fehlende Zeiten']) {
+		for (const label of ['Gruppenregel', 'Zeitregeln', 'Erinnerungen an fehlende Zeiten']) {
 			assert.ok(cardHtml.includes(label), `Missing German HR settings label: ${label}`);
 		}
+		const admin = await openAdminSettings(undefined, null, language);
+		for (const label of ['Gruppenregel', 'Priorität', 'HR-Gruppen', 'Einzelne HR-Konten']) assert.ok(admin.card().innerHTML.includes(label));
 		assert.ok(!cardHtml.includes('Group rule'));
 		assert.ok(!cardHtml.includes('Missing time entry reminders'));
 	});
@@ -230,7 +251,7 @@ test('both German server catalogs include the same interface and email translati
 });
 
 test('group and rule removal controls use a readable multiplication sign and translated labels', async () => {
-	const hrSettings = await openHrSettings(undefined, null, 'de');
+	const hrSettings = await openAdminSettings(undefined, null, 'de');
 	const controls = Array.from(hrSettings.card().innerHTML.matchAll(/<a\b[^>]*class="ts-(?:chip-remove|rule-delete)"[^>]*>([^<]*)<\/a>/g));
 	assert.equal(controls.length, 3);
 	for (const [html, label] of controls) {
@@ -243,13 +264,20 @@ test('group and rule removal controls use a readable multiplication sign and tra
 test('English HR settings cards retain their original labels', async () => {
 	const hrSettings = await openHrSettings();
 	assert.ok(hrSettings.card().innerHTML.includes('Group rule'));
-	assert.ok(hrSettings.card().innerHTML.includes('Priority'));
+	assert.ok(!hrSettings.card().innerHTML.includes('Priority'));
 	assert.ok(hrSettings.card().innerHTML.includes('Missing time entry reminders'));
+	const admin = await openAdminSettings();
+	assert.ok(admin.card().innerHTML.includes('Priority'));
+	assert.ok(!admin.card().innerHTML.includes('Missing time entry reminders'));
 });
 
 test('legacy rules render disabled reminders with Monday to Friday defaults', async () => {
 	const hrSettings = await openHrSettings();
-	assert.equal(hrSettings.input('enabled').checked, false);
+	assert.equal(hrSettings.input('notifyEmployees').checked, false);
+	assert.equal(hrSettings.input('notifyHr').checked, false);
+	assert.equal(hrSettings.input('enabled'), null, 'The combined reminder switch is no longer rendered');
+	assert.ok(hrSettings.card().textContent.includes('Send reminders to employees'));
+	assert.ok(hrSettings.card().textContent.includes('Send reminders to responsible HR'));
 	assert.equal(hrSettings.input('graceDays').value, '14');
 	assert.equal(hrSettings.input('startDate').value, '');
 	assert.deepEqual([1, 2, 3, 4, 5, 6, 7].filter(day => hrSettings.weekday(day).checked), [1, 2, 3, 4, 5]);
@@ -258,16 +286,108 @@ test('legacy rules render disabled reminders with Monday to Friday defaults', as
 
 test('first enable uses the Berlin calendar date and saves the complete policy', async () => {
 	const hrSettings = await openHrSettings();
-	hrSettings.input('enabled').checked = true;
-	await hrSettings.change(hrSettings.input('enabled'));
+	hrSettings.input('notifyEmployees').checked = true;
+	await hrSettings.change(hrSettings.input('notifyEmployees'));
 	assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders, {
-		enabled: true, graceDays: 14, weekdays: [1, 2, 3, 4, 5], startDate: '2026-10-29',
+		enabled: true, notifyEmployees: true, notifyHr: false, graceDays: 14, weekdays: [1, 2, 3, 4, 5], startDate: '2026-10-29',
 	});
 	assert.equal(hrSettings.requests[0].rules[0].priority, 2);
 	assert.deepEqual(hrSettings.requests[0].rules[0].userGroups, ['Staff']);
 	assert.equal(hrSettings.requests[0].headers.requesttoken, 'test-token');
-	assert.equal(hrSettings.input('enabled').checked, true);
+	assert.equal(hrSettings.input('notifyEmployees').checked, true);
+	assert.equal(hrSettings.input('notifyHr').checked, false);
 	assert.equal(hrSettings.input('startDate').value, '2026-10-29');
+});
+
+test('the first HR-only reminder also initializes the shared Berlin start date', async () => {
+	const hrSettings = await openHrSettings();
+	hrSettings.input('notifyHr').checked = true;
+	await hrSettings.change(hrSettings.input('notifyHr'));
+	assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders, {
+		enabled: true, notifyEmployees: false, notifyHr: true,
+		graceDays: 14, weekdays: [1, 2, 3, 4, 5], startDate: '2026-10-29',
+	});
+	assert.equal(hrSettings.input('notifyEmployees').checked, false);
+	assert.equal(hrSettings.input('notifyHr').checked, true);
+});
+
+for (const enabled of [false, true]) {
+	test(`legacy combined selection ${enabled} restores both recipients without saving`, async () => {
+		const hrSettings = await openHrSettings([{
+			id: 'legacy-rule', hrGroups: ['HR'], userGroups: ['Staff'],
+			missingEntryReminders: { enabled, graceDays: 5, weekdays: [2, 5], startDate: '2026-09-01' },
+		}]);
+		assert.equal(hrSettings.input('notifyEmployees').checked, enabled);
+		assert.equal(hrSettings.input('notifyHr').checked, enabled);
+		assert.equal(hrSettings.requests.length, 0);
+		hrSettings.input('graceDays').value = '6';
+		await hrSettings.change(hrSettings.input('graceDays'));
+		assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders, {
+			enabled, notifyEmployees: enabled, notifyHr: enabled,
+			graceDays: 6, weekdays: [2, 5], startDate: '2026-09-01',
+		});
+	});
+}
+
+for (const [notifyEmployees, notifyHr] of [[false, false], [false, true], [true, false], [true, true]]) {
+	test(`recipient choices stay independent and survive reopening: employees=${notifyEmployees}, HR=${notifyHr}`, async () => {
+		const hrSettings = await openHrSettings([{
+			id: 'split-rule', hrGroups: ['HR'], userGroups: ['Staff'],
+			missingEntryReminders: { enabled: !(notifyEmployees || notifyHr), notifyEmployees, notifyHr,
+				graceDays: 5, weekdays: [1, 3], startDate: '2026-09-01' },
+		}]);
+		assert.equal(hrSettings.input('notifyEmployees').checked, notifyEmployees);
+		assert.equal(hrSettings.input('notifyHr').checked, notifyHr);
+		hrSettings.input('notifyEmployees').checked = !notifyEmployees;
+		await hrSettings.change(hrSettings.input('notifyEmployees'));
+		const employeeSave = hrSettings.requests[0].rules[0].missingEntryReminders;
+		assert.equal(employeeSave.notifyEmployees, !notifyEmployees);
+		assert.equal(employeeSave.notifyHr, notifyHr, 'An employee toggle leaves the HR choice unchanged');
+		assert.equal(employeeSave.enabled, !notifyEmployees || notifyHr);
+		assert.equal(employeeSave.startDate, '2026-09-01');
+		const reopened = await openHrSettings(hrSettings.requests[0].rules);
+		assert.equal(reopened.input('notifyEmployees').checked, !notifyEmployees);
+		assert.equal(reopened.input('notifyHr').checked, notifyHr);
+		assert.equal(reopened.requests.length, 0);
+		reopened.input('notifyHr').checked = !notifyHr;
+		await reopened.change(reopened.input('notifyHr'));
+		const hrSave = reopened.requests[0].rules[0].missingEntryReminders;
+		assert.equal(hrSave.notifyEmployees, !notifyEmployees, 'An HR toggle leaves the employee choice unchanged');
+		assert.equal(hrSave.notifyHr, !notifyHr);
+		assert.equal(hrSave.enabled, !notifyEmployees || !notifyHr);
+		assert.equal(hrSave.startDate, '2026-09-01');
+		const admin = await openAdminSettings(reopened.requests[0].rules);
+		await admin.addHrGroup('Other');
+		assert.deepEqual(admin.requests[0].rules[0].missingEntryReminders, hrSave,
+			'Editing assignments never resets the two recipient choices');
+	});
+}
+
+test('an explicit recipient selection never falls back to a true legacy combined flag', async () => {
+	for (const selection of [{ notifyEmployees: false }, { notifyHr: false }, { notifyEmployees: 'true', notifyHr: null },
+		{ notifyEmployees: true, notifyHr: 'true' }, { notifyEmployees: 'true', notifyHr: true }]) {
+		const hrSettings = await openHrSettings([{
+			id: 'split-rule', hrGroups: ['HR'], userGroups: ['Staff'],
+			missingEntryReminders: { enabled: true, ...selection, graceDays: 5, weekdays: [1], startDate: '2026-09-01' },
+		}]);
+		assert.equal(hrSettings.input('notifyEmployees').checked, false);
+		assert.equal(hrSettings.input('notifyHr').checked, false);
+		assert.equal(hrSettings.requests.length, 0);
+	}
+});
+
+test('changing the other recipient does not replace a cleared active-policy start date', async () => {
+	const hrSettings = await openHrSettings([{
+		id: 'split-rule', hrGroups: ['HR'], userGroups: ['Staff'],
+		missingEntryReminders: { enabled: true, notifyEmployees: true, notifyHr: false,
+			graceDays: 5, weekdays: [1], startDate: '2026-09-01' },
+	}]);
+	hrSettings.input('startDate').value = '';
+	hrSettings.input('notifyHr').checked = true;
+	await hrSettings.change(hrSettings.input('notifyHr'));
+	assert.equal(hrSettings.requests.length, 0);
+	assert.equal(hrSettings.input('startDate').value, '');
+	assert.deepEqual(hrSettings.messages, ['Select a valid start date for reminders.']);
 });
 
 test('editing disabled reminder settings never enables the feature', async () => {
@@ -275,7 +395,7 @@ test('editing disabled reminder settings never enables the feature', async () =>
 	hrSettings.input('graceDays').value = '8';
 	await hrSettings.change(hrSettings.input('graceDays'));
 	assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders, {
-		enabled: false, graceDays: 8, weekdays: [1, 2, 3, 4, 5], startDate: '',
+		enabled: false, notifyEmployees: false, notifyHr: false, graceDays: 8, weekdays: [1, 2, 3, 4, 5], startDate: '',
 	});
 });
 
@@ -287,7 +407,7 @@ test('saved weekday and start settings survive edits and server round trips', as
 	hrSettings.input('graceDays').value = '9';
 	await hrSettings.change(hrSettings.input('graceDays'));
 	assert.deepEqual(hrSettings.requests[0].rules[0].missingEntryReminders, {
-		enabled: true, graceDays: 9, weekdays: [2, 6], startDate: '2026-09-01',
+		enabled: true, notifyEmployees: true, notifyHr: true, graceDays: 9, weekdays: [2, 6], startDate: '2026-09-01',
 	});
 	assert.equal(hrSettings.weekday(6).checked, true);
 	assert.equal(hrSettings.weekday(1).checked, false);
@@ -344,8 +464,8 @@ test('rapid edits are saved in order and an old response does not overwrite the 
 		if (count === 1) await new Promise(resolve => { releaseFirstSave = resolve; });
 		return saveResponse(request);
 	});
-	hrSettings.input('enabled').checked = true;
-	const firstSave = hrSettings.change(hrSettings.input('enabled'));
+	hrSettings.input('notifyEmployees').checked = true;
+	const firstSave = hrSettings.change(hrSettings.input('notifyEmployees'));
 	await new Promise(setImmediate);
 	hrSettings.input('graceDays').value = '3';
 	const secondSave = hrSettings.change(hrSettings.input('graceDays'));
@@ -353,8 +473,9 @@ test('rapid edits are saved in order and an old response does not overwrite the 
 	releaseFirstSave();
 	await Promise.all([firstSave, secondSave]);
 	assert.deepEqual(hrSettings.requests.map(request => request.rules[0].missingEntryReminders.graceDays), [14, 3]);
+	assert.deepEqual(hrSettings.requests.map(request => request.rulesRevision), [rulesRevision(0), rulesRevision(1)]);
 	assert.equal(hrSettings.input('graceDays').value, '3');
-	assert.equal(hrSettings.input('enabled').checked, true);
+	assert.equal(hrSettings.input('notifyEmployees').checked, true);
 });
 
 test('typing during a pending save is preserved until the next change is submitted', async () => {
@@ -363,8 +484,8 @@ test('typing during a pending save is preserved until the next change is submitt
 		if (count === 1) await new Promise(resolve => { releaseFirstSave = resolve; });
 		return saveResponse(request);
 	});
-	hrSettings.input('enabled').checked = true;
-	const firstSave = hrSettings.change(hrSettings.input('enabled'));
+	hrSettings.input('notifyEmployees').checked = true;
+	const firstSave = hrSettings.change(hrSettings.input('notifyEmployees'));
 	await new Promise(setImmediate);
 	const currentCard = hrSettings.card();
 	hrSettings.input('graceDays').value = '5';
@@ -381,18 +502,19 @@ test('a failed save reports an error and does not prevent a later retry', async 
 	const hrSettings = await openHrSettings(undefined, async (request, count) => count === 1
 		? { ok: false, status: 500, text: async () => 'Preparation failed' }
 		: saveResponse(request));
-	hrSettings.input('enabled').checked = true;
-	await hrSettings.change(hrSettings.input('enabled'));
+	hrSettings.input('notifyEmployees').checked = true;
+	await hrSettings.change(hrSettings.input('notifyEmployees'));
 	assert.deepEqual(hrSettings.messages, ['Saving failed']);
 	hrSettings.input('graceDays').value = '4';
 	await hrSettings.change(hrSettings.input('graceDays'));
 	assert.equal(hrSettings.requests.length, 2);
 	assert.equal(hrSettings.requests[1].rules[0].missingEntryReminders.graceDays, 4);
+	assert.deepEqual(hrSettings.requests.map(request => request.rulesRevision), [rulesRevision(0), rulesRevision(0)]);
 });
 
 test('the last HR group rejection is explained and does not block a queued reassignment', async () => {
 	let releaseFirstSave;
-	const hrSettings = await openHrSettings(undefined, async (request, count) => {
+	const hrSettings = await openAdminSettings(undefined, async (request, count) => {
 		if (count === 1) {
 			await new Promise(resolve => { releaseFirstSave = resolve; });
 			return { ok: false, status: 400, text: async () => JSON.stringify({ message: 'At least one HR group must remain assigned.' }) };
@@ -432,7 +554,7 @@ test('legacy rules do not save on load and retain their group recipients on the 
 test('person-only responsibility and selected recipients survive unrelated edits and reopening', async () => {
 	const rule = assignmentRule({ hrGroups: [], hrUsers: ['anton'], mailRecipients: { mode: 'selected', userIds: ['anton'] } });
 	const hrSettings = await openHrSettings([rule], null, 'en', { labels: accounts });
-	assert.ok(hrSettings.picker('responsible').wrapper.textContent.includes('Anton Example (anton)'));
+	assert.equal(hrSettings.card().querySelector('[data-person-picker="responsible"]'), null);
 	assert.equal(hrSettings.card().querySelector('.ts-selected-mail-recipients').hidden, false);
 	hrSettings.input('graceDays').value = '5';
 	await hrSettings.change(hrSettings.input('graceDays'));
@@ -448,14 +570,15 @@ test('person-only responsibility and selected recipients survive unrelated edits
 });
 
 test('account search is read-only, waits for two characters, and adds an enabled person alongside HR groups', async () => {
-	const hrSettings = await openHrSettings([assignmentRule()], null, 'en', { users: accounts });
+	const hrSettings = await openAdminSettings([assignmentRule()], null, 'en', { users: accounts });
 	await hrSettings.searchAccounts('responsible', 'a');
 	assert.equal(hrSettings.searchRequests.length, 0);
 	assert.equal(hrSettings.picker('responsible').status.textContent, 'Enter at least two characters.');
 	await hrSettings.searchAccounts('responsible', 'An');
 	assert.equal(hrSettings.requests.length, 0);
 	assert.equal(hrSettings.searchRequests[0].purpose, 'responsible');
-	assert.deepEqual(hrSettings.searchRequests[0].hrGroups, ['HR']);
+	assert.equal(hrSettings.searchRequests[0].ruleId, 'assignment');
+	assert.deepEqual(hrSettings.searchRequests[0].hrGroups, []);
 	assert.deepEqual(hrSettings.searchRequests[0].hrUsers, []);
 	assert.equal(hrSettings.searchRequests[0].headers.requesttoken, 'test-token');
 	await hrSettings.choosePerson('responsible', 'anton');
@@ -474,29 +597,32 @@ test('selected mode with no accounts explicitly disables HR mail without changin
 	await hrSettings.focusSearch('mail');
 	assert.equal(hrSettings.searchRequests.at(-1).purpose, 'mail');
 	assert.equal(hrSettings.searchRequests.at(-1).search, '');
-	assert.deepEqual(hrSettings.searchRequests.at(-1).hrGroups, ['HR']);
-	assert.deepEqual(hrSettings.searchRequests.at(-1).hrUsers, ['anton']);
+	assert.equal(hrSettings.searchRequests.at(-1).ruleId, 'assignment');
+	assert.deepEqual(hrSettings.searchRequests.at(-1).hrGroups, []);
+	assert.deepEqual(hrSettings.searchRequests.at(-1).hrUsers, []);
 	await hrSettings.choosePerson('mail', 'bea');
 	assert.deepEqual(hrSettings.requests[1].rules[0].mailRecipients, { mode: 'selected', userIds: ['bea'] });
 	assert.deepEqual(hrSettings.requests[1].rules[0].hrUsers, ['anton']);
 });
 
-test('removing responsibility never quietly clears or widens a selected mail list', async () => {
+test('assignment and mail changes use separate forms and retain the other settings in their snapshots', async () => {
 	const rule = assignmentRule({ hrUsers: ['anton'], mailRecipients: { mode: 'selected', userIds: ['anton'] } });
-	const hrSettings = await openHrSettings([rule], async (request, count) => count === 1
-		? { ok: false, status: 400, text: async () => JSON.stringify({ message: 'Mail recipients must be responsible for this rule.' }) }
-		: saveResponse(request), 'en', { labels: accounts });
-	await hrSettings.removePerson('responsible', 'anton');
-	assert.deepEqual(hrSettings.requests[0].rules[0].hrUsers, []);
-	assert.deepEqual(hrSettings.requests[0].rules[0].mailRecipients, { mode: 'selected', userIds: ['anton'] });
-	assert.deepEqual(hrSettings.messages, ['Mail recipients must be responsible for this rule.']);
-	await hrSettings.removePerson('mail', 'anton');
-	assert.deepEqual(hrSettings.requests[1].rules[0].mailRecipients, { mode: 'selected', userIds: [] });
-	assert.deepEqual(hrSettings.requests[1].rules[0].hrUsers, []);
+	const admin = await openAdminSettings([rule], null, 'en', { labels: accounts });
+	assert.equal(admin.card().querySelector('.ts-mail-recipient-mode'), null);
+	await admin.removePerson('responsible', 'anton');
+	const saved = admin.requests[0].rules[0];
+	assert.deepEqual(saved.hrUsers, []);
+	assert.deepEqual(saved.mailRecipients, { mode: 'selected', userIds: ['anton'] });
+	assert.equal(admin.requests[0].url, '/apps/timesheet/settings/hr_access_rules');
+	const hr = await openHrSettings([saved], null, 'en', { labels: accounts });
+	await hr.removePerson('mail', 'anton');
+	assert.deepEqual(hr.requests[0].rules[0].mailRecipients, { mode: 'selected', userIds: [] });
+	assert.deepEqual(hr.requests[0].rules[0].hrUsers, []);
+	assert.equal(hr.requests[0].url, '/apps/timesheet/settings/hr_policy_rules');
 });
 
 test('search failure and empty results remain distinct and never save settings', async () => {
-	const hrSettings = await openHrSettings([assignmentRule()], null, 'en', {
+	const hrSettings = await openAdminSettings([assignmentRule()], null, 'en', {
 		respondToSearch: (_request, count) => count === 1 ? { ok: false, status: 500 } : searchResponse([]),
 	});
 	await hrSettings.searchAccounts('responsible', 'An');
@@ -509,7 +635,7 @@ test('search failure and empty results remain distinct and never save settings',
 
 test('late search responses cannot replace newer query results even if transport ignores abort', async () => {
 	let releaseFirst;
-	const hrSettings = await openHrSettings([assignmentRule()], null, 'en', {
+	const hrSettings = await openAdminSettings([assignmentRule()], null, 'en', {
 		respondToSearch: async (_request, count) => {
 			if (count === 1) await new Promise(resolve => { releaseFirst = resolve; });
 			return searchResponse([accounts[count === 1 ? 0 : 1]]);
@@ -527,14 +653,15 @@ test('late search responses cannot replace newer query results even if transport
 
 test('a response for a replaced rule card cannot populate its successor', async () => {
 	let releaseSearch;
-	const hrSettings = await openHrSettings([assignmentRule()], null, 'en', {
+	const hrSettings = await openAdminSettings([assignmentRule()], null, 'en', {
 		respondToSearch: async () => { await new Promise(resolve => { releaseSearch = resolve; }); return searchResponse(accounts); },
 	});
 	const originalCard = hrSettings.card();
 	const pendingSearch = hrSettings.searchAccounts('responsible', 'An');
 	await new Promise(setImmediate);
-	hrSettings.input('graceDays').value = '3';
-	await hrSettings.change(hrSettings.input('graceDays'));
+	const priorityInput = hrSettings.card().querySelector('[data-key="priority"]');
+	priorityInput.value = '3';
+	await hrSettings.change(priorityInput);
 	assert.notEqual(hrSettings.card(), originalCard);
 	releaseSearch();
 	await pendingSearch;
@@ -544,7 +671,7 @@ test('a response for a replaced rule card cannot populate its successor', async 
 
 test('display names remain text in selected chips and search options', async () => {
 	const malicious = { id: 'danger', name: '</script><img src=x onerror=alert(1)>', enabled: true };
-	const hrSettings = await openHrSettings([assignmentRule({ hrUsers: ['danger'] })], null, 'en', { labels: [malicious], users: [malicious] });
+	const hrSettings = await openAdminSettings([assignmentRule({ hrUsers: ['danger'] })], null, 'en', { labels: [malicious], users: [malicious] });
 	assert.equal(hrSettings.picker('responsible').wrapper.querySelectorAll('img').length, 0);
 	assert.equal(hrSettings.picker('responsible').wrapper.querySelectorAll('script').length, 0);
 	assert.ok(hrSettings.card().innerHTML.includes('&lt;/script&gt;&lt;img'));
@@ -555,7 +682,7 @@ test('display names remain text in selected chips and search options', async () 
 
 test('disabled accounts stay visible as existing assignments but cannot be added from search', async () => {
 	const disabled = { id: 'disabled', name: 'Former account', enabled: false };
-	const hrSettings = await openHrSettings([assignmentRule({ hrUsers: ['disabled'] })], null, 'en', { labels: [disabled], users: [disabled] });
+	const hrSettings = await openAdminSettings([assignmentRule({ hrUsers: ['disabled'] })], null, 'en', { labels: [disabled], users: [disabled] });
 	assert.ok(hrSettings.picker('responsible').wrapper.textContent.includes('Disabled account'));
 	await hrSettings.searchAccounts('responsible', 'disabled');
 	assert.equal(hrSettings.picker('responsible').results.children[1].disabled, true);
@@ -587,5 +714,185 @@ for (const message of ['At least one HR group or enabled HR account must remain 
 		hrSettings.input('graceDays').value = '5';
 		await hrSettings.change(hrSettings.input('graceDays'));
 		assert.deepEqual(hrSettings.messages, [message.startsWith('Invalid') ? 'HR assignments or email recipients are invalid.' : message]);
+	});
+}
+
+test('administrator and HR forms expose only their own controls and never save on load', async () => {
+	const admin = await openAdminSettings();
+	assert.equal(admin.card().querySelectorAll('.ts-rule-select').length, 2);
+	assert.ok(admin.card().textContent.includes('Employee groups'));
+	assert.ok(admin.card().querySelector('[data-kind="userGroups"]'));
+	assert.ok(admin.card().querySelector('.ts-rule-priority'));
+	assert.ok(admin.card().querySelector('[data-person-picker="responsible"]'));
+	assert.equal(admin.card().querySelector('.ts-mail-recipient-mode'), null);
+	assert.equal(admin.card().querySelector('.ts-reminder-settings'), null);
+	assert.equal(admin.card().querySelector('.ts-balance-settings'), null);
+	assert.ok(admin.elements.has('timesheet-add-hr-rule'));
+	assert.equal(admin.elements.has('timesheet-specialdays-overtime'), false);
+	assert.equal(admin.otherRequests.length, 0, 'The admin page has no overtime-setting request');
+	const hr = await openHrSettings();
+	assert.equal(hr.card().textContent.includes('Employee groups'), false);
+	assert.equal(hr.card().textContent.includes('Staff'), false);
+	assert.equal(hr.card().querySelector('.ts-rule-select'), null);
+	assert.equal(hr.card().querySelector('.ts-rule-priority'), null);
+	assert.equal(hr.card().querySelector('.ts-rule-delete'), null);
+	assert.equal(hr.card().querySelector('.ts-chip-remove'), null);
+	assert.equal(hr.card().querySelector('[data-person-picker="responsible"]'), null);
+	assert.ok(hr.card().querySelector('.ts-mail-recipient-mode'));
+	assert.ok(hr.card().querySelector('.ts-reminder-settings'));
+	assert.ok(hr.card().querySelector('.ts-balance-settings'));
+	assert.equal(hr.elements.has('timesheet-add-hr-rule'), false);
+	assert.ok(hr.elements.has('timesheet-specialdays-overtime'));
+	assert.equal(hr.otherRequests.length, 1);
+	assert.equal(hr.requests.length + admin.requests.length, 0);
+	await hr.addHrGroup('Other');
+	await hr.removeHrGroup('HR');
+	assert.equal(hr.requests.length, 0, 'Synthetic assignment events cannot use the HR policy writer');
+});
+
+for (const scope of ['assignments', 'policy']) {
+	test(`a ${scope} conflict adopts the server snapshot, drops queued edits and permits an intentional retry`, async () => {
+		let releaseFirst;
+		const serverRules = [assignmentRule({ userGroups: ['Server only'], priority: 4,
+			missingEntryReminders: { enabled: false, graceDays: 9, weekdays: [1, 2, 3, 4, 5], startDate: '' },
+			employeeBalanceNotifications: { overtimeEnabled: true, overtimeThresholdMinutes: 750, negativeOvertimeEnabled: false, negativeOvertimeThresholdMinutes: 225 } })];
+		const app = await openHrSettings(undefined, async (request, count) => {
+			if (count !== 1) return saveResponse(request);
+			await new Promise(resolve => { releaseFirst = resolve; });
+			return { ok: false, status: 409, text: async () => JSON.stringify({ code: 'rules_conflict', rules: serverRules, rulesRevision: rulesRevision(7) }) };
+		}, 'en', {}, scope);
+		const control = () => scope === 'assignments' ? app.card().querySelector('[data-key="priority"]') : app.input('graceDays');
+		control().value = '3';
+		const first = app.change(control());
+		await new Promise(setImmediate);
+		control().value = '5';
+		const queued = app.change(control());
+		releaseFirst();
+		await Promise.all([first, queued]);
+		assert.equal(app.requests.length, 1, 'Queued edits from the stale snapshot are not replayed');
+		assert.deepEqual(app.messages, ['Saving failed']);
+		assert.equal(control().value, scope === 'assignments' ? '4' : '9');
+		control().value = '6';
+		await app.change(control());
+		assert.equal(app.requests.length, 2);
+		assert.equal(app.requests[1].rulesRevision, rulesRevision(7));
+		assert.deepEqual(app.requests[1].rules[0].userGroups, ['Server only']);
+		assert.deepEqual(app.requests[1].rules[0].employeeBalanceNotifications, serverRules[0].employeeBalanceNotifications);
+		assert.equal(app.requests[1].url, scope === 'assignments' ? '/apps/timesheet/settings/hr_access_rules' : '/apps/timesheet/settings/hr_policy_rules');
+	});
+}
+
+const defaultBalanceNotifications = {
+	overtimeEnabled: false,
+	overtimeThresholdMinutes: 600,
+	negativeOvertimeEnabled: false,
+	negativeOvertimeThresholdMinutes: 600,
+};
+
+test('legacy group rules show disabled balance notifications after missing-entry reminders without saving', async () => {
+	const app = await openHrSettings();
+	assert.equal(app.balanceInput('overtimeEnabled').checked, false);
+	assert.equal(app.balanceInput('negativeOvertimeEnabled').checked, false);
+	assert.equal(app.balanceInput('overtimeThresholdMinutes').value, '10');
+	assert.equal(app.balanceInput('negativeOvertimeThresholdMinutes').value, '10');
+	assert.ok(app.card().innerHTML.indexOf('ts-balance-settings') > app.card().innerHTML.indexOf('ts-reminder-settings'));
+	assert.equal(app.requests.length, 0);
+	for (const [field, label] of [['overtimeThresholdMinutes', 'Notify employees about overtime'], ['negativeOvertimeThresholdMinutes', 'Notify employees about negative hours']]) {
+		const control = app.balanceInput(field);
+		assert.equal(control.attributes.type, 'number');
+		assert.equal(control.attributes.min, '0');
+		assert.equal(control.attributes.max, '8760');
+		assert.equal(control.attributes.step, '0.25');
+		assert.equal(control.getAttribute('aria-label'), `${label}: Threshold (hours)`);
+	}
+});
+
+for (const [overtimeEnabled, negativeOvertimeEnabled] of [[false, false], [true, false], [false, true], [true, true]]) {
+	test(`balance channels stay independent and reopen with stored minute values: ${overtimeEnabled}/${negativeOvertimeEnabled}`, async () => {
+		const app = await openHrSettings([assignmentRule({ employeeBalanceNotifications: { ...defaultBalanceNotifications, overtimeEnabled, negativeOvertimeEnabled } })]);
+		assert.equal(app.balanceInput('overtimeEnabled').checked, overtimeEnabled);
+		assert.equal(app.balanceInput('negativeOvertimeEnabled').checked, negativeOvertimeEnabled);
+		app.balanceInput('overtimeEnabled').checked = !overtimeEnabled;
+		await app.change(app.balanceInput('overtimeEnabled'));
+		assert.deepEqual(app.requests[0].rules[0].employeeBalanceNotifications,
+			{ ...defaultBalanceNotifications, overtimeEnabled: !overtimeEnabled, negativeOvertimeEnabled });
+		app.balanceInput('overtimeThresholdMinutes').value = '12.25';
+		await app.change(app.balanceInput('overtimeThresholdMinutes'));
+		const reopened = await openHrSettings(app.requests[1].rules);
+		assert.equal(reopened.balanceInput('overtimeEnabled').checked, !overtimeEnabled);
+		assert.equal(reopened.balanceInput('negativeOvertimeEnabled').checked, negativeOvertimeEnabled);
+		assert.equal(reopened.balanceInput('overtimeThresholdMinutes').value, '12.25');
+		assert.equal(reopened.requests.length, 0);
+		reopened.balanceInput('negativeOvertimeEnabled').checked = !negativeOvertimeEnabled;
+		reopened.balanceInput('negativeOvertimeThresholdMinutes').value = '3.5';
+		await reopened.change(reopened.balanceInput('negativeOvertimeEnabled'));
+		const saved = reopened.requests[0].rules[0].employeeBalanceNotifications;
+		assert.deepEqual(saved, { overtimeEnabled: !overtimeEnabled, overtimeThresholdMinutes: 735,
+			negativeOvertimeEnabled: !negativeOvertimeEnabled, negativeOvertimeThresholdMinutes: 210 });
+		const admin = await openAdminSettings(reopened.requests[0].rules);
+		assert.equal(admin.balanceInput('overtimeEnabled'), null);
+		await admin.addHrGroup('Other');
+		assert.deepEqual(admin.requests[0].rules[0].employeeBalanceNotifications, saved);
+	});
+}
+
+test('balance thresholds accept zero and the maximum duration independently', async () => {
+	const app = await openHrSettings();
+	app.balanceInput('overtimeThresholdMinutes').value = '0';
+	app.balanceInput('negativeOvertimeThresholdMinutes').value = '8760';
+	await app.change(app.balanceInput('overtimeThresholdMinutes'));
+	assert.deepEqual(app.requests[0].rules[0].employeeBalanceNotifications,
+		{ ...defaultBalanceNotifications, overtimeThresholdMinutes: 0, negativeOvertimeThresholdMinutes: 525600 });
+});
+
+for (const field of ['overtimeThresholdMinutes', 'negativeOvertimeThresholdMinutes']) {
+	for (const invalidValue of ['', ' ', 'invalid', '-0.25', 'Infinity', 'NaN', '8760.01']) {
+		test(`invalid ${field} hours ${JSON.stringify(invalidValue)} never reach the policy writer`, async () => {
+			const app = await openHrSettings();
+			app.balanceInput(field).value = invalidValue;
+			await app.change(app.balanceInput(field));
+			assert.equal(app.requests.length, 0);
+			assert.deepEqual(app.messages, ['Enter a valid threshold in hours.']);
+		});
+	}
+}
+
+test('malformed stored balance settings never turn on either channel while rendering', async () => {
+	for (const malformed of [null, [], 'enabled', { overtimeEnabled: 'true', negativeOvertimeEnabled: true },
+		{ overtimeEnabled: true, negativeOvertimeEnabled: null },
+		{ overtimeEnabled: true, overtimeThresholdMinutes: '600' },
+		{ negativeOvertimeEnabled: true, overtimeThresholdMinutes: -1 },
+		{ overtimeEnabled: true, negativeOvertimeThresholdMinutes: 525601 }]) {
+		const app = await openHrSettings([assignmentRule({ employeeBalanceNotifications: malformed })]);
+		assert.equal(app.balanceInput('overtimeEnabled').checked, false);
+		assert.equal(app.balanceInput('negativeOvertimeEnabled').checked, false);
+		assert.equal(app.requests.length, 0);
+	}
+});
+
+test('new assignment rules do not inherit active employee balance channels from another rule', async () => {
+	const app = await openAdminSettings([assignmentRule({ employeeBalanceNotifications: { ...defaultBalanceNotifications, overtimeEnabled: true, negativeOvertimeEnabled: true } })]);
+	await app.click(app.elements.get('timesheet-add-hr-rule'));
+	assert.equal(app.requests.length, 1);
+	assert.deepEqual(app.requests[0].rules[1].employeeBalanceNotifications, defaultBalanceNotifications);
+	assert.equal(app.requests[0].rules[0].employeeBalanceNotifications.overtimeEnabled, true);
+});
+
+for (const scope of ['assignments', 'policy']) {
+	test(`the ${scope} group-rules help expands without writing settings`, async () => {
+		const app = await openHrSettings(undefined, null, 'en', {}, scope, true);
+		const button = app.elements.get('timesheet-rules-help-toggle');
+		const help = app.elements.get('timesheet-rules-help');
+		assert.equal(help.hidden, true);
+		assert.equal(button.getAttribute('aria-expanded'), 'false');
+		assert.equal(button.getAttribute('aria-controls'), help.id);
+		await app.click(button);
+		assert.equal(help.hidden, false);
+		assert.equal(button.getAttribute('aria-expanded'), 'true');
+		await app.click(button);
+		assert.equal(help.hidden, true);
+		assert.equal(button.getAttribute('aria-expanded'), 'false');
+		assert.equal(app.requests.length, 0);
+		assert.equal(app.searchRequests.length, 0);
 	});
 }

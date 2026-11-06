@@ -62,7 +62,7 @@ Die Befehle beziehen sich auf die vorhandene Docker-Demo mit dem Container `time
    docker exec --user www-data timesheet-handover-nextcloud-1 php /var/www/html/occ app:enable timesheet
    ```
 
-5. Eine erste HR-Zuordnung einrichten, falls noch keine besteht. Sie liegt als JSON-Liste im App-Wert `hr_access_rules`. Eine Regel enthält `id`, `hrGroups` oder `hrUsers`, `userGroups` und `priority`. Gruppen und Konten müssen bereits existieren. Die Liste wird über den Nextcloud-Verwaltungsbefehl `occ config:app:set` hinterlegt. Dieser ersetzt den gesamten gespeicherten Wert; vorhandene Regeln werden vorher ausgelesen und gesichert. Danach verwaltet zuständiges HR die Regeln unter **Profil → Einstellungen → Arbeitszeitnachweis**. Administratorrechte allein geben keinen Zugang zu diesem Bereich.
+5. Die HR-Zuordnungen unter **Profil → Einstellungen → Administration → Arbeitszeitnachweis** einrichten. Gruppen und Konten müssen bereits bestehen. Nur Administratoren ändern diese Zuordnungen. Zeitregeln, Erinnerungen und Mail-Einstellungen bleiben für HR unter **Profil → Einstellungen → Arbeitszeitnachweis** verfügbar.
 6. Die Demo unter [localhost:8133/apps/timesheet/](http://localhost:8133/apps/timesheet/) öffnen. Das lokale Testpostfach liegt unter [localhost:8025](http://localhost:8025).
 
 Änderungen an eingebundenen PHP-, JavaScript- und CSS-Dateien benötigen keinen Upload und keinen Build. Bei zwischengespeicherten Browserdateien hilft ein vollständiges Neuladen mit `Strg + F5`. Ein Branchwechsel setzt die Datenbank nicht zurück.
@@ -97,7 +97,7 @@ Ohne lokales PHP läuft die Syntaxprüfung in der vorhandenen Demo:
 docker exec --user www-data --workdir /var/www/html/custom_apps/timesheet timesheet-handover-nextcloud-1 php tools/check-php-syntax.php
 ```
 
-Eigenständige PHP-Tests liegen unter `tests/reminders/`, `tests/preferences/`, `tests/tour/`, `tests/settings/`, `tests/employment/`, `tests/updates/` und `tests/history/`. Beispiel: `php tests/history/backend.php`. Die zum geänderten Bereich passenden Tests ergänzen die Syntaxprüfung.
+Eigenständige PHP-Tests liegen unter `tests/reminders/`, `tests/preferences/`, `tests/tour/`, `tests/settings/`, `tests/employment/`, `tests/updates/`, `tests/history/` und `tests/balance-notifications/`. Beispiel: `php tests/history/backend.php`. Die zum geänderten Bereich passenden Tests ergänzen die Syntaxprüfung.
 
 Integrationstests legen Konten und Daten an und können Gruppenregeln ersetzen. Sie laufen ausschließlich in ihren getrennten Testinstanzen mit den im jeweiligen Programm festgelegten Datenbanknamen und Freigabevariablen. Die normale Demo und Firmeninstallationen sind dafür ausgeschlossen.
 
@@ -199,7 +199,7 @@ These commands target the existing Docker demo and its `timesheet-handover-nextc
    docker exec --user www-data timesheet-handover-nextcloud-1 php /var/www/html/occ app:enable timesheet
    ```
 
-5. Create the initial HR assignment if none exists. It is stored as a JSON list in the `hr_access_rules` app value. A rule contains `id`, `hrGroups` or `hrUsers`, `userGroups` and `priority`. Groups and accounts must already exist. The list is stored using the Nextcloud administration command `occ config:app:set`. This replaces the entire saved value; existing rules require a backup first. Assigned HR accounts can then maintain the rules under **Profile → Settings → Timesheet**. Administrator privileges alone do not grant access.
+5. Configure HR assignments under **Profile → Settings → Administration → Timesheet**. Groups and accounts must already exist. Only administrators can change these assignments. Time rules, reminders and email settings remain available to HR under **Profile → Settings → Timesheet**.
 6. Open the demo at [localhost:8133/apps/timesheet/](http://localhost:8133/apps/timesheet/). The local test inbox is at [localhost:8025](http://localhost:8025).
 
 Changes to mounted PHP, JavaScript and CSS files need no upload or build. A hard reload clears cached browser files. Switching branches does not reset the database.
@@ -234,7 +234,7 @@ Without local PHP, run the syntax check in the existing demo:
 docker exec --user www-data --workdir /var/www/html/custom_apps/timesheet timesheet-handover-nextcloud-1 php tools/check-php-syntax.php
 ```
 
-Standalone PHP tests are in `tests/reminders/`, `tests/preferences/`, `tests/tour/`, `tests/settings/`, `tests/employment/`, `tests/updates/` and `tests/history/`. Example: `php tests/history/backend.php`. Tests for the changed area complement syntax checks.
+Standalone PHP tests are in `tests/reminders/`, `tests/preferences/`, `tests/tour/`, `tests/settings/`, `tests/employment/`, `tests/updates/`, `tests/history/` and `tests/balance-notifications/`. Example: `php tests/history/backend.php`. Tests for the changed area complement syntax checks.
 
 Integration tests create accounts and data and may replace group rules. They run only in their dedicated test instances with the database names and environment variables required by each runner. The normal demo and company installations are excluded.
 

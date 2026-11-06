@@ -37,7 +37,8 @@ class MissingEntryReminderService {
 	public function prepareRuleChanges(array $previousRules, array $updatedRules): void {
 		$today = $this->currentTime()->format('Y-m-d');
 		foreach ($updatedRules as $rule) {
-			if (!($rule['missingEntryReminders']['enabled'] ?? false)) {
+			$settings = MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null);
+			if (!$settings['enabled']) {
 				continue;
 			}
 			$this->prepareRule($rule, $today);
@@ -67,6 +68,7 @@ class MissingEntryReminderService {
 		}
 
 		$findingsByUser = [];
+		$notifyHrByUser = [];
 		$holidaysByRegionAndYear = [];
 		foreach ($employeesById as $userId => $employee) {
 			// Unknown status must never silently re-enable reminders for an exempt person.
@@ -82,6 +84,7 @@ class MissingEntryReminderService {
 					continue;
 				}
 				$statistics['checkedEmployees']++;
+				$notifyHrByUser[$userId] = $rule['missingEntryReminders']['notifyHr'];
 				$finding = $this->checkEmployee($employee, $rule, $now, $holidaysByRegionAndYear, $employmentStatus);
 				if ($finding['issues'] === [] && $finding['setupIssue'] === null) {
 					continue;
@@ -91,7 +94,8 @@ class MissingEntryReminderService {
 					$statistics['skippedEmployees']++;
 					continue;
 				}
-				if ($this->reminderStore->isDeliveryDue((string)$userId, 'employee', $now)) {
+				if ($rule['missingEntryReminders']['notifyEmployees']
+					&& $this->reminderStore->isDeliveryDue((string)$userId, 'employee', $now)) {
 					if ($this->reminderMailer->sendEmployeeReminder($employee, $finding['issues'])) {
 						$this->reminderStore->markDelivered((string)$userId, 'employee', $now);
 						$statistics['employeeSent']++;
@@ -112,7 +116,8 @@ class MissingEntryReminderService {
 		}
 
 		// Recheck current HR scope before composing each separate summary.
-		if ($findingsByUser !== []) {
+		$hrFindingsByUser = array_intersect_key($findingsByUser, array_filter($notifyHrByUser));
+		if ($hrFindingsByUser !== []) {
 			foreach ($this->hrService->getMailRecipientUserIds() as $hrUserId) {
 				try {
 					$hrUser = $this->userManager->get($hrUserId);
@@ -121,12 +126,16 @@ class MissingEntryReminderService {
 						|| !$this->reminderStore->isDeliveryDue($hrUserId, 'hr', $now)) {
 						continue;
 					}
+					$recipientStatus = $this->loadEmploymentStatus($hrUserId);
+					if ($recipientStatus === null || $recipientStatus->freelancerMode) {
+						continue;
+					}
 					$hrFindings = [];
 					foreach ($this->hrService->getMailAccessibleUsers($hrUserId) as $accessibleEmployee) {
 						$currentStatus = $this->loadEmploymentStatus((string)$accessibleEmployee['id']);
 						if ($currentStatus !== null && $currentStatus->isActive && !$currentStatus->freelancerMode
-							&& isset($findingsByUser[$accessibleEmployee['id']])) {
-							$hrFindings[] = $findingsByUser[$accessibleEmployee['id']];
+							&& isset($hrFindingsByUser[$accessibleEmployee['id']])) {
+							$hrFindings[] = $hrFindingsByUser[$accessibleEmployee['id']];
 						}
 					}
 					if ($hrFindings !== []) {

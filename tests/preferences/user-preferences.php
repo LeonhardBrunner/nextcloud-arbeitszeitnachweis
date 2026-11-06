@@ -99,7 +99,8 @@ namespace {
 			return $values;
 		}
 		public function setUserValue($userId, $appName, $key, $value, $preCondition = null) {
-			$lockKey = hash('sha256', 'timesheet:break-input-mode:' . $userId);
+			$lockName = $key === 'change_history_view' ? 'change-history-view' : 'break-input-mode';
+			$lockKey = hash('sha256', 'timesheet:' . $lockName . ':' . $userId);
 			if (!isset($this->lockingProvider->held[$lockKey])) {
 				throw new \RuntimeException('Preference write was not protected by the account lock.');
 			}
@@ -463,6 +464,200 @@ namespace {
 		$routes = require __DIR__ . '/../../appinfo/routes.php';
 		$preferenceRoutes = array_values(array_filter($routes['routes'], static fn(array $route): bool => $route['name'] === 'preferences#setBreakInputMode'));
 		$expectSame([['name' => 'preferences#setBreakInputMode', 'url' => '/api/preferences/break-input-mode', 'verb' => 'PUT']], $preferenceRoutes);
+	});
+
+
+	$test('History starts in cards without storing a default', static function () use ($fixture, $expectSame): void {
+		[, $store, $config] = $fixture();
+		$expectSame(['historyView' => 'cards', 'revision' => hash('sha256', '')], $store->getHistoryViewPreference('alice'));
+		$expectSame(0, $config->writes);
+	});
+
+	foreach (['', '{', 'table', '{"view":"grid"}', '{"view":["table"]}', '{"view":false}'] as $invalidStoredView) {
+		$test('An invalid saved history view falls back safely: ' . json_encode($invalidStoredView), static function () use ($fixture, $expectSame, $invalidStoredView): void {
+			[, $store, $config] = $fixture();
+			$config->values['alice']['timesheet']['change_history_view'] = $invalidStoredView;
+			$expectSame(['historyView' => 'cards', 'revision' => hash('sha256', $invalidStoredView)], $store->getHistoryViewPreference('alice'));
+			$expectSame(0, $config->writes);
+		});
+	}
+
+	$test('History selection survives reload and a new login session', static function () use ($fixture, $expectSame): void {
+		[$controller, , $config, , $lockingProvider] = $fixture();
+		$response = $controller->setHistoryView('table', hash('sha256', ''));
+		$expectSame(200, $response->getStatus());
+		$newStore = new UserPreferencesStore($config, $lockingProvider);
+		$newSession = new PreferencesSessionFixture(new PreferencesUserFixture('alice'));
+		$newController = new PreferencesController('timesheet', new PreferencesRequestFixture(), $newStore, $newSession);
+		$expectSame($response->getData(), $newStore->getHistoryViewPreference('alice'));
+		$expectSame('table', $newStore->getHistoryViewPreference($newSession->getUser()->getUID())['historyView']);
+		$expectSame(200, $newController->setHistoryView('cards', $response->getData()['revision'])->getStatus());
+		$expectSame('cards', (new UserPreferencesStore($config, $lockingProvider))->getHistoryViewPreference('alice')['historyView']);
+	});
+
+	$test('History choices are isolated from other accounts, apps and break display preferences', static function () use ($fixture, $expectSame): void {
+		[, $store, $config] = $fixture();
+		$config->values['alice']['another-app']['change_history_view'] = '{"view":"table"}';
+		$config->values['alice']['timesheet']['break_input_mode'] = 'hours';
+		$config->values['alice']['core']['lang'] = 'de_DE';
+		$before = $config->values;
+		$store->setHistoryView('alice', 'table', hash('sha256', ''));
+		$expectSame('cards', $store->getHistoryViewPreference('bob')['historyView']);
+		$store->setHistoryView('bob', 'cards', hash('sha256', ''));
+		$expectSame('table', $store->getHistoryViewPreference('alice')['historyView']);
+		$expected = $before;
+		$expected['alice']['timesheet']['change_history_view'] = $config->values['alice']['timesheet']['change_history_view'];
+		$expected['bob']['timesheet']['change_history_view'] = $config->values['bob']['timesheet']['change_history_view'];
+		$expectSame($expected, $config->values);
+	});
+
+	$test('A selected employee or forged target does not become the preference owner', static function () use ($fixture, $expectSame): void {
+		[$controller, $store, $config] = $fixture('hr-viewer', ['userId' => 'employee', 'targetUserId' => 'other-hr']);
+		$response = $controller->setHistoryView('table', hash('sha256', ''));
+		$expectSame(200, $response->getStatus());
+		$expectSame('table', $store->getHistoryViewPreference('hr-viewer')['historyView']);
+		$expectSame('cards', $store->getHistoryViewPreference('employee')['historyView']);
+		$expectSame('cards', $store->getHistoryViewPreference('other-hr')['historyView']);
+		$expectSame(['hr-viewer'], array_keys($config->values));
+	});
+
+	foreach ([null, ''] as $unsignedUserId) {
+		$test('An unsigned account cannot save history view', static function () use ($fixture, $expectSame, $unsignedUserId): void {
+			[$controller, , $config] = $fixture($unsignedUserId);
+			$expectSame(403, $controller->setHistoryView('table', hash('sha256', ''))->getStatus());
+			$expectSame(0, $config->writes);
+		});
+	}
+
+	foreach ([null, '', 'Table', 'table ', 'grid', true, 1, ['table']] as $invalidSubmittedView) {
+		$test('Invalid history views are rejected before storage: ' . json_encode($invalidSubmittedView), static function () use ($fixture, $expectSame, $invalidSubmittedView): void {
+			[$controller, , $config, , $lockingProvider] = $fixture();
+			$expectSame(400, $controller->setHistoryView($invalidSubmittedView, hash('sha256', ''))->getStatus());
+			$expectSame(0, $config->writes);
+			$expectSame(0, $lockingProvider->acquisitions);
+		});
+	}
+
+	foreach ([null, '', 'invalid', str_repeat('a', 63), str_repeat('g', 64), true, []] as $invalidRevision) {
+		$test('Invalid history revisions are rejected before locking: ' . json_encode($invalidRevision), static function () use ($fixture, $expectSame, $invalidRevision): void {
+			[$controller, , $config, , $lockingProvider] = $fixture();
+			$expectSame(400, $controller->setHistoryView('table', $invalidRevision)->getStatus());
+			$expectSame(0, $config->writes);
+			$expectSame(0, $lockingProvider->acquisitions);
+		});
+	}
+
+	foreach (['view', 'revision'] as $invalidArgument) {
+		$test('The history store validates ' . $invalidArgument . ' independently of the controller', static function () use ($fixture, $expectSame, $invalidArgument): void {
+			[, $store, $config, , $lockingProvider] = $fixture();
+			try {
+				$store->setHistoryView('alice', $invalidArgument === 'view' ? 'grid' : 'table', $invalidArgument === 'revision' ? 'invalid' : hash('sha256', ''));
+			} catch (\InvalidArgumentException) {
+				$expectSame(0, $config->writes);
+				$expectSame(0, $lockingProvider->acquisitions);
+				return;
+			}
+			throw new \RuntimeException('Expected invalid preference rejection.');
+		});
+	}
+
+	$test('Stale tabs cannot overwrite a newer history choice, even with the same view', static function () use ($fixture, $expectSame): void {
+		[$controller, $store, $config, , $lockingProvider] = $fixture();
+		$first = $store->setHistoryView('alice', 'table', hash('sha256', ''));
+		$second = $controller->setHistoryView('table', $first['revision']);
+		$expectSame(200, $second->getStatus());
+		$expectSame(false, $first['revision'] === $second->getData()['revision']);
+		$late = $controller->setHistoryView('cards', $first['revision']);
+		$expectSame(409, $late->getStatus());
+		$expectSame(['code' => 'preference_conflict', ...$second->getData()], $late->getData());
+		$expectSame('table', $store->getHistoryViewPreference('alice')['historyView']);
+		$expectSame(2, $config->writes);
+		$expectSame([], $lockingProvider->held);
+		$raw = $config->values['alice']['timesheet']['change_history_view'];
+		$expectSame(hash('sha256', $raw), $second->getData()['revision']);
+		$expectSame(1, preg_match('/\A[0-9a-f]{32}\z/', json_decode($raw, true)['nonce']));
+	});
+
+	$test('History reads bypass stale authentication caches', static function () use ($fixture, $expectSame): void {
+		[$controller, $store, $config] = $fixture();
+		$old = '{"view":"cards","nonce":"old"}';
+		$current = '{"view":"table","nonce":"new"}';
+		$config->cachedValues['alice']['timesheet']['change_history_view'] = $old;
+		$config->values['alice']['timesheet']['change_history_view'] = $current;
+		$expectSame(['historyView' => 'table', 'revision' => hash('sha256', $current)], $store->getHistoryViewPreference('alice'));
+		$response = $controller->setHistoryView('cards', hash('sha256', $old));
+		$expectSame(409, $response->getStatus());
+		$expectSame(['code' => 'preference_conflict', 'historyView' => 'table', 'revision' => hash('sha256', $current)], $response->getData());
+		$expectSame(0, $config->writes);
+	});
+
+	$test('A history config precondition catches an external writer between read and save', static function () use ($fixture, $expectSame): void {
+		[$controller, , $config, , $lockingProvider] = $fixture();
+		$external = '{"view":"table","nonce":"external"}';
+		$config->beforeWrite = static function (PreferencesConfigFixture $config) use ($external): void {
+			$config->values['alice']['timesheet']['change_history_view'] = $external;
+		};
+		$response = $controller->setHistoryView('cards', hash('sha256', ''));
+		$expectSame(409, $response->getStatus());
+		$expectSame(['code' => 'preference_conflict', 'historyView' => 'table', 'revision' => hash('sha256', $external)], $response->getData());
+		$expectSame(0, $config->writes);
+		$expectSame([], $lockingProvider->held);
+		$expectSame(1, $lockingProvider->releases);
+	});
+
+	$test('History locks serialize saves while the break display uses its own lock', static function () use ($fixture, $expectSame): void {
+		[$controller, $store, $config, , $lockingProvider] = $fixture();
+		$historyLock = hash('sha256', 'timesheet:change-history-view:alice');
+		$lockingProvider->held[$historyLock] = true;
+		$response = $controller->setHistoryView('table', hash('sha256', ''));
+		$expectSame(409, $response->getStatus());
+		$expectSame(['code' => 'preference_conflict', 'historyView' => 'cards', 'revision' => hash('sha256', '')], $response->getData());
+		$expectSame(200, $controller->setBreakInputMode('hours', hash('sha256', ''))->getStatus());
+		$lockingProvider->releaseLock($historyLock, \OCP\Lock\ILockingProvider::LOCK_EXCLUSIVE);
+		$expectSame(200, $controller->setHistoryView('table', $response->getData()['revision'])->getStatus());
+		$expectSame('table', $store->getHistoryViewPreference('alice')['historyView']);
+		$expectSame('hours', $store->getBreakInputMode('alice'));
+		$expectSame(2, $config->writes);
+		$expectSame([], $lockingProvider->held);
+	});
+
+	$test('A concurrent history save cannot enter the held lock', static function () use ($fixture, $expectSame): void {
+		[$controller, , $config, , $lockingProvider] = $fixture();
+		$concurrentStatus = null;
+		$config->beforeWrite = static function () use ($controller, &$concurrentStatus): void {
+			$concurrentStatus = $controller->setHistoryView('cards', hash('sha256', ''))->getStatus();
+		};
+		$expectSame(200, $controller->setHistoryView('table', hash('sha256', ''))->getStatus());
+		$expectSame(409, $concurrentStatus);
+		$expectSame(1, $config->writes);
+		$expectSame(1, $lockingProvider->releases);
+	});
+
+	foreach (['read', 'write', 'lock'] as $failurePoint) {
+		$test('History ' . $failurePoint . ' failures keep storage intact and hide private details', static function () use ($fixture, $expectSame, $failurePoint): void {
+			[$controller, $store, $config, , $lockingProvider] = $fixture();
+			$saved = $store->setHistoryView('alice', 'table', hash('sha256', ''));
+			$before = $config->values;
+			$config->rejectReads = $failurePoint === 'read';
+			$config->rejectWrites = $failurePoint === 'write';
+			$lockingProvider->rejectLocks = $failurePoint === 'lock';
+			$response = $controller->setHistoryView('cards', $saved['revision']);
+			$expectSame(500, $response->getStatus());
+			$expectSame(['message' => 'Saving display preferences failed'], $response->getData());
+			$expectSame($before, $config->values);
+			$expectSame(1, $config->writes);
+			$expectSame([], $lockingProvider->held);
+		});
+	}
+
+	$test('History preferences retain CSRF protection and do not accept a target account', static function () use ($expectSame): void {
+		$method = new \ReflectionMethod(PreferencesController::class, 'setHistoryView');
+		$expectSame(1, count($method->getAttributes(\OCP\AppFramework\Http\Attribute\NoAdminRequired::class)));
+		$expectSame(0, count($method->getAttributes('OCP\\AppFramework\\Http\\Attribute\\NoCSRFRequired')));
+		$expectSame(['historyView', 'revision'], array_map(static fn(\ReflectionParameter $parameter): string => $parameter->getName(), $method->getParameters()));
+		$routes = require __DIR__ . '/../../appinfo/routes.php';
+		$historyRoutes = array_values(array_filter($routes['routes'], static fn(array $route): bool => $route['name'] === 'preferences#setHistoryView'));
+		$expectSame([['name' => 'preferences#setHistoryView', 'url' => '/api/preferences/change-history-view', 'verb' => 'PUT']], $historyRoutes);
 	});
 
 	fwrite(STDOUT, sprintf("User display preferences: %d checks, %d failures.\n", $checks, $failures));

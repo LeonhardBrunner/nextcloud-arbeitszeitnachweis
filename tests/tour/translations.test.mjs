@@ -15,7 +15,7 @@ const commentsExplanation = 'Comments add context to a day. An absence can be ma
 const generalHelpExplanation = 'Questions, help and privacy information about Nextcloud in general.';
 const restartExplanation = 'Questions and suggestions for HR. The guide can be restarted using the tour icon.';
 const warningsExplanation = 'Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.';
-const freelancerExplanation = 'For irregular working days, freelancer mode pauses reminders about missing or incomplete times for the employee and HR. Other warnings remain active.';
+const freelancerExplanation = 'Freelancer mode disables warning emails about missing or incomplete entries, overtime and negative balances for the employee and HR.';
 const emailHelpMessages = {
 	'Opening the default mail app…': 'Standard-Mailprogramm wird aufgerufen.',
 	'No mail app opened?': 'Kein Mailprogramm geöffnet?',
@@ -106,7 +106,7 @@ test('German employee guidance uses the shortened copy and company guidelines wi
 		assert.doesNotMatch(translations[commentsExplanation], /Freigabe|Genehmigung|Warnung|Strg\+C|Command\+C/u);
 		assert.equal(translations['Time entry warnings'], 'Warnungen');
 		assert.equal(translations['Freelancer mode'], 'Freelancer-Modus');
-		assert.equal(translations[freelancerExplanation], 'Bei unregelmäßigen Arbeitstagen pausiert der Freelancer-Modus Erinnerungen an fehlende oder unvollständige Zeiten für Mitarbeitende und HR. Andere Warnungen bleiben bestehen.');
+		assert.equal(translations[freelancerExplanation], 'Im Freelancer-Modus entfallen Warnmails zu fehlenden oder unvollständigen Einträgen sowie zu Plus- und Minusstunden. Das gilt für Mitarbeitende und HR.');
 		assert.equal(translations[warningsExplanation], 'Warnungen bei Über- oder Unterschreitungen von Pausen sowie fehlende Arbeitszeitnachweise führen zu Warnungen und sollten umgehend korrigiert werden.');
 		assert.equal(translations['Warnings'], 'Fehlermeldungen');
 		assert.equal(translations[generalHelpExplanation], 'Fragen, Hilfe und Datenschutzhinweise zur allgemeinen Nextcloud.');

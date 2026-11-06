@@ -287,8 +287,9 @@ test('rule and holiday caches match baseline', async () => {
 	assert.deepEqual(result.holidayCache, [['BY_2026', { '2026-10-03': 'Holiday' }]]);
 });
 
-test('HR settings rendering, rule edits, group constraints and requests match baseline', async () => {
-	const result = await runForBoth(async (root) => {
+test('administrator assignment editor retains rule creation, group constraints and request ordering', async () => {
+	// The role split intentionally differs from the original combined settings page.
+	const result = await (async (root) => {
 		// The unchanged reference checkout retains its original asset and root names.
 		const settingsScript = root === candidateRoot ? 'hr-settings.js' : 'admin.js';
 		const settingsRootId = root === candidateRoot ? 'timesheet-hr-settings' : 'timesheet-admin-settings';
@@ -315,6 +316,7 @@ test('HR settings rendering, rule edits, group constraints and requests match ba
 			return result;
 		}
 		for (const id of [settingsRootId, 'timesheet-hr-rules', 'timesheet-add-hr-rule', 'timesheet-specialdays-overtime']) element(id);
+		elements.get(settingsRootId).dataset = { settingsScope: 'assignments', rulesRevision: '0'.repeat(64) };
 		element('timesheet-all-groups-data').textContent = JSON.stringify(['HR', 'Staff', 'Other', 'A&B']);
 		element('timesheet-hr-rules-data').textContent = JSON.stringify(initialRules);
 		const context = vm.createContext({
@@ -330,7 +332,7 @@ test('HR settings rendering, rule edits, group constraints and requests match ba
 			fetch: async (url, options) => {
 				const body = options.body ? Object.fromEntries(options.body.entries()) : null;
 				requests.push({ url, method: options.method, headers: options.headers, body });
-				return { ok: true, status: 200, json: async () => body?.rules ? { rules: JSON.parse(body.rules) } : { check: true } };
+				return { ok: true, status: 200, json: async () => body?.rules ? { rules: JSON.parse(body.rules), rulesRevision: String(requests.length).padStart(64, '0') } : { check: true } };
 			},
 		});
 		context.window = context;
@@ -360,20 +362,20 @@ test('HR settings rendering, rule edits, group constraints and requests match ba
 		snapshot();
 		await dispatch('timesheet-specialdays-overtime:change', { target: { checked: false } });
 		return copy({ snapshots, requests, messages, settingValue: settingInput.value, checked: elements.get('timesheet-specialdays-overtime').checked });
-	});
+	})(candidateRoot);
 	assert.deepEqual(result.snapshots.map((cards) => cards.length), [2, 3, 3, 3, 3, 2]);
-	assert.equal(result.requests[0].method, 'GET');
-	assert.equal(result.requests.length, 7);
+	assert.equal(result.requests[0].method, 'POST');
+	assert.equal(result.requests.length, 4);
 	const savedRules = result.requests.filter(({ body }) => body?.rules).map(({ body }) => JSON.parse(body.rules));
 	assert.equal(savedRules[0][2].priority, 3);
 	assert.deepEqual(savedRules[0][1].userGroups, ['Other']);
 	assert.deepEqual(savedRules[1][2].userGroups, ['A&B']);
-	assert.equal(savedRules[2][2].maxHours, 24);
-	assert.deepEqual(savedRules[3][2].userGroups, []);
-	assert.equal(savedRules[4].length, 2);
-	assert.deepEqual(result.requests.at(-1).body, { specialDaysCheck: 'false' });
-	assert.equal(result.settingValue, 24);
-	assert.equal(result.checked, true);
+	assert.equal(savedRules[2][2].maxHours, 10, 'Assignment controls do not edit time policy');
+	assert.deepEqual(savedRules[2][2].userGroups, []);
+	assert.equal(savedRules[3].length, 2);
+	assert.ok(result.requests.every(request => request.url.endsWith('/settings/hr_access_rules')));
+	assert.equal(result.settingValue, '999');
+	assert.equal(result.checked, false);
 	assert.ok(result.snapshots[2][2].innerHTML.includes('data-group="A&amp;B"'));
 	assert.deepEqual(result.messages, [
 		'timesheet:Some Employee groups were assigned to multiple rules. Duplicates were removed.',

@@ -14,7 +14,7 @@ const placeholders = value => [...value.matchAll(/\{\w+\}/g)].map(match => match
 test('HR assignment translations cover all existing account languages without duplicate messages', () => {
 	assert.deepEqual(coverage.locales, accountLanguages);
 	assert.equal(coverage.messages.length, messages.size);
-	assert.equal(messages.size, 22);
+	assert.equal(messages.size, 39);
 });
 
 // Feature messages match in both catalogs; other features may add or revise their own translations.
@@ -55,6 +55,13 @@ test('both German variants use concise, neutral assignment and delivery wording'
 	assert.equal(german[0]['No selected accounts means no HR summary for this rule.'], 'Ohne ausgewählte Konten wird für diese Regel keine HR-Übersicht versendet.');
 	assert.equal(german[0]['HR assignments or email recipients are invalid.'], 'HR-Zuordnungen oder E-Mail-Empfänger sind ungültig.');
 	assert.equal(german[0]['Email selection does not change HR access.'], 'Die E-Mail-Auswahl ändert keine HR-Zugriffsrechte.');
+	assert.equal(german[0]['Send reminders to employees'], 'Erinnerungen an Mitarbeitende senden');
+	assert.equal(german[0]['Send reminders to responsible HR'], 'Erinnerungen an zuständiges HR senden');
+	assert.equal(german[0]['Employee balance notifications'], 'Benachrichtigungen zum Stundenstand');
+	assert.equal(german[0]['My HR email settings'], 'Meine HR-Mail-Einstellungen');
+	assert.equal(german[0]['Group rules explained'], 'Hinweise zu den Gruppenregeln');
+	assert.equal(german[0]['Notify employees about overtime'], 'Mitarbeitende bei Überstunden benachrichtigen');
+	assert.equal(german[0]['Notify employees about negative hours'], 'Mitarbeitende bei Minusstunden benachrichtigen');
 });
 
 test('Japanese and right-to-left accounts have translated search, permissions and mail guidance', () => {
@@ -62,4 +69,26 @@ test('Japanese and right-to-left accounts have translated search, permissions an
 		const translated = JSON.parse(readFileSync(resolve(root, 'l10n', `${locale}.json`), 'utf8')).translations;
 		for (const message of messages) assert.notEqual(translated[message], message);
 	}
+});
+
+test('employee balance emails retain placeholders and matching German variants', () => {
+	const mailMessages = [
+		'Timesheet: working time balance',
+		'Working time balance: %1$s hours.',
+		'Notification threshold: %1$s hours.',
+		'For questions about the working time balance or recorded entries, contact the responsible HR team.',
+		'This message was generated automatically.',
+	];
+	const catalog = locale => JSON.parse(readFileSync(resolve(root, 'l10n', `${locale}.json`), 'utf8')).translations;
+	const german = catalog('de');
+	const formalGerman = catalog('de_DE');
+	const english = catalog('en_GB');
+	for (const message of mailMessages) {
+		assert.equal(typeof german[message], 'string');
+		assert.ok(german[message].trim());
+		assert.equal(german[message], formalGerman[message]);
+		assert.equal(english[message], message);
+		assert.deepEqual([...german[message].matchAll(/%\d+\$[sd]/g)].map(match => match[0]), [...message.matchAll(/%\d+\$[sd]/g)].map(match => match[0]));
+	}
+	assert.equal(german[mailMessages[3]], 'Bei Fragen zum Stundenstand oder zu den erfassten Zeiten hilft die zuständige Personalabteilung.');
 });

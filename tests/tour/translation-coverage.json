@@ -31,7 +31,7 @@
     "Time entry warnings",
     "Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.",
     "Freelancer mode",
-    "For irregular working days, freelancer mode pauses reminders about missing or incomplete times for the employee and HR. Other warnings remain active.",
+    "Freelancer mode disables warning emails about missing or incomplete entries, overtime and negative balances for the employee and HR.",
     "Profile menu",
     "The profile menu provides access to personal details, account settings, appearance and accessibility options.",
     "Help and privacy",

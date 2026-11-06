@@ -52,4 +52,33 @@ class PreferencesController extends Controller {
 			return new DataResponse(['message' => 'Saving display preferences failed'], Http::STATUS_INTERNAL_SERVER_ERROR);
 		}
 	}
+
+	/** Save the signed-in account's view without accepting an employee identifier. */
+	#[NoAdminRequired]
+	public function setHistoryView(mixed $historyView = null, mixed $revision = null): DataResponse {
+		$currentUser = $this->userSession->getUser();
+		if ($currentUser === null || $currentUser->getUID() === '') {
+			return new DataResponse(['message' => 'Not logged in'], Http::STATUS_FORBIDDEN);
+		}
+		if (!is_string($historyView) || !in_array($historyView, ['cards', 'table'], true)) {
+			return new DataResponse(['message' => 'Invalid history view'], Http::STATUS_BAD_REQUEST);
+		}
+		if (!is_string($revision) || preg_match('/\A[0-9a-f]{64}\z/i', $revision) !== 1) {
+			return new DataResponse(['message' => 'Invalid preference revision'], Http::STATUS_BAD_REQUEST);
+		}
+
+		try {
+			try {
+				$preference = $this->preferencesStore->setHistoryView($currentUser->getUID(), $historyView, $revision);
+			} catch (PreConditionNotMetException | LockedException) {
+				return new DataResponse([
+					'code' => 'preference_conflict',
+					...$this->preferencesStore->getHistoryViewPreference($currentUser->getUID()),
+				], Http::STATUS_CONFLICT);
+			}
+			return new DataResponse($preference, Http::STATUS_OK);
+		} catch (\Throwable $saveError) {
+			return new DataResponse(['message' => 'Saving display preferences failed'], Http::STATUS_INTERNAL_SERVER_ERROR);
+		}
+	}
 }

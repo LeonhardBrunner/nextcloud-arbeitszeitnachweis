@@ -9,7 +9,7 @@ class MissingEntryReminderSettings {
 	private const DEFAULT_GRACE_DAYS = 14;
 	private const DEFAULT_WEEKDAYS = [1, 2, 3, 4, 5];
 
-	/** @return array{enabled:bool,graceDays:int,weekdays:int[],startDate:string} */
+	/** @return array{enabled:bool,notifyEmployees:bool,notifyHr:bool,graceDays:int,weekdays:int[],startDate:string} */
 	public static function normalize(mixed $settings): array {
 		$settings = is_array($settings) ? $settings : [];
 		$graceDays = array_key_exists('graceDays', $settings) ? $settings['graceDays'] : self::DEFAULT_GRACE_DAYS;
@@ -19,11 +19,17 @@ class MissingEntryReminderSettings {
 		$validGraceDays = is_int($graceDays) && $graceDays >= 1 && $graceDays <= 365;
 		$validWeekdays = self::hasValidWeekdays($weekdays);
 		$validStartDate = is_string($startDate) && self::isValidDate($startDate);
+		$recipients = self::recipientChoices($settings);
+		$validRecipients = is_bool($recipients['notifyEmployees']) && is_bool($recipients['notifyHr']);
+		$validPolicy = $validRecipients && $validGraceDays && $validWeekdays && $weekdays !== [] && $validStartDate;
+		$notifyEmployees = $validPolicy && $recipients['notifyEmployees'] === true;
+		$notifyHr = $validPolicy && $recipients['notifyHr'] === true;
 
 		// Invalid stored policies stay disabled until HR saves valid settings.
 		return [
-			'enabled' => ($settings['enabled'] ?? false) === true
-				&& $validGraceDays && $validWeekdays && $weekdays !== [] && $validStartDate,
+			'enabled' => $notifyEmployees || $notifyHr,
+			'notifyEmployees' => $notifyEmployees,
+			'notifyHr' => $notifyHr,
 			'graceDays' => $validGraceDays ? $graceDays : self::DEFAULT_GRACE_DAYS,
 			'weekdays' => $validWeekdays ? self::normalizeWeekdays($weekdays) : self::DEFAULT_WEEKDAYS,
 			'startDate' => $validStartDate ? $startDate : '',
@@ -33,7 +39,7 @@ class MissingEntryReminderSettings {
 	/**
 	 * Reject invalid submitted values rather than silently changing an active policy.
 	 *
-	 * @return array{enabled:bool,graceDays:int,weekdays:int[],startDate:string}
+	 * @return array{enabled:bool,notifyEmployees:bool,notifyHr:bool,graceDays:int,weekdays:int[],startDate:string}
 	 */
 	public static function validateForSave(mixed $settings, string $todayDate, ?array $previousSettings = null): array {
 		if ($settings === null) {
@@ -43,12 +49,16 @@ class MissingEntryReminderSettings {
 			throw new \InvalidArgumentException('Invalid missing-entry reminder settings');
 		}
 
-		$enabled = array_key_exists('enabled', $settings) ? $settings['enabled'] : false;
+		$recipients = self::recipientChoices($settings);
+		$notifyEmployees = $recipients['notifyEmployees'];
+		$notifyHr = $recipients['notifyHr'];
 		$graceDays = array_key_exists('graceDays', $settings) ? $settings['graceDays'] : self::DEFAULT_GRACE_DAYS;
 		$weekdays = array_key_exists('weekdays', $settings) ? $settings['weekdays'] : self::DEFAULT_WEEKDAYS;
-		if (!is_bool($enabled)) {
-			throw new \InvalidArgumentException('Reminder enabled must be a boolean');
+		if (!is_bool($notifyEmployees) || !is_bool($notifyHr)
+			|| (array_key_exists('enabled', $settings) && !is_bool($settings['enabled']))) {
+			throw new \InvalidArgumentException('Reminder recipient choices must be booleans');
 		}
+		$enabled = $notifyEmployees || $notifyHr;
 		if (!is_int($graceDays) || $graceDays < 1 || $graceDays > 365) {
 			throw new \InvalidArgumentException('Reminder grace days must be an integer between 1 and 365');
 		}
@@ -58,7 +68,7 @@ class MissingEntryReminderSettings {
 
 		// An omitted date is initialized only for a newly enabled policy.
 		$startDate = array_key_exists('startDate', $settings) ? $settings['startDate'] : ($previousSettings['startDate'] ?? '');
-		if (!array_key_exists('startDate', $settings) && $enabled && $startDate === '' && !($previousSettings['enabled'] ?? false)) {
+		if (!array_key_exists('startDate', $settings) && $enabled && $startDate === '' && !self::normalize($previousSettings)['enabled']) {
 			$startDate = $todayDate;
 		}
 		if (!is_string($startDate) || ($startDate !== '' && !self::isValidDate($startDate)) || ($enabled && $startDate === '')) {
@@ -67,10 +77,24 @@ class MissingEntryReminderSettings {
 
 		return [
 			'enabled' => $enabled,
+			'notifyEmployees' => $notifyEmployees,
+			'notifyHr' => $notifyHr,
 			'graceDays' => $graceDays,
 			'weekdays' => self::normalizeWeekdays($weekdays),
 			'startDate' => $startDate,
 		];
+	}
+
+	/** Legacy rules used one switch; explicit recipient choices never fall back to it. */
+	private static function recipientChoices(array $settings): array {
+		if (array_key_exists('notifyEmployees', $settings) || array_key_exists('notifyHr', $settings)) {
+			return [
+				'notifyEmployees' => array_key_exists('notifyEmployees', $settings) ? $settings['notifyEmployees'] : false,
+				'notifyHr' => array_key_exists('notifyHr', $settings) ? $settings['notifyHr'] : false,
+			];
+		}
+		$legacyEnabled = array_key_exists('enabled', $settings) ? $settings['enabled'] : false;
+		return ['notifyEmployees' => $legacyEnabled, 'notifyHr' => $legacyEnabled];
 	}
 
 	private static function hasValidWeekdays(mixed $weekdays): bool {

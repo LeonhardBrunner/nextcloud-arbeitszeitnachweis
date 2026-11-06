@@ -11,8 +11,11 @@ use OCP\IRequest;
 use OCP\IGroupManager;
 use OCP\IUserSession;
 use OCP\IUserManager;
+use OCP\Lock\ILockingProvider;
+use OCP\Lock\LockedException;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCA\Timesheet\Service\MissingEntryReminderSettings;
+use OCA\Timesheet\Service\EmployeeBalanceNotificationSettings;
 use OCA\Timesheet\Service\MissingEntryReminderService;
 use OCA\Timesheet\Service\HrService;
 use OCA\Timesheet\Service\HrRuleAssignments;
@@ -40,123 +43,176 @@ class SettingsController extends Controller {
 		private ITimeFactory $timeFactory,
 		private HrService $hrService,
 		private IUserManager $userManager,
+		private \OCP\IAppConfig $sharedAppConfig,
+		private ILockingProvider $lockingProvider,
 	) {
 		parent::__construct($appName, $request);
 		$this->hrAssignments = new HrRuleAssignments($groupManager, $userManager);
 	}
 
-	// HR manages the shared policy; CSRF protection remains enabled for both writes.
-	#[NoAdminRequired]
+	// Access assignments belong to administrators; both save paths retain CSRF protection.
 	public function saveHrAccessRules(): DataResponse {
-		$currentUser = $this->userSession->getUser();
-		$currentUserId = $currentUser?->getUID();
+		$currentUserId = $this->userSession->getUser()?->getUID();
+		if (!$currentUserId || !$this->groupManager->isAdmin($currentUserId)) {
+			return new DataResponse(['message' => 'Forbidden'], 403);
+		}
+		return $this->saveScopedRules('assignments', $currentUserId);
+	}
+
+	#[NoAdminRequired]
+	public function saveHrPolicyRules(): DataResponse {
+		$currentUserId = $this->userSession->getUser()?->getUID();
 		if (!$currentUserId || !$this->hrService->isHr($currentUserId)) {
 			return new DataResponse(['message' => 'Forbidden'], 403);
 		}
+		return $this->saveScopedRules('policy', $currentUserId);
+	}
 
-		$rulesJson = (string)$this->request->getParam('rules', '[]');
-		$submittedRules = json_decode($rulesJson, true);
-		if (!is_array($submittedRules)) {
+	private function saveScopedRules(string $scope, string $currentUserId): DataResponse {
+		$rulesJson = $this->request->getParam('rules');
+		$submittedRules = is_string($rulesJson) ? json_decode($rulesJson, true) : null;
+		if (!is_array($submittedRules) || !array_is_list($submittedRules) || !str_starts_with(ltrim($rulesJson), '[')) {
 			return new DataResponse(['message' => 'Invalid rules'], 400);
 		}
-		// Stable rule IDs identify enrollment; two rules must never share that state.
-		$submittedRuleIds = [];
+		$expectedRevision = $this->request->getParam('rulesRevision');
+		if (!is_string($expectedRevision) || preg_match('/\A[0-9a-f]{64}\z/i', $expectedRevision) !== 1) {
+			return new DataResponse(['message' => 'Invalid rules revision'], 400);
+		}
+		// Stable identifiers preserve enrollment when either editor saves the same rule.
+		$submittedById = [];
 		foreach ($submittedRules as $rule) {
-			$ruleId = is_array($rule) ? trim((string)($rule['id'] ?? '')) : '';
-			if ($ruleId !== '' && isset($submittedRuleIds[$ruleId])) {
+			if (!is_array($rule) || !is_scalar($rule['id'] ?? null) || trim((string)$rule['id']) === '') {
+				return new DataResponse(['message' => 'Invalid rules'], 400);
+			}
+			$ruleId = trim((string)$rule['id']);
+			if (isset($submittedById[$ruleId])) {
 				return new DataResponse(['message' => 'Duplicate rule identifiers'], 400);
 			}
-			$submittedRuleIds[$ruleId] = true;
+			$submittedById[$ruleId] = $rule;
 		}
 
-		$previousRulesJson = $this->appConfig->getAppValueString('hr_access_rules');
-		$previousRules = json_decode($previousRulesJson, true);
-		$previousAssignmentRules = is_array($previousRules) ? $previousRules : [];
-		$previousRules = is_array($previousRules) ? $this->sanitizeRules($previousRules) : [];
-
+		$lockKey = hash('sha256', 'timesheet:hr-access-rules');
 		try {
-			$submittedRules = $this->validateAssignmentSettings($submittedRules, $previousAssignmentRules);
-			$submittedRules = $this->validateReminderSettings($submittedRules, $previousRules);
-			$sanitizedRules = $this->sanitizeRules($submittedRules, true);
-			$hasHrAssignment = $this->hasRemainingHrAssignment($sanitizedRules);
-		} catch (\InvalidArgumentException $invalidSettings) {
-			return new DataResponse(['message' => $invalidSettings->getMessage()], 400);
-		} catch (\Throwable $validationError) {
-			return new DataResponse(['message' => 'Saving reminder settings failed'], 500);
-		}
-		// A group or enabled individual keeps future policy changes reachable.
-		if (!$hasHrAssignment) {
-			return new DataResponse(['message' => 'At least one HR group or enabled HR account must remain assigned.'], 400);
-		}
-
-		// Each employee group may belong to only one access rule.
-		$duplicateGroupIds = $this->findDuplicateUserGroups($sanitizedRules);
-		if (!empty($duplicateGroupIds)) {
-			return new DataResponse([
-				'message' => 'Duplicate employee groups in rules',
-				'groups' => array_values($duplicateGroupIds),
-			], 400);
-		}
-
-		// Record the initial membership before an enabled rule becomes visible to the job.
-		try {
-			$this->missingEntryReminderService->prepareRuleChanges($previousRules, $sanitizedRules);
-			$this->appConfig->setAppValueString('hr_access_rules', json_encode($sanitizedRules, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+			$this->lockingProvider->acquireLock($lockKey, ILockingProvider::LOCK_EXCLUSIVE);
+		} catch (LockedException) {
+			return $this->currentRulesConflict($scope, $currentUserId);
 		} catch (\Throwable $saveError) {
 			return new DataResponse(['message' => 'Saving reminder settings failed'], 500);
 		}
 
-		return new DataResponse(['rules' => $sanitizedRules]);
+		try {
+			// Authentication can preload app settings; discard that snapshot under the shared lock.
+			$this->sharedAppConfig->clearCache();
+			if (!$this->canSaveScope($scope, $currentUserId)) {
+				return new DataResponse(['message' => 'Forbidden'], 403);
+			}
+			$previousRulesJson = $this->appConfig->getAppValueString('hr_access_rules');
+			$decodedRules = json_decode($previousRulesJson, true);
+			$previousRules = is_array($decodedRules) ? $this->sanitizeRules($decodedRules) : [];
+			if (!hash_equals(hash('sha256', $previousRulesJson), strtolower($expectedRevision))) {
+				return $this->rulesConflict($previousRules, $previousRulesJson);
+			}
+
+			$mergedRules = $scope === 'assignments'
+				? $this->mergeAssignmentChanges($submittedById, $previousRules)
+				: $this->mergePolicyChanges($submittedById, $previousRules);
+			$sanitizedRules = $this->sanitizeRules($mergedRules, true);
+			$duplicateGroupIds = $this->findDuplicateUserGroups($sanitizedRules);
+			if ($duplicateGroupIds !== []) {
+				return new DataResponse(['message' => 'Duplicate employee groups in rules', 'groups' => array_values($duplicateGroupIds)], 400);
+			}
+			// Enrollment finishes before an updated employee assignment becomes visible to the job.
+			$this->missingEntryReminderService->prepareRuleChanges($previousRules, $sanitizedRules);
+			$savedRulesJson = json_encode($sanitizedRules, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+			$this->appConfig->setAppValueString('hr_access_rules', $savedRulesJson);
+			return new DataResponse(['rules' => $sanitizedRules, 'rulesRevision' => hash('sha256', $savedRulesJson)]);
+		} catch (\InvalidArgumentException $invalidSettings) {
+			return new DataResponse(['message' => $invalidSettings->getMessage()], 400);
+		} catch (\Throwable $saveError) {
+			return new DataResponse(['message' => 'Saving reminder settings failed'], 500);
+		} finally {
+			$this->lockingProvider->releaseLock($lockKey, ILockingProvider::LOCK_EXCLUSIVE);
+		}
 	}
 
-	/** Older tabs may omit the new fields; omission never resets restricted mail delivery. */
-	private function validateAssignmentSettings(array $rules, array $previousRules): array {
-		$previousById = [];
-		foreach ($previousRules as $previousRule) {
-			if (is_array($previousRule) && is_scalar($previousRule['id'] ?? null)) {
-				$previousById[trim((string)$previousRule['id'])] = $previousRule;
-			}
+	private function canSaveScope(string $scope, string $userId): bool {
+		if ($scope === 'assignments') {
+			return $this->groupManager->isAdmin($userId);
 		}
-		foreach ($rules as &$rule) {
-			if (!is_array($rule) || trim((string)($rule['id'] ?? '')) === '') {
-				continue;
-			}
-			$previous = $previousById[trim((string)$rule['id'])] ?? [];
-			foreach (['hrUsers', 'mailRecipients'] as $field) {
-				if (!array_key_exists($field, $rule) && array_key_exists($field, $previous)) {
-					$rule[$field] = $previous[$field];
-				}
-			}
-			$rule = array_replace($rule, $this->hrAssignments->validateForSave($rule));
-		}
-		unset($rule);
-		return $rules;
+		return (new HrService($this->appConfig, $this->userSession, $this->groupManager, $this->userManager))->isHr($userId);
 	}
 
-	private function hasRemainingHrAssignment(array $rules): bool {
-		foreach ($rules as $rule) {
-			if ($rule['hrGroups'] !== []) {
-				return true;
+	private function currentRulesConflict(string $scope, string $userId): DataResponse {
+		try {
+			$this->sharedAppConfig->clearCache();
+			if (!$this->canSaveScope($scope, $userId)) {
+				return new DataResponse(['message' => 'Forbidden'], 403);
 			}
-			foreach ($rule['hrUsers'] as $userId) {
-				if ($this->userManager->get($userId)?->isEnabled()) {
-					return true;
-				}
-			}
+			$rawRules = $this->appConfig->getAppValueString('hr_access_rules');
+			$rules = json_decode($rawRules, true);
+			return $this->rulesConflict(is_array($rules) ? $this->sanitizeRules($rules) : [], $rawRules);
+		} catch (\Throwable) {
+			return new DataResponse(['message' => 'Saving reminder settings failed'], 500);
 		}
-		return false;
 	}
 
-	/** Bounded account search is available only to accounts that manage HR rules. */
+	private function rulesConflict(array $rules, string $rawRules): DataResponse {
+		return new DataResponse(['code' => 'rules_conflict', 'rules' => $rules, 'rulesRevision' => hash('sha256', $rawRules)], 409);
+	}
+
+	/** Assignment edits cannot alter existing time rules or broaden restricted mail delivery. */
+	private function mergeAssignmentChanges(array $submittedById, array $previousRules): array {
+		$previousById = array_column($previousRules, null, 'id');
+		$mergedRules = [];
+		foreach ($submittedById as $ruleId => $submitted) {
+			$previous = $previousById[$ruleId] ?? $this->sanitizeRules([['id' => $ruleId]])[0];
+			$assignments = $this->hrAssignments->validateForSave([
+				'hrGroups' => $submitted['hrGroups'] ?? $previous['hrGroups'],
+				'hrUsers' => $submitted['hrUsers'] ?? $previous['hrUsers'],
+			]);
+			$mergedRules[] = array_replace($previous, [
+				'id' => (string)$ruleId,
+				'hrGroups' => $assignments['hrGroups'],
+				'hrUsers' => $assignments['hrUsers'],
+				'userGroups' => $this->cleanGroupList(is_array($submitted['userGroups'] ?? null) ? $submitted['userGroups'] : []),
+				'priority' => $this->sanitizeRuleThresholds($submitted)['priority'],
+			]);
+		}
+		return $mergedRules;
+	}
+
+	/** HR edits use stored assignments and order, regardless of protected fields in the request. */
+	private function mergePolicyChanges(array $submittedById, array $previousRules): array {
+		$previousIds = array_column($previousRules, 'id');
+		if (count($submittedById) !== count($previousIds) || array_diff(array_keys($submittedById), $previousIds) !== []) {
+			throw new \InvalidArgumentException('HR may only change existing rule settings.');
+		}
+		$policyFields = ['breakShortMinutes', 'breakShortHours', 'breakLongMinutes', 'breakLongHours', 'maxHours', 'missingEntryReminders', 'employeeBalanceNotifications'];
+		$mergedRules = [];
+		foreach ($previousRules as $previous) {
+			$submitted = $submittedById[$previous['id']];
+			$merged = array_replace($previous, array_intersect_key($submitted, array_flip($policyFields)));
+			$merged['employeeBalanceNotifications'] = EmployeeBalanceNotificationSettings::validateForSave($merged['employeeBalanceNotifications']);
+			if (array_key_exists('mailRecipients', $submitted) && $submitted['mailRecipients'] !== $previous['mailRecipients']) {
+				$validated = $this->hrAssignments->validateForSave(array_replace($previous, ['mailRecipients' => $submitted['mailRecipients']]));
+				$merged['mailRecipients'] = $validated['mailRecipients'];
+			}
+			$mergedRules[] = $merged;
+		}
+		return $this->validateReminderSettings($mergedRules, $previousRules);
+	}
+
+	/** Directory searches follow the editor's scope; mail candidates use stored assignments. */
 	#[NoAdminRequired]
 	#[NoCSRFRequired]
 	public function searchPeople(): DataResponse {
 		$userId = $this->userSession->getUser()?->getUID();
-		if (!$userId || !$this->hrService->isHr($userId)) {
-			return new DataResponse(['message' => 'Forbidden'], 403);
-		}
 		$search = $this->request->getParam('search', '');
 		$purpose = $this->request->getParam('purpose', 'responsible');
+		$isAllowed = $userId && ($purpose === 'responsible' ? $this->groupManager->isAdmin($userId) : $this->hrService->isHr($userId));
+		if (!$isAllowed) {
+			return new DataResponse(['message' => 'Forbidden'], 403);
+		}
 		if (!is_string($search) || mb_strlen($search) > 200 || !in_array($purpose, ['responsible', 'mail'], true)) {
 			return new DataResponse(['message' => 'Invalid account search'], 400);
 		}
@@ -165,13 +221,19 @@ class SettingsController extends Controller {
 			return new DataResponse(['users' => [], 'hasMore' => false]);
 		}
 		try {
-			$groupIds = $this->request->getParam('hrGroups', []);
-			$directUserIds = $this->request->getParam('hrUsers', []);
-			if (!is_array($groupIds) || !is_array($directUserIds)) {
-				return new DataResponse(['message' => 'Invalid account search'], 400);
+			if ($purpose === 'mail') {
+				$ruleId = $this->request->getParam('ruleId');
+				if (!is_string($ruleId) || trim($ruleId) === '') {
+					return new DataResponse(['message' => 'Invalid account search'], 400);
+				}
+				$storedRules = json_decode($this->appConfig->getAppValueString('hr_access_rules'), true);
+				$storedById = array_column(is_array($storedRules) ? $this->sanitizeRules($storedRules) : [], null, 'id');
+				if (!isset($storedById[trim($ruleId)])) {
+					return new DataResponse(['message' => 'Invalid account search'], 400);
+				}
 			}
 			$candidates = $purpose === 'mail'
-				? array_map(fn(string $id) => $this->userManager->get($id), $this->hrAssignments->getResponsibleUserIds(['hrGroups' => $groupIds, 'hrUsers' => $directUserIds]))
+				? array_map(fn(string $id) => $this->userManager->get($id), $this->hrAssignments->getResponsibleUserIds($storedById[trim($ruleId)]))
 				: $this->userManager->searchDisplayName($search, 21, 0);
 			$users = [];
 			$needle = mb_strtolower($search);
@@ -239,6 +301,7 @@ class SettingsController extends Controller {
 				...($assignmentsValidated ? array_intersect_key($rule, array_flip(['hrGroups', 'hrUsers', 'mailRecipients'])) : $this->hrAssignments->normalize($rule)),
 				'userGroups' => $userGroups,
 				'missingEntryReminders' => MissingEntryReminderSettings::normalize($rule['missingEntryReminders'] ?? null),
+				'employeeBalanceNotifications' => EmployeeBalanceNotificationSettings::normalize($rule['employeeBalanceNotifications'] ?? null),
 			], $this->sanitizeRuleThresholds($rule));
 		}
 		return $sanitizedRules;

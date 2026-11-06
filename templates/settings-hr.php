@@ -1,28 +1,54 @@
 <?php
 	$allGroups = $_['allGroups'] ?? [];
+	$managesAssignments = ($_['settingsScope'] ?? 'policy') === 'assignments';
 	$hrAccessRules = $_['hrAccessRules'] ?? [];
 	$hrPeople = $_['hrPeople'] ?? [];
 	$countSpecialDaysAsOvertime = (bool)($_['countSpecialDaysAsOvertime'] ?? false);
 	$embeddedJsonFlags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 ?>
 
-<div id="timesheet-hr-settings" class="section">
-	<!-- HR access rules -->
-	<h2><?php p($l->t('Timesheet settings')); ?></h2>
+<div id="timesheet-hr-settings" class="section"
+	data-settings-scope="<?php p($managesAssignments ? 'assignments' : 'policy'); ?>"
+	data-rules-revision="<?php p($_['rulesRevision'] ?? ''); ?>">
+	<!-- Assignment and policy forms share the rule layout, with separate controls. -->
+	<div class="ts-settings-heading">
+		<h2><?php p($l->t('Timesheet settings')); ?></h2>
+		<button type="button" class="ts-rules-help-toggle" id="timesheet-rules-help-toggle"
+			aria-expanded="false" aria-controls="timesheet-rules-help"
+			aria-label="<?php p($l->t('Group rules explained')); ?>"
+			title="<?php p($l->t('Group rules explained')); ?>">
+			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+				<circle cx="12" cy="12" r="9" />
+				<path d="M9.5 9a2.5 2.5 0 0 1 5 .3c0 1.8-2.5 2-2.5 3.7" />
+				<path d="M12 16.5h.01" />
+			</svg>
+		</button>
+	</div>
+	<!-- The help opens in the page flow so it cannot cover the rule controls. -->
+	<div id="timesheet-rules-help" class="ts-rules-help" role="region" aria-label="<?php p($l->t('Group rules explained')); ?>" hidden>
+		<p><?php p($l->t('Group rules apply to the assigned employees. Administrators manage HR access and employee groups.')); ?></p>
+		<?php if ($managesAssignments): ?>
+			<p><?php p($l->t('HR groups contain responsible HR accounts. Employee groups contain the employees they manage.')); ?></p>
+		<?php endif; ?>
+		<p><strong><?php p($l->t('Time rules')); ?>:</strong> <?php p($l->t('The rule with the lowest priority number applies. Equal priorities keep the first saved rule.')); ?></p>
+		<p><?php p($l->t('Missing-entry reminders: checked daily; employee and HR delivery can be enabled separately. Successful reminders are at least seven days apart.')); ?></p>
+		<p><?php p($l->t('Employee balance emails: sent on Mondays when the configured overtime or negative-hours threshold is exceeded.')); ?></p>
+		<p><?php p($l->t('Personal HR emails are configured in the HR overview and sent on Mondays. The group reminder switches do not control these emails.')); ?></p>
+		<p><?php p($l->t('Email selection does not change HR access.')); ?></p>
+		<p><?php p($l->t('Freelancers and inactive employees receive no warning emails.')); ?></p>
+	</div>
 
-	<p class="ts-hint">
-		<?php p($l->t('Define access rules: HR groups and individual accounts may access timesheets of the employee groups. Email recipients are selected separately. Time rules apply to the employee groups.')); ?>
-	</p>
-
-	<?php if (empty($allGroups)) : ?>
+	<?php if ($managesAssignments && empty($allGroups)) : ?>
 		<div class="ts-empty"><?php p($l->t('No groups found. Create at least one group to configure rules.')); ?></div>
 	<?php endif; ?>
 
 	<div id="timesheet-hr-rules"></div>
 
+	<?php if ($managesAssignments): ?>
 	<button type="button" class="button" id="timesheet-add-hr-rule">
 		<?php p($l->t('Add new rule')); ?>
 	</button>
+	<?php endif; ?>
 
 	<!-- Initial data for the HR rule editor -->
 	<script id="timesheet-all-groups-data" type="application/json">
@@ -37,6 +63,7 @@
 		<?php print_unescaped(json_encode(array_values($hrPeople), $embeddedJsonFlags)); ?>
 	</script>
 
+	<?php if (!$managesAssignments): ?>
 	<hr class="ts-divider" />
 
 	<!-- Overtime calculation setting -->
@@ -57,8 +84,66 @@
 		</div>
 	</div>
 
-	<!-- HR settings styles -->
+	<?php endif; ?>
+
+	<!-- Shared settings styles -->
 	<style>
+		/* Inline help uses neutral controls and leaves every rule visible. */
+		#timesheet-hr-settings .ts-settings-heading {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 12px;
+		}
+
+		#timesheet-hr-settings .ts-settings-heading h2 {
+			margin: 0;
+		}
+
+		#timesheet-hr-settings .ts-rules-help-toggle {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			flex-shrink: 0;
+			width: 36px;
+			height: 36px;
+			min-height: 36px;
+			padding: 6px;
+			margin: 0;
+			background: var(--color-background-dark);
+			color: var(--color-main-text);
+			border: 1px solid var(--color-border);
+		}
+
+		#timesheet-hr-settings .ts-rules-help-toggle:hover {
+			background: var(--color-background-hover);
+		}
+
+		#timesheet-hr-settings .ts-rules-help-toggle:focus-visible {
+			outline: 2px solid var(--color-main-text);
+			outline-offset: 2px;
+		}
+
+		#timesheet-hr-settings .ts-rules-help {
+			box-sizing: border-box;
+			max-width: 75ch;
+			margin: 0 0 16px;
+			padding: 12px 16px;
+			border: 1px solid var(--color-border);
+			border-radius: 8px;
+			background: var(--color-main-background);
+			line-height: 1.5;
+		}
+
+		#timesheet-hr-settings .ts-rules-help p {
+			margin: 0 0 8px;
+		}
+
+		#timesheet-hr-settings .ts-rules-help p:last-child {
+			margin-bottom: 0;
+		}
+
 		/* Rule list and cards */
 		#timesheet-hr-rules {
 			margin: 12px 0 10px;
@@ -268,6 +353,21 @@
 
 		.ts-reminder-settings input[type="number"] {
 			width: 100px;
+		}
+
+		/* Balance thresholds remain compact when the rule columns stack. */
+		#timesheet-hr-settings .ts-balance-settings .ts-inline {
+			display: flex;
+			align-items: center;
+			flex-wrap: wrap;
+			gap: 6px;
+			margin-top: 6px;
+		}
+
+		#timesheet-hr-settings .ts-balance-settings input[type="number"] {
+			box-sizing: border-box;
+			width: 110px;
+			max-width: 100%;
 		}
 
 		/* General settings */

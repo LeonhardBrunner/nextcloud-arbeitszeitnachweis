@@ -9,6 +9,7 @@ use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IUserManager;
 use OCP\AppFramework\Services\IAppConfig;
 use OCA\Timesheet\Service\HrNotificationService;
+use OCA\Timesheet\Service\EmployeeBalanceNotificationService;
 use OCP\IUser;
 use Psr\Log\LoggerInterface;
 use OCP\L10N\IFactory;
@@ -29,7 +30,8 @@ class HrNotificationJob extends TimedJob {
 		HrNotificationService $notificationService,
 		IAppConfig $config,
 		LoggerInterface $logger,
-		IFactory $l10nFactory
+		IFactory $l10nFactory,
+		private EmployeeBalanceNotificationService $employeeBalanceNotifications,
 	) {
 		parent::__construct($time);
 
@@ -61,6 +63,13 @@ class HrNotificationJob extends TimedJob {
 			'weekday' => (int)$currentTime->format('N'),
 			'date' => $currentTime->format(\DATE_ATOM),
 		]);
+
+		// Employee delivery runs even when no personal HR summary is enabled.
+		try {
+			$this->logger->info('Employee balance notification check completed.', $this->employeeBalanceNotifications->sendNotifications());
+		} catch (\Throwable $employeeError) {
+			$this->logger->error('Employee balance notification check failed.', ['exception' => $employeeError]);
+		}
 
 		$notificationsByHrUser = $this->notificationService->doCron();
 		if (empty($notificationsByHrUser)) {

@@ -107,6 +107,8 @@ Mit Timesheet erhalten Mitarbeitende eine einfache Möglichkeit, ihre Arbeitszei
 	</dependencies>
 
 	<settings>
+		<admin>OCA\Timesheet\Settings\AdminSettings</admin>
+		<admin-section>OCA\Timesheet\Settings\AdminSection</admin-section>
 		<personal>OCA\Timesheet\Settings\HrSettings</personal>
 		<personal-section>OCA\Timesheet\Settings\HrSection</personal-section>
 	</settings>
