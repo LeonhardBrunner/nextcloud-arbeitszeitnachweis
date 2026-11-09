@@ -1,6 +1,16 @@
 (function () {
 	'use strict';
 
+	// The explanation stays available when the group settings could not be loaded.
+	const rulesHelpToggle = document.getElementById('timesheet-rules-help-toggle');
+	const rulesHelp = document.getElementById('timesheet-rules-help');
+	if (rulesHelpToggle && rulesHelp) {
+		rulesHelpToggle.addEventListener('click', () => {
+			rulesHelp.hidden = !rulesHelp.hidden;
+			rulesHelpToggle.setAttribute('aria-expanded', String(!rulesHelp.hidden));
+		});
+	}
+
 	const settingsRoot = document.getElementById('timesheet-hr-settings');
 	if (!settingsRoot) {
 		return;
@@ -8,6 +18,13 @@
 	const managesAssignments = settingsRoot.dataset.settingsScope === 'assignments';
 	const managesPolicy = settingsRoot.dataset.settingsScope === 'policy';
 	if (!managesAssignments && !managesPolicy) return;
+	const policySection = settingsRoot.dataset.policySection || '';
+	if (policySection && !['timeRules', 'notifications'].includes(policySection)) return;
+	const managesTimeRules = managesPolicy && policySection !== 'notifications';
+	const managesNotifications = managesPolicy && policySection !== 'timeRules';
+	const selectsNotificationRule = managesPolicy && policySection === 'notifications';
+	const ruleSelector = document.getElementById('timesheet-notification-rule');
+	let selectedRuleId = '';
 	let savedRulesRevision = settingsRoot.dataset.rulesRevision || '';
 	let saveGeneration = 0;
 
@@ -38,14 +55,6 @@
 	const rulesContainer = document.getElementById('timesheet-hr-rules');
 	const addRuleButton = document.getElementById('timesheet-add-hr-rule');
 	const specialDaysOvertime = document.getElementById('timesheet-specialdays-overtime');
-	const rulesHelpToggle = document.getElementById('timesheet-rules-help-toggle');
-	const rulesHelp = document.getElementById('timesheet-rules-help');
-	if (rulesHelpToggle && rulesHelp) {
-		rulesHelpToggle.addEventListener('click', () => {
-			rulesHelp.hidden = !rulesHelp.hidden;
-			rulesHelpToggle.setAttribute('aria-expanded', String(!rulesHelp.hidden));
-		});
-	}
 
 	function notify(message) {
 		try {
@@ -256,6 +265,7 @@
 		const formData = new FormData();
 		formData.append('rules', JSON.stringify(nextRules));
 		formData.append('rulesRevision', savedRulesRevision);
+		if (managesPolicy && policySection) formData.append('policySection', policySection);
 		const response = await fetch(url, {
 			method: 'POST',
 			headers: {
@@ -335,8 +345,10 @@
 		}).join('');
 	}
 
+	// Notification tables keep each label, control and explanatory note in one row.
 	function renderReminderSettings(rule) {
 		const settings = normalizeReminderSettings(rule.missingEntryReminders);
+		const identifier = `ts-reminder-${encodeURIComponent(rule.id)}`;
 		const weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 		const weekdayInputs = weekdayNames.map((name, index) => {
 			const weekday = index + 1;
@@ -344,23 +356,41 @@
 		}).join('');
 		return `
 			<div class="ts-rule-section ts-reminder-settings">
-				<div class="ts-rule-section-title">${escapeHtml(t('timesheet', 'Missing time entry reminders'))}</div>
-				<div><label class="ts-reminder-toggle"><input type="checkbox" class="ts-reminder-input" data-reminder-key="notifyEmployees"${settings.notifyEmployees ? ' checked' : ''}><span>${escapeHtml(t('timesheet', 'Send reminders to employees'))}</span></label></div>
-				<div><label class="ts-reminder-toggle"><input type="checkbox" class="ts-reminder-input" data-reminder-key="notifyHr"${settings.notifyHr ? ' checked' : ''}><span>${escapeHtml(t('timesheet', 'Send reminders to responsible HR'))}</span></label></div>
-				<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Checks run daily. Open dates are collected in one email, with at least seven days between emails of the same kind.'))}</p>
-				<div class="ts-rule-grid ts-rule-grid-compact">
-					<div class="ts-rule-col">
-						<label>${escapeHtml(t('timesheet', 'Wait before the first reminder'))}
-							<span class="ts-inline"><input type="number" min="1" max="365" step="1" class="ts-reminder-input" data-reminder-key="graceDays" value="${settings.graceDays}"><span>${escapeHtml(t('timesheet', 'calendar days'))}</span></span>
-						</label>
-					</div>
-					<div class="ts-rule-col">
-						<label>${escapeHtml(t('timesheet', 'Check entries starting on'))}<input type="date" class="ts-reminder-input" data-reminder-key="startDate" value="${escapeHtml(settings.startDate)}"></label>
-					</div>
-				</div>
-				<div class="ts-setting-desc">${escapeHtml(t('timesheet', 'Days that require a time entry; public holidays in the employee state are excluded.'))}</div>
-				<div class="ts-reminder-weekdays">${weekdayInputs}</div>
-				<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Existing members use the chosen start date. Later members are checked from their first detection. A state is required for the holiday check.'))}</p>
+				<table class="ts-notification-table" role="table">
+					<caption>${escapeHtml(t('timesheet', 'Missing time entry reminders'))}</caption>
+					<colgroup><col class="ts-notification-label-column" /><col class="ts-notification-value-column" /></colgroup>
+					<tbody role="rowgroup">
+						<tr role="row">
+							<th role="rowheader" scope="row"><label for="${identifier}-employees">${escapeHtml(t('timesheet', 'Send reminders to employees'))}</label></th>
+							<td role="cell"><input type="checkbox" id="${identifier}-employees" class="ts-reminder-input" data-reminder-key="notifyEmployees" aria-describedby="${identifier}-delivery-hint"${settings.notifyEmployees ? ' checked' : ''}></td>
+						</tr>
+						<tr role="row">
+							<th role="rowheader" scope="row"><label for="${identifier}-hr">${escapeHtml(t('timesheet', 'Send reminders to responsible HR'))}</label></th>
+							<td role="cell">
+								<input type="checkbox" id="${identifier}-hr" class="ts-reminder-input" data-reminder-key="notifyHr" aria-describedby="${identifier}-delivery-hint"${settings.notifyHr ? ' checked' : ''}>
+								<p id="${identifier}-delivery-hint" class="ts-setting-desc">${escapeHtml(t('timesheet', 'Checks run daily. Open dates are collected in one email, with at least seven days between emails of the same kind.'))}</p>
+							</td>
+						</tr>
+						<tr role="row">
+							<th role="rowheader" scope="row"><label for="${identifier}-grace-days">${escapeHtml(t('timesheet', 'Wait before the first reminder'))}</label></th>
+							<td role="cell"><div class="ts-inline"><input type="number" id="${identifier}-grace-days" min="1" max="365" step="1" class="ts-reminder-input" data-reminder-key="graceDays" value="${settings.graceDays}"><span>${escapeHtml(t('timesheet', 'calendar days'))}</span></div></td>
+						</tr>
+						<tr role="row">
+							<th role="rowheader" scope="row"><label for="${identifier}-start-date">${escapeHtml(t('timesheet', 'Check entries starting on'))}</label></th>
+							<td role="cell">
+								<input type="date" id="${identifier}-start-date" class="ts-reminder-input" data-reminder-key="startDate" aria-describedby="${identifier}-start-hint" value="${escapeHtml(settings.startDate)}">
+								<p id="${identifier}-start-hint" class="ts-setting-desc">${escapeHtml(t('timesheet', 'Existing members use the chosen start date. Later members are checked from their first detection. A state is required for the holiday check.'))}</p>
+							</td>
+						</tr>
+						<tr role="row">
+							<th role="rowheader" scope="row" id="${identifier}-weekdays-label">${escapeHtml(t('timesheet', 'Weekdays'))}</th>
+							<td role="cell">
+								<div class="ts-reminder-weekdays" role="group" aria-labelledby="${identifier}-weekdays-label" aria-describedby="${identifier}-weekdays-hint">${weekdayInputs}</div>
+								<p id="${identifier}-weekdays-hint" class="ts-setting-desc">${escapeHtml(t('timesheet', 'Days that require a time entry; public holidays in the employee state are excluded.'))}</p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
 			</div>`;
 	}
 
@@ -368,20 +398,26 @@
 		const settings = normalizeEmployeeBalanceNotifications(rule.employeeBalanceNotifications);
 		const identifier = `ts-balance-${encodeURIComponent(rule.id)}`;
 		const renderControl = (enabledKey, thresholdKey, label) => `
-			<div class="ts-rule-col">
-				<label class="ts-reminder-toggle"><input type="checkbox" class="ts-balance-input" data-balance-key="${enabledKey}"${settings[enabledKey] ? ' checked' : ''}><span>${escapeHtml(t('timesheet', label))}</span></label>
-				<label for="${identifier}-${thresholdKey}" class="ts-inline">
-					<span>${escapeHtml(t('timesheet', 'Threshold'))}</span>
-					<input type="number" id="${identifier}-${thresholdKey}" min="0" max="8760" step="0.25" class="ts-balance-input" data-balance-key="${thresholdKey}" value="${settings[thresholdKey] / 60}" aria-label="${escapeHtml(t('timesheet', label) + ': ' + t('timesheet', 'Threshold') + ' (' + t('timesheet', 'hours') + ')')}">
-					<span>${escapeHtml(t('timesheet', 'hours'))}</span>
-				</label>
-			</div>`;
+			<tr role="row">
+				<th role="rowheader" scope="row"><label for="${identifier}-${enabledKey}">${escapeHtml(t('timesheet', label))}</label></th>
+				<td role="cell"><div class="ts-notification-balance-controls">
+					<input type="checkbox" id="${identifier}-${enabledKey}" class="ts-balance-input" data-balance-key="${enabledKey}"${settings[enabledKey] ? ' checked' : ''}>
+					<label for="${identifier}-${thresholdKey}" class="ts-inline">
+						<span>${escapeHtml(t('timesheet', 'Threshold'))}</span>
+						<input type="number" id="${identifier}-${thresholdKey}" min="0" max="8760" step="0.25" class="ts-balance-input" data-balance-key="${thresholdKey}" value="${settings[thresholdKey] / 60}" aria-label="${escapeHtml(t('timesheet', label) + ': ' + t('timesheet', 'Threshold') + ' (' + t('timesheet', 'hours') + ')')}">
+						<span>${escapeHtml(t('timesheet', 'hours'))}</span>
+					</label>
+				</div></td>
+			</tr>`;
 		return `<div class="ts-rule-section ts-balance-settings">
-			<div class="ts-rule-section-title">${escapeHtml(t('timesheet', 'Employee balance notifications'))}</div>
-			<div class="ts-rule-grid ts-rule-grid-compact">
+			<table class="ts-notification-table" role="table">
+				<caption>${escapeHtml(t('timesheet', 'Employee balance notifications'))}</caption>
+				<colgroup><col class="ts-notification-label-column" /><col class="ts-notification-value-column" /></colgroup>
+				<tbody role="rowgroup">
 				${renderControl('overtimeEnabled', 'overtimeThresholdMinutes', 'Notify employees about overtime')}
 				${renderControl('negativeOvertimeEnabled', 'negativeOvertimeThresholdMinutes', 'Notify employees about negative hours')}
-			</div>
+				</tbody>
+			</table>
 		</div>`;
 	}
 
@@ -400,13 +436,13 @@
 		}).join('');
 	}
 
-	function renderPeoplePicker(rule, purpose) {
+	function renderPeoplePicker(rule, purpose, showLabel = true) {
 		const identifier = `ts-person-${encodeURIComponent(rule.id)}-${purpose}`;
 		const isResponsible = purpose === 'responsible';
 		const selectedIds = isResponsible ? rule.hrUsers : rule.mailRecipients.userIds;
 		const label = t('timesheet', isResponsible ? 'Individual HR accounts' : 'Selected HR accounts');
 		return `<div class="ts-person-picker" data-person-picker="${purpose}">
-			<label for="${identifier}-search">${escapeHtml(label)}</label>
+			${showLabel ? `<label for="${identifier}-search">${escapeHtml(label)}</label>` : ''}
 			<div class="ts-chips">${renderPeopleChips(selectedIds, purpose)}</div>
 			<input type="search" id="${identifier}-search" class="ts-person-search" data-person-purpose="${purpose}" placeholder="${escapeHtml(t('timesheet', 'Search by name or account ID'))}" autocomplete="off" aria-describedby="${identifier}-status">
 			<div class="ts-person-choice">
@@ -421,17 +457,29 @@
 		const selectedMode = rule.mailRecipients.mode === 'selected';
 		const identifier = `ts-mail-mode-${encodeURIComponent(rule.id)}`;
 		return `<div class="ts-rule-section ts-mail-recipient-settings">
-			<label for="${identifier}" class="ts-rule-section-title">${escapeHtml(t('timesheet', 'Email recipients'))}</label>
-			<select id="${identifier}" class="ts-mail-recipient-mode">
-				<option value="all"${selectedMode ? '' : ' selected'}>${escapeHtml(t('timesheet', 'All responsible HR accounts'))}</option>
-				<option value="selected"${selectedMode ? ' selected' : ''}>${escapeHtml(t('timesheet', 'Selected HR accounts'))}</option>
-			</select>
-			<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Email selection does not change HR access.'))}</p>
-			<div class="ts-selected-mail-recipients"${selectedMode ? '' : ' hidden'}>
-				<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Only selected responsible accounts receive HR summaries. Employee reminders are unchanged.'))}</p>
-				${renderPeoplePicker(rule, 'mail')}
-				${rule.mailRecipients.userIds.length ? '' : `<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'No selected accounts means no HR summary for this rule.'))}</p>`}
-			</div>
+			<table class="ts-notification-table" role="table" aria-label="${escapeHtml(t('timesheet', 'Email recipients'))}">
+				<colgroup><col class="ts-notification-label-column" /><col class="ts-notification-value-column" /></colgroup>
+				<tbody role="rowgroup">
+					<tr role="row">
+						<th role="rowheader" scope="row"><label for="${identifier}">${escapeHtml(t('timesheet', 'Email recipients'))}</label></th>
+						<td role="cell">
+							<select id="${identifier}" class="ts-mail-recipient-mode" aria-describedby="${identifier}-hint">
+								<option value="all"${selectedMode ? '' : ' selected'}>${escapeHtml(t('timesheet', 'All responsible HR accounts'))}</option>
+								<option value="selected"${selectedMode ? ' selected' : ''}>${escapeHtml(t('timesheet', 'Selected HR accounts'))}</option>
+							</select>
+							<p id="${identifier}-hint" class="ts-setting-desc">${escapeHtml(t('timesheet', 'Email selection does not change HR access.'))}</p>
+						</td>
+					</tr>
+					<tr role="row" class="ts-selected-mail-recipients"${selectedMode ? '' : ' hidden'}>
+						<th role="rowheader" scope="row"><label for="ts-person-${encodeURIComponent(rule.id)}-mail-search">${escapeHtml(t('timesheet', 'Selected HR accounts'))}</label></th>
+						<td role="cell">
+							<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'Only selected responsible accounts receive HR summaries. Employee reminders are unchanged.'))}</p>
+							${renderPeoplePicker(rule, 'mail', false)}
+							${rule.mailRecipients.userIds.length ? '' : `<p class="ts-setting-desc">${escapeHtml(t('timesheet', 'No selected accounts means no HR summary for this rule.'))}</p>`}
+						</td>
+					</tr>
+				</tbody>
+			</table>
 		</div>`;
 	}
 
@@ -465,7 +513,7 @@
 	}
 
 	function searchPeople(ruleCard, purpose, immediate = false) {
-		if (purpose === 'responsible' && !managesAssignments || purpose === 'mail' && !managesPolicy) return;
+		if (purpose === 'responsible' && !managesAssignments || purpose === 'mail' && !managesNotifications) return;
 		const rule = accessRules.find(candidate => candidate.id === ruleCard.dataset.ruleId);
 		const controls = personSearchControls(ruleCard, purpose);
 		if (!rule || !controls || !['responsible', 'mail'].includes(purpose)) return;
@@ -537,10 +585,9 @@
         </div>`;
 	}
 
-	function renderPolicyControls(rule) {
+	function renderTimeRuleControls(rule) {
 		const ruleSettings = normalizeRuleSettings(rule);
 		return `
-		${renderMailRecipients(rule)}
         <div class="ts-rule-section">
           <div class="ts-rule-section-title">${escapeHtml(t("timesheet", "Time rules"))}</div>
           <div class="ts-rule-grid ts-rule-grid-compact">
@@ -569,9 +616,15 @@
               <input type="number" min="0" max="24" step="0.25" class="ts-rule-input" data-key="maxHours" value="${ruleSettings.maxHours}">
             </div>
           </div>
-        </div>
-		${renderReminderSettings(rule)}
-		${renderEmployeeBalanceNotifications(rule)}`;
+        </div>`;
+	}
+
+	function renderPolicyControls(rule) {
+		const timeControls = managesTimeRules ? renderTimeRuleControls(rule) : '';
+		const mailControls = managesNotifications
+			? renderMailRecipients(rule) + renderReminderSettings(rule) + renderEmployeeBalanceNotifications(rule)
+			: '';
+		return timeControls + mailControls;
 	}
 
 	function renderRuleActions(rule) {
@@ -601,11 +654,26 @@
 		return ruleCard;
 	}
 
+	function updateNotificationRuleSelector() {
+		if (!selectsNotificationRule || !ruleSelector) return;
+		if (!accessRules.some(rule => rule.id === selectedRuleId)) selectedRuleId = accessRules[0]?.id || '';
+		ruleSelector.replaceChildren();
+		accessRules.forEach((rule, index) => {
+			const option = document.createElement('option');
+			option.value = rule.id;
+			option.textContent = t('timesheet', 'Group rule') + ' ' + (index + 1);
+			ruleSelector.appendChild(option);
+		});
+		ruleSelector.value = selectedRuleId;
+		ruleSelector.disabled = accessRules.length === 0;
+	}
+
 	function renderRules() {
 		cancelPersonSearches();
 		const normalizedRules = normalizeRules(accessRules);
 		const uniqueGroupResult = removeDuplicateEmployeeGroups(normalizedRules);
 		accessRules = uniqueGroupResult.rules;
+		updateNotificationRuleSelector();
 		rulesContainer.innerHTML = '';
 		if (uniqueGroupResult.removed.length && !notifiedDuplicateEmployeeGroups) {
 			notifiedDuplicateEmployeeGroups = true;
@@ -623,9 +691,18 @@
 			(Array.isArray(rule.userGroups) ? rule.userGroups : []).forEach(groupId => assignedEmployeeGroups.add(groupId));
 		});
 		accessRules.forEach((rule, index) => {
-			rulesContainer.appendChild(createRuleCard(rule, index, assignedEmployeeGroups));
+			if (!selectsNotificationRule || rule.id === selectedRuleId) {
+				rulesContainer.appendChild(createRuleCard(rule, index, assignedEmployeeGroups));
+			}
 		});
 	}
+
+	// Selecting another group never writes settings or resets pending saves.
+	ruleSelector?.addEventListener('change', () => {
+		if (!selectsNotificationRule) return;
+		selectedRuleId = accessRules.some(rule => rule.id === ruleSelector.value) ? ruleSelector.value : accessRules[0]?.id || '';
+		renderRules();
+	});
 
 	// User actions update the rules, persist them and rebuild the cards.
 	function updateRule(ruleId, update) {
@@ -757,7 +834,7 @@
 			return;
 		}
 		const modeSelect = event.target.closest('.ts-mail-recipient-mode');
-		if (!managesPolicy || !modeSelect || !['all', 'selected'].includes(modeSelect.value)) return;
+		if (!managesNotifications || !modeSelect || !['all', 'selected'].includes(modeSelect.value)) return;
 		const card = modeSelect.closest('.ts-rule');
 		updateRule(card.dataset.ruleId, rule => ({ ...rule, mailRecipients: { mode: modeSelect.value, userIds: modeSelect.value === 'all' ? [] : rule.mailRecipients.userIds } }));
 		await saveAndRenderRules(accessRules);
@@ -853,7 +930,7 @@
 		if (!ruleId || !settingKey || !ruleValueRanges[settingKey]) {
 			return;
 		}
-		if (settingKey === 'priority' ? !managesAssignments : !managesPolicy) return;
+		if (settingKey === 'priority' ? !managesAssignments : !managesTimeRules) return;
 		const [minimumValue, maximumValue] = ruleValueRanges[settingKey];
 		const fallback = defaultRuleSettings[settingKey];
 		const value = clampNumericValue(settingInput.value, minimumValue, maximumValue, fallback);
@@ -865,7 +942,7 @@
 		await saveAndRenderRules(accessRules);
 	});
 	rulesContainer.addEventListener('change', async event => {
-		if (!managesPolicy) return;
+		if (!managesNotifications) return;
 		const balanceInput = event.target.closest('.ts-balance-input');
 		if (!balanceInput) return;
 		const ruleCard = balanceInput.closest('.ts-rule');
@@ -880,7 +957,7 @@
 		}
 	});
 	rulesContainer.addEventListener('change', async event => {
-		if (!managesPolicy) return;
+		if (!managesNotifications) return;
 		const reminderInput = event.target.closest('.ts-reminder-input');
 		if (!reminderInput) {
 			return;
@@ -901,7 +978,7 @@
 		}
 	});
 	specialDaysOvertime?.addEventListener('change', async event => {
-		if (!managesPolicy) return;
+		if (!managesTimeRules) return;
 		const checked = event.target.checked;
 		try {
 			const url = OC.generateUrl('/apps/timesheet/settings/specialdays_check');
@@ -926,7 +1003,7 @@
 
 	// Load the independently stored special-day setting.
 	async function loadInitialData() {
-		if (!managesPolicy || !specialDaysOvertime) return;
+		if (!managesTimeRules || !specialDaysOvertime) return;
 		try {
 			const url = OC.generateUrl('/apps/timesheet/settings/specialdays_check');
 			const response = await fetch(url, {

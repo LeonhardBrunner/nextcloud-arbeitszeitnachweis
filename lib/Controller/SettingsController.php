@@ -65,10 +65,17 @@ class SettingsController extends Controller {
 		if (!$currentUserId || !$this->hrService->isHr($currentUserId)) {
 			return new DataResponse(['message' => 'Forbidden'], 403);
 		}
-		return $this->saveScopedRules('policy', $currentUserId);
+		$missingSection = new \stdClass();
+		$policySection = $this->request->getParam('policySection', $missingSection);
+		if ($policySection === $missingSection) {
+			$policySection = null;
+		} elseif (!is_string($policySection) || !in_array($policySection, ['timeRules', 'notifications'], true)) {
+			return new DataResponse(['message' => 'Invalid policy section'], 400);
+		}
+		return $this->saveScopedRules('policy', $currentUserId, $policySection);
 	}
 
-	private function saveScopedRules(string $scope, string $currentUserId): DataResponse {
+	private function saveScopedRules(string $scope, string $currentUserId, ?string $policySection = null): DataResponse {
 		$rulesJson = $this->request->getParam('rules');
 		$submittedRules = is_string($rulesJson) ? json_decode($rulesJson, true) : null;
 		if (!is_array($submittedRules) || !array_is_list($submittedRules) || !str_starts_with(ltrim($rulesJson), '[')) {
@@ -115,7 +122,7 @@ class SettingsController extends Controller {
 
 			$mergedRules = $scope === 'assignments'
 				? $this->mergeAssignmentChanges($submittedById, $previousRules)
-				: $this->mergePolicyChanges($submittedById, $previousRules);
+				: $this->mergePolicyChanges($submittedById, $previousRules, $policySection);
 			$sanitizedRules = $this->sanitizeRules($mergedRules, true);
 			$duplicateGroupIds = $this->findDuplicateUserGroups($sanitizedRules);
 			if ($duplicateGroupIds !== []) {
@@ -181,25 +188,33 @@ class SettingsController extends Controller {
 		return $mergedRules;
 	}
 
-	/** HR edits use stored assignments and order, regardless of protected fields in the request. */
-	private function mergePolicyChanges(array $submittedById, array $previousRules): array {
+	/** Each HR editor owns its fields; older clients retain the complete policy writer. */
+	private function mergePolicyChanges(array $submittedById, array $previousRules, ?string $policySection): array {
 		$previousIds = array_column($previousRules, 'id');
 		if (count($submittedById) !== count($previousIds) || array_diff(array_keys($submittedById), $previousIds) !== []) {
 			throw new \InvalidArgumentException('HR may only change existing rule settings.');
 		}
-		$policyFields = ['breakShortMinutes', 'breakShortHours', 'breakLongMinutes', 'breakLongHours', 'maxHours', 'missingEntryReminders', 'employeeBalanceNotifications'];
+		$timeFields = ['breakShortMinutes', 'breakShortHours', 'breakLongMinutes', 'breakLongHours', 'maxHours'];
+		$notificationFields = ['missingEntryReminders', 'employeeBalanceNotifications'];
+		$policyFields = match ($policySection) {
+			'timeRules' => $timeFields,
+			'notifications' => $notificationFields,
+			default => array_merge($timeFields, $notificationFields),
+		};
 		$mergedRules = [];
 		foreach ($previousRules as $previous) {
 			$submitted = $submittedById[$previous['id']];
 			$merged = array_replace($previous, array_intersect_key($submitted, array_flip($policyFields)));
-			$merged['employeeBalanceNotifications'] = EmployeeBalanceNotificationSettings::validateForSave($merged['employeeBalanceNotifications']);
-			if (array_key_exists('mailRecipients', $submitted) && $submitted['mailRecipients'] !== $previous['mailRecipients']) {
+			if ($policySection !== 'timeRules') {
+				$merged['employeeBalanceNotifications'] = EmployeeBalanceNotificationSettings::validateForSave($merged['employeeBalanceNotifications']);
+			}
+			if ($policySection !== 'timeRules' && array_key_exists('mailRecipients', $submitted) && $submitted['mailRecipients'] !== $previous['mailRecipients']) {
 				$validated = $this->hrAssignments->validateForSave(array_replace($previous, ['mailRecipients' => $submitted['mailRecipients']]));
 				$merged['mailRecipients'] = $validated['mailRecipients'];
 			}
 			$mergedRules[] = $merged;
 		}
-		return $this->validateReminderSettings($mergedRules, $previousRules);
+		return $policySection === 'timeRules' ? $mergedRules : $this->validateReminderSettings($mergedRules, $previousRules);
 	}
 
 	/** Directory searches follow the editor's scope; mail candidates use stored assignments. */

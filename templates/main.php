@@ -138,7 +138,7 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 				<!-- HR guidance -->
 				<div id="hr-infobox-section" class="ts-hr-section ts-infobox">
 					<p class="ts-infobox-text">
-						<?php p($l->t('Group assignments, time rules and missing-entry reminders can be managed in the Timesheet section under Profile → Settings.')) ?>
+						<?php p($l->t('Time rules are managed under Profile → Settings → Timesheet. Email settings are available below under Notifications. Administrators manage HR and employee assignments.')) ?>
 					</p>
 					<p class="ts-infobox-text">
 						<?php p($l->t('For days without start and end times, only the exact comments "%1$s" and "%2$s" prevent a reminder. Letter case and surrounding spaces are ignored. Entries with only one time remain incomplete.', [$absenceCommentTerms['vacation'], $absenceCommentTerms['timeOffInLieu']])) ?>
@@ -222,51 +222,6 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 					</table>
 				</div>
 
-				<!-- Email notification settings -->
-				<div id="hr-notifications-section" class="ts-hr-section">
-					<h4><?php p($l->t('My HR email settings')) ?></h4>
-
-					<table class="grid hr-notifications-table">
-						<thead>
-							<tr>
-								<th></th>
-								<th><?php p($l->t('Notification')) ?></th>
-								<th><?php p($l->t('Threshold')) ?></th>
-							</tr>
-						</thead>
-						<tbody>
-							<tr>
-								<td><input type="checkbox" id="hr-mail-no-entry-enabled"></td>
-								<td><?php p($l->t('No entry reminder')) ?></td>
-								<td>
-									<input type="number" id="hr-mail-no-entry-days" min="1" max="365" step="1" value="14">
-									<span><?php p($l->t('days')) ?></span>
-								</td>
-							</tr>
-
-							<tr>
-								<td><input type="checkbox" id="hr-mail-overtime-enabled"></td>
-								<td><?php p($l->t('Overtime warning')) ?></td>
-								<td>
-									<input type="time" id="hr-mail-overtime-threshold" value="10:00" step="60">
-									<span><?php p($l->t('hours')) ?></span>
-								</td>
-							</tr>
-
-							<tr>
-								<td><input type="checkbox" id="hr-mail-negative-enabled"></td>
-								<td><?php p($l->t('Negative overtime warning')) ?></td>
-								<td>
-									<input type="time" id="hr-mail-negative-threshold" value="10:00" step="60">
-									<span><?php p($l->t('hours')) ?></span>
-								</td>
-							</tr>
-							<tr class="hr-hint-row">
-								<td colspan="3"><?php p($l->t('When enabled, receive emails about warnings in the user list.')) ?></td>
-							</tr>
-						</tbody>
-					</table>
-				</div>
 
 				<!-- Warning thresholds -->
 				<div id="hr-warning-thresholds-section" class="ts-hr-section">
@@ -309,6 +264,82 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 						</tbody>
 					</table>
 				</div>
+				<!-- All mail controls share one panel; personal settings keep their existing IDs. -->
+				<div id="hr-notification-settings-section" class="ts-hr-section">
+					<div class="ts-settings-heading">
+						<h4><?php p($l->t('Notifications')); ?></h4>
+						<button type="button" class="ts-rules-help-toggle" id="timesheet-rules-help-toggle"
+							aria-expanded="false" aria-controls="timesheet-rules-help"
+							aria-label="<?php p($l->t('Group rules explained')); ?>"
+							title="<?php p($l->t('Group rules explained')); ?>">
+							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+								<circle cx="12" cy="12" r="9" />
+								<path d="M9.5 9a2.5 2.5 0 0 1 5 .3c0 1.8-2.5 2-2.5 3.7" />
+								<path d="M12 16.5h.01" />
+							</svg>
+						</button>
+					</div>
+					<?php include __DIR__ . '/partials/hr-mail-help.php'; ?>
+
+					<details class="hr-mail-settings-group" id="hr-personal-mail-settings" open>
+						<summary><?php p($l->t('My HR emails')); ?></summary>
+						<p class="hr-mail-settings-hint"><?php p($l->t('These settings apply only to the signed-in HR account.')); ?></p>
+						<div id="hr-notifications-section" class="hr-personal-notifications">
+						<table class="grid hr-notifications-table">
+							<thead>
+								<tr>
+									<th></th>
+									<th><?php p($l->t('Notification')) ?></th>
+									<th><?php p($l->t('Threshold')) ?></th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td><input type="checkbox" id="hr-mail-no-entry-enabled"></td>
+									<td><?php p($l->t('No entry reminder')) ?></td>
+									<td>
+										<input type="number" id="hr-mail-no-entry-days" min="1" max="365" step="1" value="14">
+										<span><?php p($l->t('days')) ?></span>
+									</td>
+								</tr>
+
+								<tr>
+									<td><input type="checkbox" id="hr-mail-overtime-enabled"></td>
+									<td><?php p($l->t('Overtime warning')) ?></td>
+									<td>
+										<input type="time" id="hr-mail-overtime-threshold" value="10:00" step="60">
+										<span><?php p($l->t('hours')) ?></span>
+									</td>
+								</tr>
+
+								<tr>
+									<td><input type="checkbox" id="hr-mail-negative-enabled"></td>
+									<td><?php p($l->t('Negative overtime warning')) ?></td>
+									<td>
+										<input type="time" id="hr-mail-negative-threshold" value="10:00" step="60">
+										<span><?php p($l->t('hours')) ?></span>
+									</td>
+								</tr>
+								<tr class="hr-hint-row">
+									<td colspan="3"><?php p($l->t('When enabled, receive emails about warnings in the user list.')) ?></td>
+								</tr>
+							</tbody>
+						</table>
+						</div>
+					</details>
+					<details class="hr-mail-settings-group" id="hr-group-mail-settings">
+						<summary><?php p($l->t('Reminders and employee emails')); ?></summary>
+						<?php if (is_array($_['notificationRuleSettings'] ?? null)): ?>
+							<?php
+								$ruleEditorData = $_['notificationRuleSettings'];
+								include __DIR__ . '/partials/hr-rule-editor.php';
+							?>
+						<?php else: ?>
+							<p class="hr-mail-settings-error" role="alert"><?php p($l->t('Notification settings could not be loaded. Reload the page to try again.')); ?></p>
+						<?php endif; ?>
+					</details>
+				</div>
+
 			</div>
 
 			<!-- Selected employee timesheet -->

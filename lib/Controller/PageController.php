@@ -12,6 +12,7 @@ use OCP\IL10N;
 use OCP\Util;
 use OCA\Timesheet\Service\AbsenceCommentCatalog;
 use OCA\Timesheet\Service\HrService;
+use OCA\Timesheet\Settings\RuleSettingsForm;
 use OCA\Timesheet\Db\UserPreferencesStore;
 use OCA\Timesheet\Db\TourProgressStore;
 use OCA\Timesheet\Db\EmploymentStatusStore;
@@ -33,6 +34,7 @@ class PageController extends Controller {
 		private AbsenceCommentCatalog $absenceCommentCatalog,
 		private IL10N $l10n,
 		private EmploymentStatusStore $employmentStatusStore,
+		private RuleSettingsForm $ruleSettingsForm,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -59,6 +61,7 @@ class PageController extends Controller {
 		Util::addScript('timesheet', 'timesheet-config');
 		if ($isHr) {
 			Util::addScript('timesheet', 'timesheet-change-history');
+			Util::addScript('timesheet', 'hr-settings');
 		}
 		if ($updateNotesEnabled) {
 			Util::addScript('timesheet', 'timesheet-update-notes');
@@ -72,6 +75,7 @@ class PageController extends Controller {
 		Util::addStyle('timesheet', 'style');
 		if ($isHr) {
 			Util::addStyle('timesheet', 'timesheet-change-history');
+			Util::addStyle('timesheet', 'hr-settings');
 		}
 		if ($updateNotesEnabled) {
 			Util::addStyle('timesheet', 'timesheet-update-notes');
@@ -119,8 +123,18 @@ class PageController extends Controller {
 				$this->logger->warning('Timesheet tour progress could not be loaded.', ['exception' => $loadError]);
 			}
 		}
+		$notificationRuleSettings = null;
+		if ($isHr) {
+			try {
+				$notificationRuleSettings = $this->ruleSettingsForm->getData('notifications');
+			} catch (\Throwable $loadError) {
+				// A failed rule snapshot must not block entries or personal HR settings.
+				$this->logger->warning('Notification rules could not be loaded.', ['exception' => $loadError]);
+			}
+		}
 		return new TemplateResponse($this->appName, 'main', [
 			'isHR' => $isHr,
+			'notificationRuleSettings' => $notificationRuleSettings,
 			'updateNotesEnabled' => $updateNotesEnabled,
 			'breakInputMode' => $breakPreference['breakInputMode'],
 			'breakInputRevision' => $breakPreference['revision'],

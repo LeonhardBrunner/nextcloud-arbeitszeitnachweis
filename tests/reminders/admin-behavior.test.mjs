@@ -11,7 +11,7 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const rulesRevision = value => String(value).padStart(64, '0');
 
 // Exercise the actual HR settings event handlers with a small DOM containing the rendered inputs.
-async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], userGroups: ['Staff'], priority: 2 }], respondToSave = null, language = 'en', peopleOptions = {}, scope = 'policy', includeHelp = false) {
+async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], userGroups: ['Staff'], priority: 2 }], respondToSave = null, language = 'en', peopleOptions = {}, scope = 'policy', includeHelp = false, policySection = '') {
 	const elements = new Map();
 	const events = new Map();
 	const requests = [];
@@ -90,7 +90,12 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 	}
 
 	for (const id of ['timesheet-hr-settings', 'timesheet-hr-rules', scope === 'assignments' ? 'timesheet-add-hr-rule' : 'timesheet-specialdays-overtime']) element(id);
-	elements.get('timesheet-hr-settings').dataset = { settingsScope: scope, rulesRevision: rulesRevision(0) };
+	elements.get('timesheet-hr-settings').dataset = { settingsScope: scope, rulesRevision: rulesRevision(0), policySection };
+	if (policySection === 'notifications') {
+		elements.delete('timesheet-specialdays-overtime');
+		element('timesheet-notification-rule', 'select');
+	}
+	if (peopleOptions.rootUnavailable) elements.delete('timesheet-hr-settings');
 	if (includeHelp) {
 		element('timesheet-rules-help-toggle', 'button', { 'aria-expanded': 'false', 'aria-controls': 'timesheet-rules-help' });
 		element('timesheet-rules-help', 'div', { hidden: '' });
@@ -143,7 +148,7 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 				otherRequests.push({ url, method: options.method });
 				return { ok: true, status: 200, json: async () => ({ check: false }) };
 			}
-			const request = { url, headers: options.headers, rules: JSON.parse(rules), rulesRevision: options.body.get('rulesRevision'), nextRevision: rulesRevision(requests.length + 1) };
+			const request = { url, headers: options.headers, rules: JSON.parse(rules), rulesRevision: options.body.get('rulesRevision'), policySection: options.body.get('policySection'), nextRevision: rulesRevision(requests.length + 1) };
 			requests.push(request);
 			return respondToSave ? respondToSave(request, requests.length) : saveResponse(request);
 		},
@@ -157,6 +162,11 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 
 	return {
 		requests, messages, searchRequests, otherRequests, elements,
+		async selectRule(ruleId) {
+			const selector = elements.get('timesheet-notification-rule');
+			selector.value = ruleId;
+			await Promise.all((events.get('timesheet-notification-rule:change') || []).map(callback => callback({ target: selector })));
+		},
 		card: () => elements.get('timesheet-hr-rules').children[0],
 		picker(purpose) {
 			const wrapper = this.card().querySelector(`[data-person-picker="${purpose}"]`);
@@ -896,3 +906,129 @@ for (const scope of ['assignments', 'policy']) {
 		assert.equal(app.searchRequests.length, 0);
 	});
 }
+
+
+test('profile time rules retain only time controls and write the timeRules section', async () => {
+	const app = await openHrSettings(undefined, null, 'en', {}, 'policy', false, 'timeRules');
+	assert.ok(app.card().querySelector('[data-key="breakShortMinutes"]'));
+	assert.equal(app.card().querySelector('.ts-mail-recipient-mode'), null);
+	assert.equal(app.card().querySelector('.ts-reminder-input'), null);
+	assert.equal(app.card().querySelector('.ts-balance-input'), null);
+	assert.equal(app.requests.length, 0);
+	const maximumHours = app.card().querySelector('[data-key="maxHours"]');
+	maximumHours.value = '9';
+	await app.change(maximumHours);
+	assert.equal(app.requests[0].policySection, 'timeRules');
+	assert.equal(app.requests[0].rules[0].maxHours, 9);
+});
+
+test('notification editor starts with the first saved rule and never loads calculation settings', async () => {
+	const app = await openHrSettings([
+		{ id: 'first', hrGroups: ['HR'], userGroups: ['Staff'], priority: 5 },
+		{ id: 'second', hrGroups: ['HR'], userGroups: ['Other'], priority: 1 }
+	], null, 'en', {}, 'policy', false, 'notifications');
+	assert.equal(app.elements.get('timesheet-notification-rule').value, 'first');
+	assert.equal(app.elements.get('timesheet-hr-rules').children.length, 1);
+	assert.equal(app.card().dataset.ruleId, 'first');
+	assert.ok(app.card().querySelector('.ts-mail-recipient-mode'));
+	assert.ok(app.card().querySelector('.ts-reminder-input'));
+	assert.ok(app.card().querySelector('.ts-balance-input'));
+	assert.equal(app.card().querySelector('[data-key="maxHours"]'), null);
+	assert.equal(app.card().querySelector('[data-kind="userGroups"]'), null);
+	assert.equal(app.requests.length, 0);
+	assert.equal(app.otherRequests.length, 0);
+});
+
+test('selecting a notification rule only changes the displayed controls', async () => {
+	const app = await openHrSettings([
+		{ id: 'first', hrGroups: ['HR'], userGroups: ['Staff'] },
+		{ id: 'second', hrGroups: ['HR'], userGroups: ['Other'] }
+	], null, 'en', {}, 'policy', false, 'notifications');
+	await app.selectRule('second');
+	assert.equal(app.card().dataset.ruleId, 'second');
+	assert.equal(app.requests.length, 0);
+	const threshold = app.balanceInput('overtimeThresholdMinutes');
+	threshold.value = '12.5';
+	await app.change(threshold);
+	assert.equal(app.requests[0].policySection, 'notifications');
+	assert.equal(app.requests[0].rules[1].employeeBalanceNotifications.overtimeThresholdMinutes, 750);
+	assert.equal(app.requests[0].rules[0].employeeBalanceNotifications.overtimeThresholdMinutes, 600);
+	assert.equal(app.elements.get('timesheet-notification-rule').value, 'second');
+	assert.equal(app.card().dataset.ruleId, 'second');
+});
+
+test('switching groups during an in-flight save preserves both edits and the chosen group', async () => {
+	let resolveFirst;
+	const app = await openHrSettings([
+		{ id: 'first', hrGroups: ['HR'], userGroups: ['Staff'] },
+		{ id: 'second', hrGroups: ['HR'], userGroups: ['Other'] }
+	], (request, number) => number === 1
+		? new Promise(resolve => { resolveFirst = () => resolve(saveResponse(request)); })
+		: saveResponse(request), 'en', {}, 'policy', false, 'notifications');
+	const firstThreshold = app.balanceInput('overtimeThresholdMinutes');
+	firstThreshold.value = '12';
+	const firstSave = app.change(firstThreshold);
+	await new Promise(setImmediate);
+	await app.selectRule('second');
+	const secondThreshold = app.balanceInput('negativeOvertimeThresholdMinutes');
+	secondThreshold.value = '8';
+	const secondSave = app.change(secondThreshold);
+	resolveFirst();
+	await Promise.all([firstSave, secondSave]);
+	assert.equal(app.requests.length, 2);
+	assert.equal(app.requests[1].rulesRevision, app.requests[0].nextRevision);
+	assert.equal(app.requests[1].rules[0].employeeBalanceNotifications.overtimeThresholdMinutes, 720);
+	assert.equal(app.requests[1].rules[1].employeeBalanceNotifications.negativeOvertimeThresholdMinutes, 480);
+	assert.equal(app.card().dataset.ruleId, 'second');
+	assert.equal(app.balanceInput('negativeOvertimeThresholdMinutes').value, '8');
+});
+
+test('notification rule selection returns to the first rule after a fresh page load', async () => {
+	const rules = [
+		{ id: 'first', hrGroups: ['HR'], userGroups: ['Staff'] },
+		{ id: 'second', hrGroups: ['HR'], userGroups: ['Other'] }
+	];
+	const first = await openHrSettings(rules, null, 'en', {}, 'policy', false, 'notifications');
+	await first.selectRule('second');
+	const reopened = await openHrSettings(rules, null, 'en', {}, 'policy', false, 'notifications');
+	assert.equal(reopened.card().dataset.ruleId, 'first');
+	assert.equal(reopened.requests.length, 0);
+});
+
+test('an empty notification rule list disables the selector without creating a rule', async () => {
+	const app = await openHrSettings([], null, 'en', {}, 'policy', false, 'notifications');
+	assert.equal(app.elements.get('timesheet-notification-rule').disabled, true);
+	assert.match(app.elements.get('timesheet-hr-rules').textContent, /No rules have been configured/);
+	assert.equal(app.requests.length, 0);
+});
+
+test('mail help remains usable when the rule data failed to load', async () => {
+	const app = await openHrSettings([], null, 'en', { rootUnavailable: true }, 'policy', true, 'notifications');
+	await app.click(app.elements.get('timesheet-rules-help-toggle'));
+	assert.equal(app.elements.get('timesheet-rules-help').hidden, false);
+	assert.equal(app.requests.length, 0);
+});
+
+test('a conflict retains a still-present rule selection and falls back when that rule was removed', async () => {
+	const initialRules = [
+		{ id: 'first', hrGroups: ['HR'], userGroups: ['Staff'] },
+		{ id: 'second', hrGroups: ['HR'], userGroups: ['Other'] }
+	];
+	for (const keepSelected of [true, false]) {
+		const currentRules = keepSelected ? initialRules : [initialRules[0]];
+		const app = await openHrSettings(initialRules, () => ({
+			ok: false, status: 409,
+			text: async () => JSON.stringify({ code: 'rules_conflict', rules: currentRules, rulesRevision: rulesRevision(50) })
+		}), 'en', {}, 'policy', false, 'notifications');
+		await app.selectRule('second');
+		const threshold = app.balanceInput('overtimeThresholdMinutes');
+		threshold.value = '18';
+		await app.change(threshold);
+		assert.equal(app.card().dataset.ruleId, keepSelected ? 'second' : 'first');
+		assert.equal(app.elements.get('timesheet-notification-rule').value, keepSelected ? 'second' : 'first');
+		assert.equal(app.elements.get('timesheet-notification-rule').children.length, currentRules.length);
+		assert.equal(app.balanceInput('overtimeThresholdMinutes').value, '10');
+		assert.equal(app.requests.length, 1);
+	}
+});
+

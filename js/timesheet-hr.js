@@ -92,7 +92,7 @@
 		const reference = employee.missingEntryReferenceDate === undefined ? employee.lastEntryDate : employee.missingEntryReferenceDate;
 		const daysWithoutEntry = daysSince(reference);
 		if (employee.isActive && !employee.freelancerMode && (daysWithoutEntry === null || daysWithoutEntry >= thresholds.noEntryDays)) {
-			warnings.push(`${translate('No entry for more than')} ${thresholds.noEntryDays} ${translate('days')}`);
+			warnings.push(translate('No entry for at least {days} days', { days: thresholds.noEntryDays }));
 		}
 		const balance = finiteMinutes(employee.overtimeMinutes);
 		if (balance >= thresholds.overtimeThresholdMinutes) warnings.push(translate('Too much overtime'));

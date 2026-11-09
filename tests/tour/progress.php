@@ -116,6 +116,14 @@ namespace OCA\Timesheet\Service {
 	}
 }
 
+namespace OCA\Timesheet\Settings {
+	class RuleSettingsForm {
+		public function getData(string $scope): array {
+			return ['settingsScope' => 'policy', 'policySection' => 'notifications', 'rulesRevision' => hash('sha256', ''), 'allGroups' => [], 'hrAccessRules' => [], 'hrPeople' => []];
+		}
+	}
+}
+
 namespace {
 	use OCA\Timesheet\Controller\PageController;
 	use OCA\Timesheet\Controller\TourController;
@@ -284,7 +292,7 @@ namespace {
 			$logger = new TourLoggerFixture();
 			\OCP\Util::$scripts = [];
 			\OCP\Util::$styles = [];
-			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager));
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm());
 			$parameters = $page->index()->getParams();
 			$expectSame(false, $parameters['tourEnabled']);
 			$expectSame(false, $parameters['tourStateAvailable']);
@@ -293,10 +301,10 @@ namespace {
 			$expectSame(true, in_array('timesheet-main', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-header', \OCP\Util::$scripts, true));
 			$expectedStyles = ['style'];
-			if ($isHr) $expectedStyles[] = 'timesheet-change-history';
-			if (!$isAdmin) $expectedStyles[] = 'timesheet-update-notes';
+			if ($isHr) $expectedStyles = array_merge($expectedStyles, ['timesheet-change-history', 'hr-settings']);
+			$expectedStyles[] = 'timesheet-update-notes';
 			$expectSame($expectedStyles, \OCP\Util::$styles);
-			$expectSame(!$isAdmin, $parameters['updateNotesEnabled']);
+			$expectSame(true, $parameters['updateNotesEnabled']);
 			$expectSame([], array_values(array_filter($config->reads, static fn(string $key): bool => str_starts_with($key, 'tour_'))));
 			$expectSame([], $config->writes);
 			$expectSame([], $logger->warnings);
@@ -467,7 +475,7 @@ namespace {
 		$logger = new TourLoggerFixture();
 		\OCP\Util::$scripts = [];
 		\OCP\Util::$styles = [];
-		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager));
+		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm());
 		$parameters = $page->index()->getParams();
 		$expectSame(true, $parameters['tourEnabled']);
 		$expectSame(true, $parameters['tourStateAvailable']);
@@ -482,7 +490,7 @@ namespace {
 		[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture();
 		$config->rejectReads = true;
 		$logger = new TourLoggerFixture();
-		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager));
+		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm());
 		$parameters = $page->index()->getParams();
 		$expectSame(false, $parameters['tourStateAvailable']);
 		$expectSame('minutes', $parameters['breakInputMode']);
@@ -497,7 +505,7 @@ namespace {
 			'de_DE' => ['vacation' => 'Urlaub', 'timeOffInLieu' => 'Stundenausgleich'],
 		] as $language => $expectedTerms) {
 			[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture('alice', true);
-			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture($language), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager));
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture($language), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm());
 			$parameters = $page->index()->getParams();
 			$expectSame($expectedTerms, $parameters['absenceCommentTerms']);
 			$expectSame(false, $parameters['tourEnabled']);

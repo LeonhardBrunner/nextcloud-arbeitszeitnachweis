@@ -195,6 +195,12 @@ class TimesheetXlsxExporter {
 		int $dailyWorkTimeRow,
 		IL10N $l10n,
 	): int {
+		$breakWarningText = $this->quoteExcelText($l10n->t('Break too short'));
+		$maximumTimeWarningText = $this->quoteExcelText($l10n->t('Above maximum time'));
+		$sundayWarningText = $this->quoteExcelText($l10n->t('Sunday work not allowed'));
+		$holidayWarningText = $this->quoteExcelText($l10n->t('Holiday work not allowed'));
+		$holidayStatusText = $this->quoteExcelText($l10n->t('Holiday'));
+
 		for ($workDate = $monthStart; $workDate <= $monthEnd; $workDate = $workDate->modify('+1 day')) {
 			$workDateString = $workDate->format('Y-m-d');
 			$entry = $entriesByDate[$workDateString] ?? null;
@@ -255,13 +261,13 @@ class TimesheetXlsxExporter {
 
 			$sheet->setCellValue("I{$rowNumber}", $comment);
 
-			$breakWarningFormula = 'IF(G' . $rowNumber . '>TIME(9,0,0),IF(E' . $rowNumber . '<45,"Break too short",""),IF(G' . $rowNumber . '>TIME(6,0,0),IF(E' . $rowNumber . '<30,"Break too short",""),""))';
+			$breakWarningFormula = 'IF(G' . $rowNumber . '>TIME(9,0,0),IF(E' . $rowNumber . '<45,' . $breakWarningText . ',""),IF(G' . $rowNumber . '>TIME(6,0,0),IF(E' . $rowNumber . '<30,' . $breakWarningText . ',""),""))';
 			$warningFormula =
 			'=IF(G' . $rowNumber . '="","",TEXTJOIN(", ",TRUE,' .
-			'IF(G' . $rowNumber . '>TIME(10,0,0),"Above maximum time",""),' .
+			'IF(G' . $rowNumber . '>TIME(10,0,0),' . $maximumTimeWarningText . ',""),' .
 			$breakWarningFormula . ',' .
-			'IF(AND(WEEKDAY(A' . $rowNumber . ',2)=7,G' . $rowNumber . '>0),"Sunday work not allowed",""),' .
-			'IF(C' . $rowNumber . '="Holiday","Holiday work not allowed","")' .
+			'IF(AND(WEEKDAY(A' . $rowNumber . ',2)=7,G' . $rowNumber . '>0),' . $sundayWarningText . ',""),' .
+			'IF(C' . $rowNumber . '=' . $holidayStatusText . ',' . $holidayWarningText . ',"")' .
 			'))';
 			$sheet->setCellValue("J{$rowNumber}", $warningFormula);
 
@@ -273,6 +279,11 @@ class TimesheetXlsxExporter {
 			$rowNumber++;
 		}
 		return $rowNumber;
+	}
+
+	/** Excel text literals escape double quotes by repeating them. */
+	private function quoteExcelText(string $text): string {
+		return '"' . str_replace('"', '""', $text) . '"';
 	}
 
 	private function sheetTitleForMonth(\DateTimeImmutable $monthStart, string $locale): string {

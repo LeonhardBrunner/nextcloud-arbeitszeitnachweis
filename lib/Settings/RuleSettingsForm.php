@@ -35,7 +35,15 @@ class RuleSettingsForm {
 
 	public function getForm(string $scope): TemplateResponse {
 		Util::addScript($this->appName, 'hr-settings');
+		Util::addStyle($this->appName, 'hr-settings');
+		return new TemplateResponse($this->appName, 'settings-hr', $this->getData($scope));
+	}
 
+	/** The profile form and embedded notification editor share one sanitized snapshot. */
+	public function getData(string $scope): array {
+		if (!in_array($scope, ['assignments', 'policy', 'notifications'], true)) {
+			throw new \InvalidArgumentException('Invalid rule editor scope.');
+		}
 		$allGroups = [];
 		if ($scope === 'assignments') {
 			foreach ($this->groupManager->search('') as $group) {
@@ -47,13 +55,18 @@ class RuleSettingsForm {
 		$rawRules = (string)$this->appConfig->getAppValueString('hr_access_rules');
 		$accessRules = $this->loadRules($rawRules);
 
-		return new TemplateResponse($this->appName, 'settings-hr', [
-			'settingsScope' => $scope,
+		return [
+			'settingsScope' => $scope === 'assignments' ? 'assignments' : 'policy',
+			'policySection' => match ($scope) {
+				'policy' => 'timeRules',
+				'notifications' => 'notifications',
+				default => null,
+			},
 			'rulesRevision' => hash('sha256', $rawRules),
 			'allGroups'     => $allGroups,
 			'hrAccessRules' => $accessRules,
 			'hrPeople' => $this->selectedPeople($accessRules),
-		]);
+		];
 	}
 
 	/** Only selected accounts are embedded; the directory is searched on demand. */

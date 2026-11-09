@@ -202,6 +202,18 @@ namespace OCA\Timesheet\Db {
 	}
 }
 
+namespace OCA\Timesheet\Settings {
+	class RuleSettingsForm {
+		public array $scopes = [];
+		public bool $rejectReads = false;
+		public function getData(string $scope): array {
+			$this->scopes[] = $scope;
+			if ($this->rejectReads) throw new \RuntimeException('Private rule snapshot diagnostic.');
+			return ['settingsScope' => 'policy', 'policySection' => 'notifications', 'rulesRevision' => hash('sha256', ''), 'allGroups' => [], 'hrAccessRules' => [], 'hrPeople' => []];
+		}
+	}
+}
+
 namespace {
 	function p(mixed $value): void {
 		echo htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');

@@ -1,0 +1,560 @@
+/* Inline help uses neutral controls and leaves every rule visible. */
+#hr-notification-settings-section .ts-settings-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+#hr-notification-settings-section .ts-settings-heading h4 {
+	margin: 0;
+}
+
+#hr-notification-settings-section .ts-rules-help-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 36px;
+	height: 36px;
+	min-height: 36px;
+	padding: 6px;
+	margin: 0;
+	background: var(--color-background-dark);
+	color: var(--color-main-text);
+	border: 1px solid var(--color-border);
+}
+
+#hr-notification-settings-section .ts-rules-help-toggle:hover {
+	background: var(--color-background-hover);
+}
+
+#hr-notification-settings-section .ts-rules-help-toggle:focus-visible {
+	outline: 2px solid var(--color-main-text);
+	outline-offset: 2px;
+}
+
+#hr-notification-settings-section .ts-rules-help {
+	box-sizing: border-box;
+	max-width: 75ch;
+	margin: 0 0 16px;
+	padding: 12px 16px;
+	border: 1px solid var(--color-border);
+	border-radius: 8px;
+	background: var(--color-main-background);
+	line-height: 1.5;
+}
+
+
+#hr-notification-settings-section .ts-rules-help ol {
+	list-style: decimal;
+	margin: 0 0 12px;
+	padding-inline-start: 24px;
+}
+
+#hr-notification-settings-section .ts-rules-help li {
+	margin-bottom: 12px;
+	padding-inline-start: 2px;
+}
+
+#hr-notification-settings-section .ts-rules-help li::marker {
+	font-weight: 700;
+}
+
+#hr-notification-settings-section .ts-rules-help li:last-child {
+	margin-bottom: 0;
+}
+
+#hr-notification-settings-section .ts-rules-help p {
+	margin: 0 0 8px;
+}
+
+#hr-notification-settings-section .ts-rules-help p:last-child {
+	margin-bottom: 0;
+}
+
+/* Rule list and cards */
+#timesheet-hr-rules {
+	margin: 12px 0 10px;
+	display: grid;
+	gap: 12px;
+}
+
+#timesheet-hr-settings .ts-hint {
+	margin: 8px 0 12px;
+	opacity: .85;
+	max-width: 900px;
+}
+
+#timesheet-hr-settings .ts-rule {
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	padding: 12px;
+	background: var(--color-main-background);
+}
+
+/* Rule controls */
+#timesheet-hr-settings .ts-rule-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+#timesheet-hr-settings .ts-rule-title {
+	font-weight: 700;
+}
+
+#timesheet-hr-settings .ts-rule-head-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+#timesheet-hr-settings .ts-rule-priority {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 600;
+}
+
+#timesheet-hr-settings .ts-rule-priority input {
+	width: 90px;
+}
+
+#timesheet-hr-settings .ts-rule-delete {
+	text-decoration: none;
+	font-weight: 800;
+	opacity: .7;
+}
+
+#timesheet-hr-settings .ts-rule-delete:hover {
+	opacity: 1;
+}
+
+/* Group selection */
+#timesheet-hr-settings .ts-rule-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 14px;
+}
+
+@media (max-width: 980px) {
+	#timesheet-hr-settings .ts-rule-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+#timesheet-hr-settings .ts-rule-col label {
+	font-weight: 600;
+	display: block;
+	margin-bottom: 4px;
+}
+
+#timesheet-hr-settings .ts-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	min-height: 28px;
+	margin: 4px 0 6px;
+}
+
+#timesheet-hr-settings .ts-chip {
+	background: var(--color-background-dark);
+	border: 1px solid var(--color-border);
+	border-radius: 999px;
+	padding: 2px 10px;
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+#timesheet-hr-settings .ts-chip-remove {
+	text-decoration: none;
+	font-weight: 800;
+	opacity: .75;
+}
+
+#timesheet-hr-settings .ts-chip-remove:hover {
+	opacity: 1;
+}
+
+#timesheet-hr-settings .ts-rule-empty {
+	opacity: .7;
+	font-style: italic;
+}
+
+#timesheet-hr-settings .ts-rule-select {
+	max-width: 420px;
+}
+
+/* Searchable account assignments use native controls and neutral actions. */
+#timesheet-hr-settings .ts-rule-col {
+	min-width: 0;
+}
+
+#timesheet-hr-settings .ts-person-picker {
+	margin-top: 12px;
+}
+
+#timesheet-hr-settings .ts-person-picker > label,
+#timesheet-hr-settings .ts-mail-recipient-settings > label {
+	display: block;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+#timesheet-hr-settings .ts-person-search,
+#timesheet-hr-settings .ts-person-choice,
+#timesheet-hr-settings .ts-mail-recipient-mode {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 420px;
+}
+
+#timesheet-hr-settings .ts-person-choice {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 6px;
+}
+
+#timesheet-hr-settings .ts-person-results {
+	min-width: 0;
+	max-width: 100%;
+	flex: 1 1 200px;
+}
+
+#timesheet-hr-settings .ts-person-search-status {
+	min-height: 1.4em;
+}
+
+#timesheet-hr-settings .ts-person-picker .ts-chip {
+	box-sizing: border-box;
+	max-width: 100%;
+}
+
+#timesheet-hr-settings .ts-person-picker .ts-chip > span {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+#timesheet-hr-settings .ts-person-remove {
+	width: 32px;
+	min-width: 32px;
+	min-height: 32px;
+	padding: 0;
+	margin: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+}
+
+#timesheet-hr-settings .ts-person-add {
+	background: var(--color-background-dark);
+	color: var(--color-main-text);
+	border: 1px solid var(--color-border);
+}
+
+#timesheet-hr-settings .ts-person-remove:hover,
+#timesheet-hr-settings .ts-person-remove:focus-visible,
+#timesheet-hr-settings .ts-person-add:hover,
+#timesheet-hr-settings .ts-person-add:focus-visible {
+	background: var(--color-background-hover);
+}
+
+/* Missing-entry reminder controls */
+#timesheet-hr-settings .ts-reminder-toggle,
+#timesheet-hr-settings .ts-reminder-weekday {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+#timesheet-hr-settings .ts-reminder-weekdays {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	margin-top: 8px;
+}
+
+#timesheet-hr-settings .ts-reminder-settings input[type="number"] {
+	width: 100px;
+}
+
+/* Balance thresholds remain compact when the rule columns stack. */
+#timesheet-hr-settings .ts-balance-settings .ts-inline {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 6px;
+}
+
+#timesheet-hr-settings .ts-balance-settings input[type="number"] {
+	box-sizing: border-box;
+	width: 110px;
+	max-width: 100%;
+}
+
+/* General settings */
+#timesheet-hr-settings .ts-divider {
+	margin: 18px 0 14px;
+	border: 0;
+	border-top: 1px solid var(--color-border);
+}
+
+#timesheet-hr-settings .ts-setting {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 10px 12px;
+	border: 1px solid var(--color-border);
+}
+
+#timesheet-hr-settings .ts-setting-desc {
+	margin-top: 4px;
+	opacity: .85;
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+#timesheet-hr-settings .ts-empty {
+	padding: 10px;
+	border: 1px dashed var(--color-border);
+	border-radius: 8px;
+}
+
+/* Time rules */
+#timesheet-hr-settings .ts-inline {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+#timesheet-hr-settings .ts-rule-section {
+	margin-top: 10px;
+	border-top: 1px dashed var(--color-border);
+	padding-top: 10px;
+}
+
+#timesheet-hr-settings .ts-rule-section-title {
+	font-weight: 700;
+	margin-bottom: 6px;
+}
+
+#timesheet-hr-settings .ts-rule-grid-compact {
+	grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 980px) {
+	#timesheet-hr-settings .ts-rule-grid-compact {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* Disclosure controls keep all mail settings together without another page. */
+#hr-notification-settings-section {
+	padding: 12px;
+}
+
+#hr-notification-settings-section .hr-mail-settings-group + .hr-mail-settings-group {
+	margin-top: 12px;
+}
+
+#hr-notification-settings-section .hr-mail-settings-group > summary {
+	cursor: pointer;
+	font-weight: 700;
+	padding: 8px 0;
+}
+
+#hr-notification-settings-section .hr-mail-settings-group > summary:focus-visible {
+	outline: 2px solid var(--color-main-text);
+	outline-offset: 2px;
+}
+
+#hr-notification-settings-section .hr-mail-settings-hint,
+#hr-notification-settings-section .hr-mail-settings-error {
+	max-width: 75ch;
+	margin: 4px 0 12px;
+}
+
+#hr-notification-settings-section .hr-notifications-table {
+	width: auto;
+	max-width: 100%;
+}
+
+#timesheet-hr-settings .ts-notification-rule-choice {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 8px 0 12px;
+}
+
+#timesheet-hr-settings .ts-notification-rule-choice select {
+	min-inline-size: 180px;
+	max-inline-size: 100%;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-rule {
+	border: 0;
+	border-radius: 0;
+	padding: 0;
+	background: transparent;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-rule-head {
+	display: none;
+}
+
+#timesheet-hr-settings .ts-rule-grid {
+	min-inline-size: 0;
+}
+
+#timesheet-hr-settings input,
+#timesheet-hr-settings select {
+	max-inline-size: 100%;
+}
+
+/* Mail rules use aligned label/value rows, with hints beside the relevant controls. */
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-rule-section {
+	margin-top: 16px;
+	padding-top: 0;
+	border-top: 0;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-rule-section:first-child {
+	margin-top: 0;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table {
+	width: 100%;
+	table-layout: fixed;
+	border-collapse: collapse;
+	border: 1px solid var(--color-border);
+	color: var(--color-main-text);
+	font: inherit;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table caption {
+	padding: 10px 12px;
+	border: 1px solid var(--color-border);
+	border-bottom: 0;
+	background: var(--color-background-dark);
+	color: var(--color-main-text);
+	font-weight: 700;
+	text-align: start;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table .ts-notification-label-column {
+	width: 36%;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table .ts-notification-value-column {
+	width: 64%;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table th,
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table td {
+	padding: 10px 12px;
+	border: 1px solid var(--color-border);
+	vertical-align: top;
+	text-align: start;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table th {
+	width: 36%;
+	background: var(--color-main-background);
+	font-weight: 600;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table th label {
+	display: inline;
+	font-weight: inherit;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table .ts-setting-desc {
+	max-width: 75ch;
+	margin: 6px 0 0;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table .ts-person-picker,
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table .ts-reminder-weekdays,
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table .ts-inline {
+	margin-top: 0;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table .ts-person-search-status:empty {
+	display: none;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-balance-controls {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 10px 16px;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table input,
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table select {
+	box-sizing: border-box;
+	min-inline-size: 0;
+	max-inline-size: 100%;
+}
+
+#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table [hidden] {
+	display: none !important;
+}
+
+@media (max-width: 640px) {
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table colgroup {
+		display: none;
+	}
+
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table,
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table tbody,
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table tr,
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table th,
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table td {
+		display: block;
+		width: 100%;
+		box-sizing: border-box;
+	}
+
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table caption {
+		display: block;
+		border: 0;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table tr + tr {
+		border-top: 1px solid var(--color-border);
+	}
+
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table th {
+		padding: 8px 10px 4px;
+		border: 0;
+		background: transparent;
+	}
+
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table td {
+		padding: 4px 10px 10px;
+		border: 0;
+	}
+
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-balance-controls {
+		align-items: flex-start;
+		gap: 8px;
+	}
+
+	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table .ts-reminder-weekdays {
+		gap: 6px 10px;
+	}
+}

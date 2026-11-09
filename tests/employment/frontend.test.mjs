@@ -21,8 +21,9 @@ const employees = [
 ];
 
 // Exercise real status and HR handlers while replacing only the DOM, time and transport.
-async function openApp({ available = true, respond = null, records = employees, now = '2026-11-20T12:00:00Z' } = {}) {
+async function openApp({ available = true, respond = null, records = employees, now = '2026-11-20T12:00:00Z', accountLanguage = null, browserLanguage = 'en-GB' } = {}) {
 	const elements = new Map();
+	const accountTranslations = {};
 	const documentEvents = new Map();
 	const requests = [];
 	const serverRecords = copy(records);
@@ -84,10 +85,13 @@ async function openApp({ available = true, respond = null, records = employees, 
 	const minutesToText = minutes => `${minutes < 0 ? '-' : ''}${String(Math.floor(Math.abs(minutes) / 60)).padStart(2, '0')}:${String(Math.abs(minutes) % 60).padStart(2, '0')}`;
 	const context = vm.createContext({
 		document, Date: FixedDate, console: { warn() {} }, innerWidth: 1000, innerHeight: 800,
+		navigator: { language: browserLanguage },
+		OC: { L10N: { register(app, messages) { assert.equal(app, 'timesheet'); Object.assign(accountTranslations, messages); } } },
 		addEventListener() {},
-		t: (_app, message, parameters = {}) => Object.entries(parameters).reduce((text, [key, value]) => text.replace(`{${key}}`, value), message),
+		t: (_app, message, parameters = {}) => Object.entries(parameters).reduce((text, [key, value]) => text.replace(`{${key}}`, value), accountTranslations[message] ?? message),
 	});
 	context.window = context;
+	if (accountLanguage) vm.runInContext(readFileSync(resolve(root, 'l10n', accountLanguage + '.js'), 'utf8'), context);
 	context.Timesheet = {
 		state: { appName: 'timesheet', currentUserId: 'alice', hrWarningThresholds: { noEntryDays: 14, overtimeThresholdMinutes: 600, negativeOvertimeThresholdMinutes: 600 } },
 		dom: { refresh() { this.userListEl = list; this.hrUserEntries = detail; this.hrUserTitle = title; } },
@@ -113,7 +117,7 @@ async function openApp({ available = true, respond = null, records = employees, 
 		await Promise.all((target.listeners.get(type) || []).map(listener => listener(event)));
 		await Promise.all((documentEvents.get(type) || []).map(listener => listener(event)));
 	}
-	return { context, elements, requests, serverRecords, fire, list, async load() { await context.Timesheet.hr.loadHrUserList(); }, rows: () => list.children, cell: (row, className) => row.querySelector(`.${className}`) };
+	return { context, elements, requests, serverRecords, fire, list, accountTranslations, async load() { await context.Timesheet.hr.loadHrUserList(); }, rows: () => list.children, cell: (row, className) => row.querySelector(`.${className}`) };
 }
 
 test('initial reads never write; active employees and their matching statistics are shown by default', async () => {
@@ -277,3 +281,39 @@ test('an unavailable employee status stays unknown instead of being presented as
 	activity.value = 'active'; await app.fire(activity, 'change');
 	assert.equal(app.requests.length, 0);
 });
+
+for (const accountLanguage of ['de', 'de_DE', 'en_GB', 'ja', 'ar']) {
+	test('HR warning sentences follow the account language and preserve thresholds: ' + accountLanguage, async () => {
+		const records = [
+			{ id: 'positive', name: 'Positive', isActive: true, freelancerMode: false, overtimeMinutes: 601, missingEntryReferenceDate: '2026-11-01' },
+			{ id: 'negative', name: 'Negative', isActive: true, freelancerMode: false, overtimeMinutes: -601, missingEntryReferenceDate: '2026-11-19' },
+			{ id: 'recent', name: 'Recent', isActive: true, freelancerMode: false, overtimeMinutes: 0, missingEntryReferenceDate: '2026-11-19' },
+			{ id: 'boundary', name: 'Boundary', isActive: true, freelancerMode: false, overtimeMinutes: 600, missingEntryReferenceDate: '2026-11-06' },
+		];
+		const app = await openApp({
+			records, accountLanguage,
+			browserLanguage: accountLanguage === 'en_GB' ? 'de-DE' : 'en-GB',
+		});
+		await app.load();
+		const messages = app.accountTranslations;
+		const noEntryKey = 'No entry for at least {days} days';
+		assert.equal(typeof messages[noEntryKey], 'string');
+		if (!accountLanguage.startsWith('en')) assert.notEqual(messages[noEntryKey], noEntryKey);
+		const noEntry = messages[noEntryKey].replace('{days}', '14');
+		const findWarning = userId => {
+			const row = app.rows().find(item => item.querySelector('.hr-load-user').dataset.user === userId);
+			return app.cell(row, 'hr-user-errors').textContent;
+		};
+		assert.equal(findWarning('positive'), noEntry + ', ' + messages['Too much overtime']);
+		assert.equal(findWarning('negative'), messages['Too many negative hours']);
+		assert.equal(findWarning('recent'), '');
+		assert.equal(findWarning('boundary'), noEntry + ', ' + messages['Too much overtime']);
+		assert.doesNotMatch(findWarning('positive'), /\{days\}/);
+		assert.ok(app.requests.every(request => request.method === 'GET'));
+		if (accountLanguage.startsWith('de')) {
+			assert.equal(findWarning('positive'), 'Seit mindestens 14 Tagen kein Eintrag, Zu viele Überstunden');
+			assert.equal(findWarning('negative'), 'Zu viele Minusstunden');
+		}
+	});
+}
+

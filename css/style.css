@@ -625,8 +625,8 @@
 	grid-template-columns: auto auto auto;
 	grid-template-areas:
 		"users stats warnings"
-		"users stats notifications"
-		"users stats infobox";
+		"users stats infobox"
+		"notificationSettings notificationSettings notificationSettings";
 }
 
 #hr-infobox-section {
@@ -643,9 +643,15 @@
 	justify-self: start;
 }
 
+#hr-notification-settings-section {
+	grid-area: notificationSettings;
+	min-inline-size: 0;
+	justify-self: stretch;
+}
+
 #hr-notifications-section {
-	grid-area: notifications;
-	justify-self: start;
+	max-inline-size: 100%;
+	overflow-x: auto;
 }
 
 #hr-warning-thresholds-section {
@@ -659,8 +665,8 @@
 		grid-template-areas:
 			"users stats"
 			"users warnings"
-			"users notifications"
-			"users infobox";
+			"users infobox"
+			"notificationSettings notificationSettings";
 	}
 }
 
@@ -669,8 +675,9 @@
 		grid-template-columns: auto auto;
 		grid-template-areas:
 			"stats infobox"
-			"warnings notifications"
-			"users users";
+			"warnings warnings"
+			"users users"
+			"notificationSettings notificationSettings";
 	}
 }
 
@@ -682,9 +689,9 @@
 		grid-template-areas:
 			"stats"
 			"warnings"
-			"notifications"
 			"users"
-			"infobox";
+			"infobox"
+			"notificationSettings";
 	}
 	#hr-userlist-section,
 	#hr-stats-section,
@@ -711,7 +718,7 @@
 /* HR overview panels */
 #hr-userlist-section,
 #hr-stats-section,
-#hr-notifications-section,
+#hr-notification-settings-section,
 #hr-warning-thresholds-section {
 	background: var(--color-background-dark, #f6f8fa);
 	border: 1px solid var(--color-border, #d0d7de);

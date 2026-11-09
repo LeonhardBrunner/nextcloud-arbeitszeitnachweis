@@ -34,8 +34,12 @@ namespace OCP {
 	}
 	class Util {
 		public static array $scripts = [];
+		public static array $styles = [];
 		public static function addScript(string $app, string $name): void {
 			self::$scripts[] = [$app, $name];
+		}
+		public static function addStyle(string $app, string $name): void {
+			self::$styles[] = [$app, $name];
 		}
 	}
 }
@@ -352,10 +356,12 @@ namespace {
 		$adminProvider = new \OCA\Timesheet\Settings\AdminSettings($form, $session, $groups);
 		$config->reads = [];
 		\OCP\Util::$scripts = [];
-		return compact('config', 'users', 'groups', 'session', 'hrService', 'request', 'balances', 'reminders', 'locks', 'controller', 'provider', 'adminProvider');
+		\OCP\Util::$styles = [];
+		return compact('config', 'users', 'groups', 'session', 'hrService', 'request', 'balances', 'reminders', 'locks', 'controller', 'form', 'provider', 'adminProvider');
 	};
-	$save = static function (array $state, mixed $rules, string $scope = 'policy', ?string $revision = null) {
+	$save = static function (array $state, mixed $rules, string $scope = 'policy', ?string $revision = null, mixed $policySection = null) {
 		$state['request']->parameters = ['rules' => is_string($rules) ? $rules : json_encode($rules), 'rulesRevision' => $revision ?? hash('sha256', $state['config']->values['hr_access_rules'])];
+		if ($policySection !== null) $state['request']->parameters['policySection'] = $policySection;
 		return $state['controller']->{$scope === 'assignments' ? 'saveHrAccessRules' : 'saveHrPolicyRules'}();
 	};
 	$storedRules = static fn(array $state): array => json_decode($state['config']->values['hr_access_rules'], true);
@@ -376,6 +382,8 @@ namespace {
 					$expectSame(hash('sha256', $state['config']->values['hr_access_rules']), $form->getParams()['rulesRevision']);
 					$expectSame('rule-a', $form->getParams()['hrAccessRules'][0]['id']);
 					$expectSame([['timesheet', 'hr-settings']], \OCP\Util::$scripts);
+					$expectSame([['timesheet', 'hr-settings']], \OCP\Util::$styles);
+					$expectSame($scope === 'policy' ? 'timeRules' : null, $form->getParams()['policySection']);
 				} else {
 					$expectSame([], $form->getParams());
 					$expectSame([], $state['config']->reads);
@@ -619,6 +627,88 @@ namespace {
 			$state = $fixture(); $before = $state['config']->values;
 			$response = $save($state, [[...$defaultRule, 'employeeBalanceNotifications' => $invalidSettings]]);
 			$expectSame(400, $response->getStatus()); $expectSame($before, $state['config']->values); $expectSame([], $state['reminders']->preparations);
+		});
+	}
+
+	$test('Embedded notifications reuse the profile snapshot without loading groups, assets or writing', static function () use ($fixture, $expectSame): void {
+		$state = $fixture();
+		$data = $state['form']->getData('notifications');
+		$expectSame('policy', $data['settingsScope']);
+		$expectSame('notifications', $data['policySection']);
+		$expectSame([], $data['allGroups']);
+		$expectSame(0, $state['groups']->searches);
+		$expectSame([], \OCP\Util::$scripts);
+		$expectSame([], \OCP\Util::$styles);
+		$profile = $state['provider']->getForm()->getParams();
+		foreach (['rulesRevision', 'hrAccessRules', 'hrPeople'] as $key) $expectSame($profile[$key], $data[$key]);
+		$expectSame([], $state['config']->writes);
+	});
+	foreach (['', 'all', 'policy', true, 0, [], ['notifications']] as $invalidSection) {
+		$test('Unknown policy sections fail before locking: ' . json_encode($invalidSection), static function () use ($fixture, $save, $defaultRule, $invalidSection, $expectSame): void {
+			$state = $fixture();
+			$response = $save($state, [$defaultRule], 'policy', null, $invalidSection);
+			$expectSame(400, $response->getStatus());
+			$expectSame(['message' => 'Invalid policy section'], $response->getData());
+			$expectSame(0, $state['locks']->acquisitions);
+			$expectSame([], $state['config']->writes);
+			$expectSame([], $state['reminders']->preparations);
+		});
+	}
+	foreach (['timeRules', 'notifications'] as $section) {
+		foreach ([null, 'employee', 'admin', 'hr', 'hr-admin'] as $actor) {
+			$test($section . ' writer remains HR-only: ' . ($actor ?? 'anonymous'), static function () use ($fixture, $save, $defaultRule, $section, $actor, $expectSame): void {
+				$state = $fixture($actor);
+				$response = $save($state, [$defaultRule], 'policy', null, $section);
+				$expectSame(in_array($actor, ['hr', 'hr-admin'], true) ? 200 : 403, $response->getStatus());
+				if ($response->getStatus() === 403) $expectSame([], $state['config']->writes);
+			});
+		}
+	}
+	$test('Time rules cannot replace reminders, balance mail or recipients even with invalid submitted values', static function () use ($fixture, $save, $defaultRule, $expectSame): void {
+		$original = [...$defaultRule, 'hrUsers' => ['anton'], 'maxHours' => 7.5, 'mailRecipients' => ['mode' => 'selected', 'userIds' => ['anton']], 'missingEntryReminders' => ['enabled' => true, 'graceDays' => 5, 'weekdays' => [1, 3], 'startDate' => '2026-10-01'], 'employeeBalanceNotifications' => ['overtimeEnabled' => true, 'overtimeThresholdMinutes' => 420]];
+		$state = $fixture('hr', [$original]);
+		$before = $state['form']->getData('notifications')['hrAccessRules'][0];
+		$submitted = [...$before, 'maxHours' => 9, 'hrUsers' => [], 'priority' => 999, 'missingEntryReminders' => ['enabled' => 'invalid'], 'employeeBalanceNotifications' => true, 'mailRecipients' => ['mode' => 'invalid']];
+		$response = $save($state, [$submitted], 'policy', null, 'timeRules');
+		$expectSame(200, $response->getStatus());
+		$saved = $response->getData()['rules'][0];
+		$expectSame(9.0, $saved['maxHours']);
+		foreach (['missingEntryReminders', 'employeeBalanceNotifications', 'mailRecipients', 'hrUsers', 'priority'] as $field) $expectSame($before[$field], $saved[$field]);
+	});
+	$test('Notifications save only their fields while retaining time rules and protected assignments', static function () use ($fixture, $save, $defaultRule, $expectSame): void {
+		$original = [...$defaultRule, 'hrUsers' => ['anton'], 'maxHours' => 7.5, 'breakShortMinutes' => 20, 'priority' => 4];
+		$state = $fixture('hr', [$original]);
+		$before = $state['form']->getData('notifications')['hrAccessRules'][0];
+		$balance = ['overtimeEnabled' => true, 'overtimeThresholdMinutes' => 330, 'negativeOvertimeEnabled' => true, 'negativeOvertimeThresholdMinutes' => 900];
+		$submitted = [...$before, 'hrUsers' => [], 'userGroups' => [], 'priority' => 999, 'maxHours' => ['invalid'], 'breakShortMinutes' => -100, 'missingEntryReminders' => ['notifyEmployees' => true, 'notifyHr' => false, 'graceDays' => 3, 'weekdays' => [2, 4], 'startDate' => '2026-10-01'], 'employeeBalanceNotifications' => $balance, 'mailRecipients' => ['mode' => 'selected', 'userIds' => ['anton']]];
+		$response = $save($state, [$submitted], 'policy', null, 'notifications');
+		$expectSame(200, $response->getStatus());
+		$saved = $response->getData()['rules'][0];
+		foreach (['maxHours', 'breakShortMinutes', 'breakShortHours', 'breakLongMinutes', 'breakLongHours', 'hrUsers', 'userGroups', 'priority'] as $field) $expectSame($before[$field], $saved[$field]);
+		$expectSame($balance, $saved['employeeBalanceNotifications']);
+		$expectSame(['mode' => 'selected', 'userIds' => ['anton']], $saved['mailRecipients']);
+		$expectSame(true, $saved['missingEntryReminders']['notifyEmployees']);
+		$expectSame(false, $saved['missingEntryReminders']['notifyHr']);
+		$expectSame(3, $saved['missingEntryReminders']['graceDays']);
+	});
+	foreach (['timeRules', 'notifications'] as $firstSection) {
+		$test('Stale editors conflict across sections and retry preserves the other section: ' . $firstSection, static function () use ($fixture, $save, $defaultRule, $firstSection, $expectSame): void {
+			$state = $fixture();
+			$oldRevision = hash('sha256', $state['config']->values['hr_access_rules']);
+			$firstPayload = [...$defaultRule, 'maxHours' => 7.5, 'employeeBalanceNotifications' => ['overtimeEnabled' => true, 'overtimeThresholdMinutes' => 330]];
+			$expectSame(200, $save($state, [$firstPayload], 'policy', $oldRevision, $firstSection)->getStatus());
+			$secondSection = $firstSection === 'timeRules' ? 'notifications' : 'timeRules';
+			$secondPayload = [...$defaultRule, 'maxHours' => 9, 'employeeBalanceNotifications' => ['overtimeEnabled' => true, 'overtimeThresholdMinutes' => 600]];
+			$conflict = $save($state, [$secondPayload], 'policy', $oldRevision, $secondSection);
+			$expectSame(409, $conflict->getStatus());
+			$expectSame(1, count($state['config']->writes));
+			$retried = $save($state, [$secondPayload], 'policy', $conflict->getData()['rulesRevision'], $secondSection);
+			$expectSame(200, $retried->getStatus());
+			$saved = $retried->getData()['rules'][0];
+			$expectSame($firstSection === 'timeRules' ? 7.5 : 9.0, $saved['maxHours']);
+			$expectSame($firstSection === 'timeRules' ? 600 : 330, $saved['employeeBalanceNotifications']['overtimeThresholdMinutes']);
+			$expectSame(true, $saved['employeeBalanceNotifications']['overtimeEnabled']);
+			$expectSame([], $state['locks']->held);
 		});
 	}
 

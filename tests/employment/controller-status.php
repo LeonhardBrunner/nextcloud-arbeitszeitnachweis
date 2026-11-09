@@ -24,9 +24,10 @@ $fixture = static function (?string $actor = 'alice'): array {
 	$controller = new EmploymentStatusController('timesheet', $request, $store, $session, $hr, $logger, $groups);
 	$balances = new \OCA\Timesheet\Service\MonthlyBalanceService();
 	$preferences = new \OCA\Timesheet\Db\UserPreferencesStore();
-	$page = new PageController('timesheet', $request, $hr, $preferences, $session, new \OCA\Timesheet\Db\TourProgressStore(), $logger, $groups, new \OCA\Timesheet\Service\AbsenceCommentCatalog(), new EmploymentTranslationFixture(), $store);
+	$ruleForm = new \OCA\Timesheet\Settings\RuleSettingsForm();
+	$page = new PageController('timesheet', $request, $hr, $preferences, $session, new \OCA\Timesheet\Db\TourProgressStore(), $logger, $groups, new \OCA\Timesheet\Service\AbsenceCommentCatalog(), new EmploymentTranslationFixture(), $store, $ruleForm);
 	$overview = new OverviewController('timesheet', $request, new EmploymentAppConfigFixture(), new \OCA\Timesheet\Db\EntryMapper(), new \OCA\Timesheet\Db\UserConfigMapper(), $session, $hr, new \OCA\Timesheet\Service\HolidayService(), $balances, $store);
-	return compact('locks', 'config', 'clock', 'store', 'session', 'request', 'hr', 'logger', 'groups', 'controller', 'balances', 'page', 'overview', 'preferences');
+	return compact('locks', 'config', 'clock', 'store', 'session', 'request', 'hr', 'logger', 'groups', 'controller', 'balances', 'page', 'overview', 'preferences', 'ruleForm');
 };
 
 foreach ([null, 'alice', 'hr', 'admin', 'hr-admin'] as $actor) {
@@ -277,4 +278,30 @@ foreach ([null, 'alice', 'admin'] as $actor) {
 		$suite->same([], $state['preferences']->historyReads);
 	});
 }
+foreach ([null, 'alice', 'hr', 'admin', 'hr-admin'] as $actor) {
+	$suite->test('Only HR pages preload the notification editor and load its assets before main: ' . ($actor ?? 'anonymous'), static function () use ($suite, $fixture, $actor): void {
+		$state = $fixture($actor);
+		\OCP\Util::$scripts = [];
+		\OCP\Util::$styles = [];
+		$parameters = $state['page']->index()->getParams();
+		$isHr = in_array($actor, ['hr', 'hr-admin'], true);
+		$suite->same($isHr ? ['notifications'] : [], $state['ruleForm']->scopes);
+		$suite->same($isHr, is_array($parameters['notificationRuleSettings']));
+		$suite->same($isHr, in_array('hr-settings', \OCP\Util::$scripts, true));
+		$suite->same($isHr, in_array('hr-settings', \OCP\Util::$styles, true));
+		if ($isHr) {
+			$suite->same('notifications', $parameters['notificationRuleSettings']['policySection']);
+			$suite->same(true, array_search('hr-settings', \OCP\Util::$scripts, true) < array_search('timesheet-main', \OCP\Util::$scripts, true));
+		}
+	});
+}
+$suite->test('Failed notification preload keeps the page and personal HR settings accessible', static function () use ($suite, $fixture): void {
+	$state = $fixture('hr');
+	$state['ruleForm']->rejectReads = true;
+	$parameters = $state['page']->index()->getParams();
+	$suite->same(true, $parameters['isHR']);
+	$suite->same(null, $parameters['notificationRuleSettings']);
+	$suite->same(1, count($state['logger']->warnings));
+	$suite->same(['notifications'], $state['ruleForm']->scopes);
+});
 $suite->finish('Employment controllers');

@@ -7,7 +7,7 @@ use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\Settings\ISettings;
 
-/** HR manages time rules, reminder settings and email recipients. */
+/** The personal settings page contains HR time rules; email controls live in the overview. */
 class HrSettings implements ISettings {
 	public function __construct(private RuleSettingsForm $settingsForm, private HrService $hrService) {
 	}
