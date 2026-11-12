@@ -163,7 +163,7 @@ test('only no-entry warnings are suppressed; phase dates do not replace the actu
 	assert.equal(app.cell(find('bob/slash'), 'hr-user-errors').textContent, 'Too much overtime');
 	assert.equal(app.cell(find('carol'), 'hr-user-errors').textContent, 'Too many negative hours');
 	assert.equal(app.cell(find('dan'), 'hr-user-errors').textContent, '');
-	assert.match(app.cell(find('emma'), 'hr-user-errors').textContent, /No entry/);
+	assert.equal(app.cell(find('emma'), 'hr-user-errors').textContent, 'No complete time entry yet');
 });
 
 test('Berlin midnight controls warning thresholds and actual day counts across daylight-saving changes', async () => {
@@ -311,7 +311,7 @@ for (const accountLanguage of ['de', 'de_DE', 'en_GB', 'ja', 'ar']) {
 		assert.doesNotMatch(findWarning('positive'), /\{days\}/);
 		assert.ok(app.requests.every(request => request.method === 'GET'));
 		if (accountLanguage.startsWith('de')) {
-			assert.equal(findWarning('positive'), 'Seit mindestens 14 Tagen kein Eintrag, Zu viele Überstunden');
+			assert.equal(findWarning('positive'), 'Seit mindestens 14 Tagen kein vollständiger Eintrag, Zu viele Überstunden');
 			assert.equal(findWarning('negative'), 'Zu viele Minusstunden');
 		}
 	});

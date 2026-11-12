@@ -247,19 +247,31 @@ class SettingsController extends Controller {
 					return new DataResponse(['message' => 'Invalid account search'], 400);
 				}
 			}
-			$candidates = $purpose === 'mail'
-				? array_map(fn(string $id) => $this->userManager->get($id), $this->hrAssignments->getResponsibleUserIds($storedById[trim($ruleId)]))
-				: $this->userManager->searchDisplayName($search, 21, 0);
+			if ($purpose === 'mail') {
+				$rule = $storedById[trim($ruleId)];
+				$availableIds = array_diff($this->hrAssignments->getResponsibleUserIds($rule), $rule['mailRecipients']['userIds']);
+				$candidates = array_map(fn(string $id) => $this->userManager->get($id), $availableIds);
+			} else {
+				$candidates = $this->userManager->searchDisplayName($search, 21, 0);
+			}
 			$users = [];
 			$needle = mb_strtolower($search);
+			$namePrefixPattern = '/(?:^|[^\p{L}\p{M}\p{N}])' . preg_quote($needle, '/') . '/u';
 			foreach ($candidates as $candidate) {
 				if (!$candidate || !$candidate->isEnabled()) {
 					continue;
 				}
 				$name = (string)$candidate->getDisplayName();
 				$id = $candidate->getUID();
-				if ($needle !== '' && !str_contains(mb_strtolower($name), $needle) && !str_contains(mb_strtolower($id), $needle)) {
-					continue;
+				if ($needle !== '') {
+					$normalizedName = mb_strtolower($name);
+					$normalizedId = mb_strtolower($id);
+					$matches = $purpose === 'mail'
+						? preg_match($namePrefixPattern, $normalizedName) === 1 || str_starts_with($normalizedId, $needle)
+						: str_contains($normalizedName, $needle) || str_contains($normalizedId, $needle);
+					if (!$matches) {
+						continue;
+					}
 				}
 				$users['user:' . $id] = ['id' => $id, 'name' => $name, 'enabled' => true];
 			}

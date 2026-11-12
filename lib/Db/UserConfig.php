@@ -32,6 +32,13 @@ use OCP\AppFramework\Db\Entity;
  * @method int|null getMailNegativeThresholdMin()
  * @method void setMailNegativeThresholdMin(?int $minutes)
  *
+ * @method int|null getMailNoEntryOverride()
+ * @method void setMailNoEntryOverride(?int $override)
+ * @method int|null getMailOvertimeOverride()
+ * @method void setMailOvertimeOverride(?int $override)
+ * @method int|null getMailNegativeOverride()
+ * @method void setMailNegativeOverride(?int $override)
+ *
  * @method int|null getWarnNoEntryDays()
  * @method void setWarnNoEntryDays(?int $days)
  *
@@ -61,6 +68,12 @@ class UserConfig extends Entity {
 	/** @var int|null */
 	protected $mailNegativeThresholdMin;
 	/** @var int|null */
+	protected $mailNoEntryOverride;
+	/** @var int|null */
+	protected $mailOvertimeOverride;
+	/** @var int|null */
+	protected $mailNegativeOverride;
+	/** @var int|null */
 	protected $warnNoEntryDays;
 	/** @var int|null */
 	protected $warnOvertimeThresholdMin;
@@ -77,6 +90,9 @@ class UserConfig extends Entity {
 		$this->addType('mailOvertimeThresholdMin', 'integer');
 		$this->addType('mailNegativeEnabled', 'boolean');
 		$this->addType('mailNegativeThresholdMin', 'integer');
+		$this->addType('mailNoEntryOverride', 'integer');
+		$this->addType('mailOvertimeOverride', 'integer');
+		$this->addType('mailNegativeOverride', 'integer');
 		$this->addType('warnNoEntryDays', 'integer');
 		$this->addType('warnOvertimeThresholdMin', 'integer');
 		$this->addType('warnNegativeThresholdMin', 'integer');

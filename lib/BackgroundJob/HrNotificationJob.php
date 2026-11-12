@@ -93,45 +93,20 @@ class HrNotificationJob extends TimedJob {
 
 			$translator = $this->lForUser($hrUser);
 
-			$subject = $translator->t("Timesheet Notifications") . " - " . $currentTime->format('m-d');
+			$subject = $translator->t("Timesheet Notifications") . " - " . $translator->l('date', $currentTime, ['width' => 'medium']);
 			$plainBody = $translator->t('Hello %1$s,', [$hrUser->getDisplayName()]) . "\n\n";
 			$htmlBody = "<!DOCTYPE html><html><body>";
 			$htmlBody .= "<p>" . $translator->t('Hello %1$s,', [htmlspecialchars($hrUser->getDisplayName())]) . "</p>";
 
-			$plainBody .= $translator->t(
-				'In the employee list you oversee, one or more warnings are currently shown. The details are listed below.'
-			) . "\n\n";
-			$htmlBody .= "<p>" . $translator->t(
-				'In the employee list you oversee, one or more warnings are currently shown. The details are listed below.'
-			) . "</p>";
-
 			// Add missing-entry warnings to both message formats.
 			if (!empty($notificationData['noEntry'])) {
-				$plainBody .= $translator->t('No entry for more than %1$s days:', [$notificationData['noEntryDays']]) . "\n";
-				$htmlBody .= "<p><strong>" . $translator->t(
-					'No entry for more than %1$s days:',
-					[$notificationData['noEntryDays']]
-				) . "</strong></p><ul>";
+				$heading = $translator->t('No complete entry for at least %1$s days:', [$notificationData['noEntryDays']]);
+				$plainBody .= $heading . "\n";
+				$htmlBody .= "<p><strong>" . htmlspecialchars($heading) . "</strong></p><ul>";
 				foreach ($notificationData['noEntry'] as $warning) {
-					if ($warning['days'] === null) {
-						$plainBody .= " - " . $translator->t(
-							'%1$s (more than %2$s days since last entry)',
-							[$warning['user'], $notificationData['noEntryDays']]
-						) . "\n";
-						$htmlBody .= "<li>" . $translator->t(
-							'%1$s (more than %2$s days since last entry)',
-							[htmlspecialchars($warning['user']), $notificationData['noEntryDays']]
-						) . "</li>";
-					} else {
-						$plainBody .= " - " . $translator->t(
-							'%1$s (%2$s days since last entry)',
-							[$warning['user'], $warning['days']]
-						) . "\n";
-						$htmlBody .= "<li>" . $translator->t(
-							'%1$s (%2$s days since last entry)',
-							[htmlspecialchars($warning['user']), $warning['days']]
-						) . "</li>";
-					}
+					$line = $translator->t('%1$s (%2$s days without a complete entry)', [$warning['user'], $warning['days']]);
+					$plainBody .= " - " . $line . "\n";
+					$htmlBody .= "<li>" . htmlspecialchars($line) . "</li>";
 				}
 				$plainBody .= "\n";
 				$htmlBody .= "</ul>";

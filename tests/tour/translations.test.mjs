@@ -22,6 +22,13 @@ const emailHelpMessages = {
 	'Email links require a default mail app in the browser or operating system.': 'Für E-Mail-Links muss im Browser oder Betriebssystem ein Standard-Mailprogramm ausgewählt sein.',
 	'Close email help': 'E-Mail-Hinweis schließen',
 };
+const contactDraftMessages = [
+	'Question about the Timesheet app',
+	'Feedback on the Timesheet app',
+	'Hello Timesheet team,',
+	'Best regards,',
+	'Your name',
+];
 const placeholders = text => [...text.matchAll(/\{\w+\}/g)].map(match => match[0]).sort();
 
 // Every supported account language must contain the complete tour in both runtimes.
@@ -38,7 +45,7 @@ for (const [locale, pluralForm] of Object.entries(coverage.locales)) {
 		});
 		assert.ok(browser, 'Browser catalog registers its translations');
 		assert.equal(server.pluralForm, pluralForm);
-		for (const message of coverage.messages) {
+		for (const message of [...coverage.messages, ...contactDraftMessages]) {
 			const translated = server.translations[message];
 			assert.equal(typeof translated, 'string', `Missing ${locale} translation: ${message}`);
 			assert.ok(translated.trim(), `Empty ${locale} translation: ${message}`);
@@ -55,7 +62,7 @@ for (const [locale, pluralForm] of Object.entries(coverage.locales)) {
 		assert.ok(absenceTerms[locale], 'The displayed absence terms are available for this account language');
 		if (!locale.startsWith('en')) {
 			assert.notEqual(server.translations['A short tour explains the main features.'], 'A short tour explains the main features.', 'An English copy is not a translated tour');
-			for (const message of [workingTimeExplanation, federalStateExplanation, generalHelpExplanation, 'Help and tour', 'Tour guide', 'Questions for HR', 'Suggestions for improvement', restartExplanation, 'Time entry warnings', warningsExplanation, 'Freelancer mode', freelancerExplanation, ...Object.keys(emailHelpMessages)]) {
+			for (const message of [workingTimeExplanation, federalStateExplanation, generalHelpExplanation, 'Help and tour', 'Tour guide', 'Questions for HR', 'Suggestions for improvement', restartExplanation, 'Time entry warnings', warningsExplanation, 'Freelancer mode', freelancerExplanation, ...Object.keys(emailHelpMessages), ...contactDraftMessages]) {
 				assert.notEqual(server.translations[message], message, 'New explanations are translated into the account language');
 			}
 		}
@@ -83,6 +90,8 @@ test('the two German tour variants use the same neutral explanations', () => {
 	const informal = JSON.parse(readFileSync(resolve(root, 'l10n/de.json'), 'utf8')).translations;
 	const formal = JSON.parse(readFileSync(resolve(root, 'l10n/de_DE.json'), 'utf8')).translations;
 	for (const message of coverage.messages) assert.equal(informal[message], formal[message]);
+	assert.equal(informal['Your name'], 'Dein Name');
+	assert.equal(formal['Your name'], 'Ihr Name');
 });
 
 test('Japanese and right-to-left tours have their own translated explanations', () => {
@@ -108,7 +117,7 @@ test('German employee guidance uses the shortened copy and company guidelines wi
 		assert.equal(translations['Freelancer mode'], 'Freelancer-Modus');
 		assert.equal(translations[freelancerExplanation], 'Im Freelancer-Modus entfallen Warnmails zu fehlenden oder unvollständigen Einträgen sowie zu Plus- und Minusstunden. Das gilt für Mitarbeitende und HR.');
 		assert.equal(translations[warningsExplanation], 'Warnungen bei Über- oder Unterschreitungen von Pausen sowie fehlende Arbeitszeitnachweise führen zu Warnungen und sollten umgehend korrigiert werden.');
-		assert.equal(translations['Warnings'], 'Fehlermeldungen');
+		assert.equal(translations['Warnings'], 'Warnhinweise');
 		assert.equal(translations[generalHelpExplanation], 'Fragen, Hilfe und Datenschutzhinweise zur allgemeinen Nextcloud.');
 		assert.equal(translations['Help and tour'], 'Hilfe und Tour');
 		assert.equal(translations['Tour guide'], 'Tourguide');

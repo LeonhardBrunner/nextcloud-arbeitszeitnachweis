@@ -45,6 +45,7 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 			},
 			setAttribute(name, value) { this.attributes[name] = String(value); },
 			getAttribute(name) { return this.attributes[name] ?? null; },
+			removeAttribute(name) { delete this.attributes[name]; },
 			appendChild(child) { this.children.push(child); child.parentElement = this; },
 			replaceChildren(...children) { this.children = []; children.forEach(child => this.appendChild(child)); },
 			set textContent(value) { this._text = String(value); this.children = []; },
@@ -187,9 +188,19 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 		},
 		async choosePerson(purpose, userId) {
 			const picker = this.picker(purpose);
+			if (purpose === 'mail') {
+				const suggestion = picker.results.children.find(option => option.dataset.personId === userId);
+				assert.ok(suggestion, 'The account appears in the suggestions');
+				await this.click(suggestion);
+				return;
+			}
 			picker.results.value = userId;
 			await this.change(picker.results);
 			await this.click(picker.addButton);
+		},
+		async pressSearchKey(purpose, key) {
+			const input = this.picker(purpose).input;
+			await Promise.all((events.get('timesheet-hr-rules:keydown') || []).map(callback => callback({ target: input, key, preventDefault() {} })));
 		},
 		async removePerson(purpose, userId) {
 			const button = this.picker(purpose).wrapper.querySelectorAll('.ts-person-remove').find(candidate => candidate.dataset.personId === userId);
@@ -242,13 +253,13 @@ for (const language of ['de', 'de_DE']) {
 	test(`German settings keep translated labels in their respective role (${language})`, async () => {
 		const hrSettings = await openHrSettings(undefined, null, language);
 		const cardHtml = hrSettings.card().innerHTML;
-		for (const label of ['Gruppenregel', 'Zeitregeln', 'Erinnerungen an fehlende Zeiten']) {
+		for (const label of ['Gruppenregel', 'Zeitregeln', 'Erinnerung für einzelne fehlende oder unvollständige Arbeitstage']) {
 			assert.ok(cardHtml.includes(label), `Missing German HR settings label: ${label}`);
 		}
 		const admin = await openAdminSettings(undefined, null, language);
 		for (const label of ['Gruppenregel', 'Priorität', 'HR-Gruppen', 'Einzelne HR-Konten']) assert.ok(admin.card().innerHTML.includes(label));
 		assert.ok(!cardHtml.includes('Group rule'));
-		assert.ok(!cardHtml.includes('Missing time entry reminders'));
+		assert.ok(!cardHtml.includes('Reminder for missing or incomplete time entries'));
 	});
 }
 
@@ -271,14 +282,15 @@ test('group and rule removal controls use a readable multiplication sign and tra
 	}
 });
 
-test('English HR settings cards retain their original labels', async () => {
+test('English HR settings describe the days checked by reminders', async () => {
 	const hrSettings = await openHrSettings();
 	assert.ok(hrSettings.card().innerHTML.includes('Group rule'));
 	assert.ok(!hrSettings.card().innerHTML.includes('Priority'));
-	assert.ok(hrSettings.card().innerHTML.includes('Missing time entry reminders'));
+	assert.ok(hrSettings.card().innerHTML.includes('Reminder for missing or incomplete time entries'));
+	assert.ok(hrSettings.card().innerHTML.includes('calendar days after the workday'));
 	const admin = await openAdminSettings();
 	assert.ok(admin.card().innerHTML.includes('Priority'));
-	assert.ok(!admin.card().innerHTML.includes('Missing time entry reminders'));
+	assert.ok(!admin.card().innerHTML.includes('Reminder for missing or incomplete time entries'));
 });
 
 test('legacy rules render disabled reminders with Monday to Friday defaults', async () => {
@@ -613,6 +625,34 @@ test('selected mode with no accounts explicitly disables HR mail without changin
 	await hrSettings.choosePerson('mail', 'bea');
 	assert.deepEqual(hrSettings.requests[1].rules[0].mailRecipients, { mode: 'selected', userIds: ['bea'] });
 	assert.deepEqual(hrSettings.requests[1].rules[0].hrUsers, ['anton']);
+});
+
+test('typing in the mail recipient picker opens scoped suggestions and allows keyboard selection', async () => {
+	const rule = assignmentRule({ mailRecipients: { mode: 'selected', userIds: ['ta-selected'] } });
+	const hr = await openHrSettings([rule], null, 'de', { users: [
+		{ id: 'ta-selected', name: 'Tara A', enabled: true },
+		{ id: 'ta-disabled', name: 'Tara B', enabled: false },
+		{ id: 'taskin', name: 'Taskin', enabled: true },
+		{ id: 'ella', name: 'Ella Taylor', enabled: true },
+	] }, 'policy', false, 'notifications');
+	await hr.searchAccounts('mail', 'Ta');
+	assert.equal(hr.searchRequests[0].ruleId, 'assignment');
+	assert.equal(hr.searchRequests[0].search, 'Ta');
+	const picker = hr.picker('mail');
+	assert.equal(picker.input.getAttribute('aria-expanded'), 'true');
+	assert.deepEqual(picker.results.children.map(option => option.dataset.personId), ['taskin', 'ella']);
+	await hr.pressSearchKey('mail', 'ArrowDown');
+	assert.equal(picker.input.getAttribute('aria-activedescendant'), picker.results.children[0].id);
+	await hr.pressSearchKey('mail', 'Escape');
+	assert.equal(picker.results.hidden, true);
+	assert.equal(picker.input.getAttribute('aria-expanded'), 'false');
+	assert.equal(hr.requests.length, 0);
+	await hr.pressSearchKey('mail', 'ArrowUp');
+	await hr.pressSearchKey('mail', 'Enter');
+	assert.deepEqual(hr.requests[0].rules[0].mailRecipients.userIds, ['ta-selected', 'ella']);
+	await hr.searchAccounts('mail', 'Nobody');
+	assert.equal(hr.picker('mail').status.textContent, 'Keine passenden Konten gefunden.');
+	assert.equal(hr.picker('mail').results.hidden, true);
 });
 
 test('assignment and mail changes use separate forms and retain the other settings in their snapshots', async () => {

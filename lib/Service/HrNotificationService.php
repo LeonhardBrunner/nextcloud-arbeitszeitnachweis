@@ -2,27 +2,17 @@
 
 namespace OCA\Timesheet\Service;
 
-use OCA\Timesheet\Db\EntryMapper;
 use OCA\Timesheet\Db\EmploymentStatusStore;
-use OCA\Timesheet\Db\UserConfigMapper;
-use OCA\Timesheet\Service\HrService;
-use OCP\AppFramework\Db\DoesNotExistException;
+use OCA\Timesheet\Db\HrPreferencesStore;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IUserManager;
 use Psr\Log\LoggerInterface;
 
 class HrNotificationService {
-	private const DEFAULT_NO_ENTRY_DAYS = 14;
-	private const DEFAULT_OVERTIME_THRESHOLD_MIN = 600; // 10h
-	private const DEFAULT_NEGATIVE_THRESHOLD_MIN = 600; // 10h
-	private const DEFAULT_WORK_MINUTES = 480; // 8h
-
 	private array $overtimeCache = [];
-	private array $dailyMinCache = [];
 
 	public function __construct(
-		private EntryMapper $entryMapper,
-		private UserConfigMapper $userConfigMapper,
+		private HrPreferencesStore $preferences,
 		private HrService $hrService,
 		private MonthlyBalanceService $monthlyBalanceService,
 		private EmploymentStatusStore $employmentStatusStore,
@@ -57,29 +47,19 @@ class HrNotificationService {
 				$this->logger->error('HR warnings skipped because the recipient could not be loaded.', ['userId' => $hrUserId, 'exception' => $recipientError]);
 				continue;
 			}
-			$hrConfig = null;
-			try {
-				$hrConfig = $this->userConfigMapper->findByUser($hrUserId);
-			} catch (DoesNotExistException) {
-				// Keep defaults when no user configuration exists.
-			}
-
-			$noEntryEnabled = (bool)($hrConfig?->getMailNoEntryEnabled() ?? false);
-			$overtimeEnabled = (bool)($hrConfig?->getMailOvertimeEnabled() ?? false);
-			$negativeEnabled = (bool)($hrConfig?->getMailNegativeEnabled() ?? false);
+			$settings = $this->preferences->getNotificationSettings($hrUserId);
+			$noEntryEnabled = $settings['noEntryEnabled'];
+			$overtimeEnabled = $settings['overtimeEnabled'];
+			$negativeEnabled = $settings['negativeOvertimeEnabled'];
 
 			if (!$noEntryEnabled && !$overtimeEnabled && !$negativeEnabled) {
 				continue;
 			}
 
-			$noEntryDays = (int)($hrConfig?->getMailNoEntryDays() ?? self::DEFAULT_NO_ENTRY_DAYS);
-			$noEntryDays = max(1, min(365, $noEntryDays));
-
-			$overtimeThresholdMin = (int)($hrConfig?->getMailOvertimeThresholdMin() ?? self::DEFAULT_OVERTIME_THRESHOLD_MIN);
-			$overtimeThresholdMin = max(0, $overtimeThresholdMin);
-
-			$negativeThresholdMin = (int)($hrConfig?->getMailNegativeThresholdMin() ?? self::DEFAULT_NEGATIVE_THRESHOLD_MIN);
-			$negativeThresholdMin = max(0, $negativeThresholdMin);
+			$thresholds = $settings['warningThresholds'];
+			$noEntryDays = $thresholds['noEntryDays'];
+			$overtimeThresholdMin = $thresholds['overtimeThresholdMinutes'];
+			$negativeThresholdMin = $thresholds['negativeOvertimeThresholdMinutes'];
 
 			$hrNotifications = [
 				'noEntry' => [],
@@ -111,28 +91,17 @@ class HrNotificationService {
 				}
 				$balanceSummary = $this->overtimeCache[$userId];
 
-				$lastEntryDate = ($balanceSummary && isset($balanceSummary['lastEntryDate']))
-					? (string)$balanceSummary['lastEntryDate']
-					: null;
-
-				// The older aggregate reminder starts a fresh full delay after an exemption.
-				$referenceDate = $employmentStatus->getMissingEntryReferenceDate($lastEntryDate);
-				if ($referenceDate === null && $balanceSummary && isset($balanceSummary['to'])) {
-					// Preserve the old range fallback only when no actual entry or return exists.
-					$referenceDate = $employmentStatus->getMissingEntryReferenceDate((string)$balanceSummary['to']);
-				}
-				$daysSinceLastEntry = null;
-				if ($referenceDate !== null) {
-					$reference = \DateTimeImmutable::createFromFormat('!Y-m-d', $referenceDate, new \DateTimeZone('Europe/Berlin'));
-					$daysSinceLastEntry = $reference > $today ? 0 : (int)$reference->diff($today)->format('%a');
-				}
-
 				if ($noEntryEnabled) {
-					if ($referenceDate === null || ($daysSinceLastEntry !== null && $daysSinceLastEntry >= $noEntryDays)) {
-						$hrNotifications['noEntry'][] = [
-							'user' => $displayName,
-							'days' => $daysSinceLastEntry,
-						];
+					$referenceDate = $employmentStatus->getMissingEntryReferenceDate($balanceSummary['lastEntryDate'] ?? null);
+					if ($referenceDate !== null) {
+						$reference = \DateTimeImmutable::createFromFormat('!Y-m-d', $referenceDate, $today->getTimezone());
+						$daysSinceLastEntry = $reference > $today ? 0 : (int)$reference->diff($today)->format('%a');
+						if ($daysSinceLastEntry >= $noEntryDays) {
+							$hrNotifications['noEntry'][] = [
+								'user' => $displayName,
+								'days' => $daysSinceLastEntry,
+							];
+						}
 					}
 				}
 
@@ -142,14 +111,14 @@ class HrNotificationService {
 
 				$overtimeMinutes = (int)($balanceSummary['overtimeMinutes'] ?? 0);
 
-				if ($overtimeEnabled && $overtimeMinutes > $overtimeThresholdMin) {
+				if ($overtimeEnabled && $overtimeMinutes > 0 && $overtimeMinutes >= $overtimeThresholdMin) {
 					$hrNotifications['overtime'][] = [
 						'user' => $displayName,
 						'overtime' => $this->formatHours($overtimeMinutes, true),
 					];
 				}
 
-				if ($negativeEnabled && $overtimeMinutes < -$negativeThresholdMin) {
+				if ($negativeEnabled && $overtimeMinutes < 0 && $overtimeMinutes <= -$negativeThresholdMin) {
 					$hrNotifications['negative'][] = [
 						'user' => $displayName,
 						'deficit' => $this->formatHours($overtimeMinutes, true),

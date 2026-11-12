@@ -116,104 +116,6 @@
 	outline-offset: -2px;
 }
 
-/* The invitation does not block work in the application. */
-.ts-tour-invitation,
-.ts-tour-dialog,
-.ts-tour-email-help {
-	position: fixed;
-	box-sizing: border-box;
-	width: min(380px, calc(100vw - 24px));
-	max-height: calc(100dvh - 24px);
-	overflow: auto;
-	padding: 20px;
-	border-radius: var(--border-radius-large, 12px);
-	background: var(--color-main-background, #fff);
-	color: var(--color-main-text, #222);
-	box-shadow: 0 10px 36px rgba(0, 0, 0, .3);
-	font-size: var(--default-font-size, 15px);
-	line-height: 1.5;
-	text-align: start;
-	overflow-wrap: anywhere;
-}
-
-.ts-tour-invitation,
-.ts-tour-email-help {
-	z-index: 2147483000;
-}
-
-.ts-tour-invitation h2,
-.ts-tour-dialog h2,
-.ts-tour-email-help h2 {
-	margin: 0 0 10px;
-	font-size: 1.15em;
-	font-weight: 600;
-	line-height: 1.35;
-	color: inherit;
-}
-
-.ts-tour-invitation h2,
-.ts-tour-email-help h2 {
-	padding-inline-end: 24px;
-}
-
-.ts-tour-invitation p,
-.ts-tour-dialog p,
-.ts-tour-email-help p {
-	margin: 0 0 16px;
-	color: inherit;
-}
-
-/* Keep the close control independent of Nextcloud's empty-button styles. */
-#ts-tour-invitation .ts-tour-close,
-#ts-email-help .ts-tour-close {
-	position: absolute;
-	inset-block-start: 8px;
-	inset-inline-end: 8px;
-	box-sizing: border-box;
-	width: 44px;
-	height: 44px;
-	min-width: 44px;
-	min-height: 44px;
-	margin: 0;
-	padding: 0;
-	border: 0;
-	background: transparent;
-	color: inherit;
-}
-
-#ts-tour-invitation .ts-tour-close:hover,
-#ts-tour-invitation .ts-tour-close:focus,
-#ts-tour-invitation .ts-tour-close:active,
-#ts-email-help .ts-tour-close:hover,
-#ts-email-help .ts-tour-close:focus,
-#ts-email-help .ts-tour-close:active {
-	background: transparent;
-	color: inherit;
-}
-
-.ts-tour-close::before,
-.ts-tour-close::after {
-	content: '';
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	width: 18px;
-	height: 2px;
-	background: currentColor;
-	transform: translate(-50%, -50%) rotate(45deg);
-}
-
-.ts-tour-close::after {
-	transform: translate(-50%, -50%) rotate(-45deg);
-}
-
-/* Email status remains part of the nonmodal help panel. */
-#ts-email-help .ts-email-help-status {
-	margin-block-end: 12px;
-	margin-inline-end: 44px;
-	font-weight: 600;
-}
-
 .ts-tour-actions {
 	display: flex;
 	flex-wrap: wrap;
@@ -239,13 +141,6 @@
 	gap: 8px;
 	max-width: 100%;
 	margin-inline-start: auto;
-}
-
-.ts-tour-actions button:focus-visible,
-.ts-tour-close:focus-visible,
-#ts-tour-launcher:focus-visible {
-	outline: 2px solid var(--color-primary-element, #0082c9);
-	outline-offset: 3px;
 }
 
 /* The mask reveals the original controls while blocking their interaction. */
@@ -330,11 +225,6 @@
 	#ts-tour-launcher {
 		width: 44px;
 		height: 50px;
-	}
-	.ts-tour-invitation,
-	.ts-tour-dialog,
-	.ts-tour-email-help {
-		padding: 16px;
 	}
 	.ts-tour-actions {
 		gap: 6px;

@@ -1,6 +1,18 @@
 {
 	"releases": [
 		{
+			"version": "1.4.1",
+			"sections": [
+				{
+					"title": "Improvements",
+					"items": [
+						"HR list warnings and Monday emails now use shared thresholds.",
+						"The HR recipient search suggests matching accounts while typing."
+					]
+				}
+			]
+		},
+		{
 			"version": "1.4.0",
 			"sections": [
 				{

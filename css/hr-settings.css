@@ -1,14 +1,9 @@
 /* Inline help uses neutral controls and leaves every rule visible. */
-#hr-notification-settings-section .ts-settings-heading {
+#hr-notification-settings-section #hr-notifications-heading {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	margin-bottom: 12px;
-}
-
-#hr-notification-settings-section .ts-settings-heading h4 {
-	margin: 0;
+	gap: 6px;
+	margin: 0 0 12px;
 }
 
 #hr-notification-settings-section .ts-rules-help-toggle {
@@ -47,23 +42,13 @@
 }
 
 
-#hr-notification-settings-section .ts-rules-help ol {
-	list-style: decimal;
-	margin: 0 0 12px;
-	padding-inline-start: 24px;
-}
-
-#hr-notification-settings-section .ts-rules-help li {
-	margin-bottom: 12px;
-	padding-inline-start: 2px;
-}
-
-#hr-notification-settings-section .ts-rules-help li::marker {
+#hr-notification-settings-section .ts-rules-help .ts-rules-help-heading {
 	font-weight: 700;
+	margin: 12px 0 4px;
 }
 
-#hr-notification-settings-section .ts-rules-help li:last-child {
-	margin-bottom: 0;
+#hr-notification-settings-section .ts-rules-help .ts-rules-help-heading:first-child {
+	margin-top: 0;
 }
 
 #hr-notification-settings-section .ts-rules-help p {
@@ -78,6 +63,7 @@
 #timesheet-hr-rules {
 	margin: 12px 0 10px;
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	gap: 12px;
 }
 
@@ -226,6 +212,33 @@
 	min-width: 0;
 	max-width: 100%;
 	flex: 1 1 200px;
+}
+
+#timesheet-hr-settings .ts-person-suggestions {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 420px;
+	max-height: 12rem;
+	overflow-y: auto;
+	margin: 4px 0 0;
+	padding: 4px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--border-radius);
+	background: var(--color-main-background);
+	color: var(--color-main-text);
+	list-style: none;
+}
+
+#timesheet-hr-settings .ts-person-suggestion {
+	padding: 7px 10px;
+	border-radius: var(--border-radius);
+	cursor: pointer;
+	overflow-wrap: anywhere;
+}
+
+#timesheet-hr-settings .ts-person-suggestion:hover,
+#timesheet-hr-settings .ts-person-suggestion[aria-selected="true"] {
+	background: var(--color-background-hover);
 }
 
 #timesheet-hr-settings .ts-person-search-status {
@@ -443,6 +456,8 @@
 
 #timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table caption {
 	padding: 10px 12px;
+	white-space: normal;
+	overflow-wrap: anywhere;
 	border: 1px solid var(--color-border);
 	border-bottom: 0;
 	background: var(--color-background-dark);

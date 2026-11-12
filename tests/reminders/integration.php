@@ -289,7 +289,64 @@ verifyReminder($actualDelivery['hrSent'], 2, 'Real HR messages delivered to Mail
 
 // Old HR notifications remain independently callable with their existing preferences.
 $hrPreferences = $container->get(\OCA\Timesheet\Db\HrPreferencesStore::class);
-$hrPreferences->saveNotificationSettings('reminder-hr-a', ['overtimeEnabled' => true, 'overtimeThresholdMinutes' => 0]);
+// Exercise personal thresholds against the same database adapter used by the app.
+$preferenceUserId = 'reminder-hr-preference-fixture';
+$deletePreferenceFixture = static function () use ($database, $preferenceUserId): void {
+	$query = $database->getQueryBuilder();
+	$query->delete('ts_user_config')
+		->where($query->expr()->eq('user_id', $query->createNamedParameter($preferenceUserId)))
+		->executeStatement();
+};
+$deletePreferenceFixture();
+try {
+	$defaults = $hrPreferences->getNotificationSettings($preferenceUserId);
+	verifyReminder($defaults['warningThresholds']['noEntryDays'], 14, 'New HR accounts use the shared default');
+	$legacy = $database->getQueryBuilder();
+	$legacy->insert('ts_user_config')->values([
+		'user_id' => $legacy->createNamedParameter($preferenceUserId),
+		'work_minutes' => $legacy->createNamedParameter(330),
+		'state' => $legacy->createNamedParameter('BY'),
+		'mail_no_entry_enabled' => $legacy->createNamedParameter(1),
+		'mail_no_entry_days' => $legacy->createNamedParameter(21),
+		'mail_no_entry_override' => $legacy->createNamedParameter(1),
+		'warn_no_entry_days' => $legacy->createNamedParameter(14),
+		'mail_overtime_enabled' => $legacy->createNamedParameter(1),
+		'mail_overtime_threshold_min' => $legacy->createNamedParameter(240),
+		'mail_overtime_override' => $legacy->createNamedParameter(1),
+		'warn_overtime_threshold_min' => $legacy->createNamedParameter(600),
+	])->executeStatement();
+
+	$settings = $hrPreferences->getNotificationSettings($preferenceUserId);
+	verifyReminder([$settings['noEntryDays'], $settings['overtimeThresholdMinutes']], [14, 600], 'Stored legacy mail overrides do not change the shared values');
+	verifyReminder([$settings['noEntryEnabled'], $settings['overtimeEnabled']], [true, true], 'Previously enabled weekly emails remain enabled');
+	verifyReminder(array_key_exists('noEntryOverride', $settings), false, 'Separate threshold controls are no longer exposed');
+	$settings = $hrPreferences->saveNotificationSettings($preferenceUserId, [
+		'noEntryEnabled' => false,
+		'warningThresholds' => ['noEntryDays' => 16, 'overtimeThresholdMinutes' => 720],
+	]);
+	verifyReminder([$settings['noEntryEnabled'], $settings['overtimeEnabled']], [false, true], 'Changing one weekly email setting leaves the other category unchanged');
+	verifyReminder([$settings['noEntryDays'], $settings['warningThresholds']['noEntryDays'], $settings['overtimeThresholdMinutes']], [16, 16, 720], 'The merged write updates the shared values');
+
+	$hrPreferences->saveWarningThresholds($preferenceUserId, ['noEntryDays' => 19, 'overtimeThresholdMinutes' => 720]);
+	$settings = $hrPreferences->saveNotificationSettings($preferenceUserId, ['noEntryEnabled' => true, 'noEntryDays' => 23, 'noEntryOverride' => true]);
+	verifyReminder([$settings['noEntryEnabled'], $settings['noEntryDays']], [true, 19], 'A legacy mail client can still enable delivery without altering the shared threshold');
+	$settings = $hrPreferences->saveNotificationSettings($preferenceUserId, ['noEntryEnabled' => true]);
+	verifyReminder([$settings['noEntryEnabled'], $settings['noEntryDays']], [true, 19], 'Identical saves are safe when a database reports zero changed rows');
+
+	$stored = $database->getQueryBuilder();
+	$stored->select('mail_no_entry_days', 'mail_no_entry_override', 'mail_overtime_threshold_min', 'mail_overtime_override')
+		->from('ts_user_config')
+		->where($stored->expr()->eq('user_id', $stored->createNamedParameter($preferenceUserId)));
+	verifyReminder(array_map('intval', array_values($stored->executeQuery()->fetch())), [21, 1, 240, 1], 'Existing separate values and flags stay stored');
+	verifyReminder($configMapper->getConfigData($preferenceUserId), ['dailyMin' => 330, 'state' => 'BY'], 'Personal notification writes keep other Timesheet settings');
+} finally {
+	$deletePreferenceFixture();
+}
+
+$hrPreferences->saveNotificationSettings('reminder-hr-a', [
+	'overtimeEnabled' => true,
+	'warningThresholds' => ['overtimeThresholdMinutes' => 0],
+]);
 $appConfig->setAppValueString('hr_notification_force', '1');
 $legacyJob = $container->get(\OCA\Timesheet\BackgroundJob\HrNotificationJob::class);
 $legacyRun = new ReflectionMethod($legacyJob, 'run');

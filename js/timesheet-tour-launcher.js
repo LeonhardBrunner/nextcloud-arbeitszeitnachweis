@@ -8,7 +8,7 @@
 
 	const translate = message => t('timesheet', message);
 	let menu;
-	let emailHelp;
+	const { close: closeEmailHelp, show: showEmailHelp, positionPopup } = timesheet.mailHelp;
 	let menuLauncher;
 	let menuItems = [];
 	let beforeMenuOpen = () => {};
@@ -25,61 +25,8 @@
 		}
 	}
 
-	function closeEmailHelp(restoreFocus = false) {
-		emailHelp?.remove();
-		emailHelp = null;
-		if (restoreFocus) {
-			menuLauncher?.focus({ preventScroll: true });
-		}
-	}
-
-	function positionPopup(popup) {
-		if (!popup || popup.hidden || !menuLauncher) {
-			return;
-		}
-		const anchor = menuLauncher.getBoundingClientRect();
-		const size = popup.getBoundingClientRect();
-		const isRightToLeft = window.getComputedStyle(menuLauncher).direction === 'rtl';
-		const preferredLeft = isRightToLeft ? anchor.left : anchor.right - size.width;
-		const below = anchor.bottom + 8;
-		const preferredTop = below + size.height <= window.innerHeight - 12 ? below : anchor.top - size.height - 8;
-		popup.style.left = `${Math.max(12, Math.min(window.innerWidth - size.width - 12, preferredLeft))}px`;
-		popup.style.top = `${Math.max(12, Math.min(window.innerHeight - size.height - 12, preferredTop))}px`;
-	}
-
-	function positionHelpPopups() {
-		positionPopup(menu);
-		positionPopup(emailHelp);
-	}
-
-	function showEmailHelp() {
-		closeEmailHelp();
-		emailHelp = document.createElement('div');
-		emailHelp.id = 'ts-email-help';
-		emailHelp.className = 'ts-tour-email-help';
-		emailHelp.setAttribute('role', 'region');
-		emailHelp.setAttribute('aria-labelledby', 'ts-email-help-title');
-		emailHelp.setAttribute('aria-live', 'polite');
-		const status = document.createElement('p');
-		status.id = 'ts-email-help-status';
-		status.className = 'ts-email-help-status';
-		status.setAttribute('role', 'status');
-		status.textContent = translate('Opening the default mail app…');
-		const heading = document.createElement('h2');
-		heading.id = 'ts-email-help-title';
-		heading.textContent = translate('No mail app opened?');
-		const description = document.createElement('p');
-		description.textContent = translate('Email links require a default mail app in the browser or operating system.');
-		const closeButton = document.createElement('button');
-		closeButton.id = 'ts-email-help-close';
-		closeButton.className = 'ts-tour-close';
-		closeButton.type = 'button';
-		closeButton.setAttribute('aria-label', translate('Close email help'));
-		closeButton.addEventListener('click', () => closeEmailHelp(true));
-		emailHelp.append(status, heading, description, closeButton);
-		document.body.append(emailHelp);
-		// This conditional help does not inspect browser focus or infer mail-app availability.
-		positionHelpPopups();
+	function positionMenu() {
+		positionPopup(menu, menuLauncher);
 	}
 
 	function openMenu(itemIndex = 0) {
@@ -87,18 +34,13 @@
 		beforeMenuOpen();
 		menu.hidden = false;
 		menuLauncher.setAttribute('aria-expanded', 'true');
-		positionHelpPopups();
+		positionMenu();
 		menuItems[itemIndex]?.focus({ preventScroll: true });
 	}
 
 	function closeMenuOutside(event) {
 		if (menu && !menu.hidden && !menu.contains(event.target) && !menuLauncher.contains(event.target)) {
 			closeMenu();
-		}
-		// Focus may move to an external mail app; only an outside click dismisses this hint.
-		if (emailHelp && event.type !== 'focusin' && !emailHelp.contains(event.target)
-			&& !menu?.contains(event.target) && !menuLauncher.contains(event.target)) {
-			closeEmailHelp();
 		}
 	}
 
@@ -141,7 +83,7 @@
 		return item;
 	}
 
-	function createHelpMenu(button, onActivate, onMenuOpen) {
+	function createHelpMenu(button, contactDrafts, onActivate, onMenuOpen) {
 		menuLauncher = button;
 		beforeMenuOpen = onMenuOpen;
 		menu = document.createElement('div');
@@ -159,22 +101,12 @@
 		});
 		const questions = createMenuItem('a', 'ts-tour-menu-questions', 'Questions for HR', 'questions');
 		const suggestions = createMenuItem('a', 'ts-tour-menu-suggestions', 'Suggestions for improvement', 'suggestions');
-		const emailChoices = [
-			[questions, 'Frage zum Arbeitszeitnachweis'],
-			[suggestions, 'Feedback für Arbeitszeitnachweis'],
-		];
-		const emailBody = [
-			'Hallo liebes Arbeitszeitnachweis-Team,',
-			'',
-			'',
-			'Mit freundlichen Grüßen',
-			'Dein Name',
-		].join('\r\n');
-		for (const [link, subject] of emailChoices) {
-			link.setAttribute('href', `mailto:karriere@xiller.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`);
+		questions.setAttribute('href', contactDrafts.tourQuestionDraft);
+		suggestions.setAttribute('href', contactDrafts.tourFeedbackDraft);
+		for (const link of [questions, suggestions]) {
 			link.addEventListener('click', () => {
 				closeMenu(true);
-				showEmailHelp();
+				showEmailHelp(menuLauncher, link);
 			});
 		}
 		menuItems = [guide, questions, suggestions];
@@ -197,15 +129,8 @@
 			}
 		});
 		['pointerdown', 'click', 'focusin'].forEach(name => document.addEventListener(name, closeMenuOutside));
-		document.addEventListener('keydown', event => {
-			if (emailHelp && event.key === 'Escape') {
-				event.preventDefault();
-				event.stopPropagation();
-				closeEmailHelp(true);
-			}
-		});
-		window.addEventListener('resize', positionHelpPopups);
-		window.addEventListener('scroll', positionHelpPopups, true);
+		window.addEventListener('resize', positionMenu);
+		window.addEventListener('scroll', positionMenu, true);
 	}
 
 	// Keep Nextcloud's header integration separate from the tour itself.
@@ -230,7 +155,7 @@
 		label.className = 'ts-tour-launcher-text';
 		label.textContent = translate('Help and tour');
 		button.append(icon, label);
-		createHelpMenu(button, onActivate, onMenuOpen);
+		createHelpMenu(button, appRoot.dataset, onActivate, onMenuOpen);
 
 		const search = document.getElementById('unified-search');
 		const notifications = document.getElementById('notifications');

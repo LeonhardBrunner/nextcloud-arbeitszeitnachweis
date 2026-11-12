@@ -3,6 +3,20 @@ $usesHoursFormat = ($_['breakInputMode'] ?? 'minutes') === 'hours';
 $usesHistoryTable = ($_['historyView'] ?? 'cards') === 'table';
 $absenceCommentTerms = $_['absenceCommentTerms'];
 $employmentStatus = $_['employmentStatus'] ?? [];
+$tourEnabled = $_['tourEnabled'] ?? true;
+$mailDraft = static fn(string $recipient, string $subject, string $body): string =>
+	'mailto:' . $recipient . '?' . http_build_query(['subject' => $subject, 'body' => $body], '', '&', PHP_QUERY_RFC3986);
+if ($tourEnabled) {
+	$contactBody = implode("\r\n", [
+		$l->t('Hello Timesheet team,'),
+		'',
+		'',
+		$l->t('Best regards,'),
+		$l->t('Your name'),
+	]);
+	$questionDraft = $mailDraft('karriere@xiller.com', $l->t('Question about the Timesheet app'), $contactBody);
+	$feedbackDraft = $mailDraft('karriere@xiller.com', $l->t('Feedback on the Timesheet app'), $contactBody);
+}
 ?>
 <section class="card" id="timesheet-app"
 	data-update-notes-enabled="<?php p(($_['updateNotesEnabled'] ?? false) ? 'true' : 'false'); ?>"
@@ -14,7 +28,11 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 	data-employment-status-revision="<?php p($employmentStatus['statusRevision'] ?? ''); ?>"
 	data-absence-vacation="<?php p($absenceCommentTerms['vacation']); ?>"
 	data-absence-time-off-in-lieu="<?php p($absenceCommentTerms['timeOffInLieu']); ?>"
-	data-tour-enabled="<?php p(($_['tourEnabled'] ?? true) ? 'true' : 'false'); ?>"
+	data-tour-enabled="<?php p($tourEnabled ? 'true' : 'false'); ?>"
+	<?php if ($tourEnabled): ?>
+		data-tour-question-draft="<?php p($questionDraft); ?>"
+		data-tour-feedback-draft="<?php p($feedbackDraft); ?>"
+	<?php endif; ?>
 	data-tour-version="<?php p($_['tourProgress']['version'] ?? 1); ?>"
 	data-tour-employee-completed="<?php p(($_['tourProgress']['employeeCompleted'] ?? false) ? 'true' : 'false'); ?>"
 	data-tour-state-available="<?php p(($_['tourStateAvailable'] ?? false) ? 'true' : 'false'); ?>">
@@ -148,7 +166,7 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 				<!-- Employee list -->
 				<div id="hr-userlist-section" class="ts-hr-section">
 					<div class="hr-employee-list-header">
-						<h4><?php p($l->t('Employees')) ?></h4>
+						<h4><?php p($l->t('Employee list')) ?></h4>
 						<button type="button" id="hr-employee-filter-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="hr-employee-filter-popup"><?php p($l->t('Filter')); ?></button>
 					</div>
 					<div id="hr-employee-filter-popup" class="hr-employee-filter-popup" role="dialog" aria-labelledby="hr-employee-filter-heading" hidden>
@@ -222,124 +240,23 @@ $employmentStatus = $_['employmentStatus'] ?? [];
 					</table>
 				</div>
 
-
-				<!-- Warning thresholds -->
-				<div id="hr-warning-thresholds-section" class="ts-hr-section">
-					<h4><?php p($l->t('Warnings')) ?></h4>
-
-					<table class="grid hr-warning-thresholds-table">
-						<thead>
-							<tr>
-								<th><?php p($l->t('Warning')) ?></th>
-								<th><?php p($l->t('Threshold')) ?></th>
-							</tr>
-						</thead>
-						<tbody>
-							<tr>
-								<td><?php p($l->t('No entry reminder')) ?></td>
-								<td>
-									<input type="number" id="hr-warn-no-entry-days" min="1" max="365" step="1" value="14">
-									<span><?php p($l->t('days')) ?></span>
-								</td>
-							</tr>
-
-							<tr>
-								<td><?php p($l->t('Overtime warning')) ?></td>
-								<td>
-									<input type="time" id="hr-warn-overtime-threshold" value="10:00" step="60">
-									<span><?php p($l->t('hours')) ?></span>
-								</td>
-							</tr>
-
-							<tr>
-								<td><?php p($l->t('Negative overtime warning')) ?></td>
-								<td>
-									<input type="time" id="hr-warn-negative-threshold" value="10:00" step="60">
-									<span><?php p($l->t('hours')) ?></span>
-								</td>
-							</tr>
-							<tr class="hr-hint-row">
-								<td colspan="2"><?php p($l->t('Warnings are shown when employees reach the threshold.')) ?></td>
-							</tr>
-						</tbody>
-					</table>
+				<?php
+				$appRequestHref = $mailDraft(
+					'info@xiller.com',
+					$l->t('Change request for the Timesheet app'),
+					implode("\r\n\r\n", [
+						$l->t('Dear Timesheet team,'),
+						$l->t('I would like to suggest a change.'),
+						$l->t('Kind regards,'),
+					]),
+				);
+				?>
+				<div id="hr-notification-block" class="ts-hr-section">
+					<a class="button hr-app-request" href="<?php p($appRequestHref); ?>">
+						<?php p($l->t('Do you have any requests for the app?')); ?>
+					</a>
+					<?php include __DIR__ . '/partials/hr-notifications.php'; ?>
 				</div>
-				<!-- All mail controls share one panel; personal settings keep their existing IDs. -->
-				<div id="hr-notification-settings-section" class="ts-hr-section">
-					<div class="ts-settings-heading">
-						<h4><?php p($l->t('Notifications')); ?></h4>
-						<button type="button" class="ts-rules-help-toggle" id="timesheet-rules-help-toggle"
-							aria-expanded="false" aria-controls="timesheet-rules-help"
-							aria-label="<?php p($l->t('Group rules explained')); ?>"
-							title="<?php p($l->t('Group rules explained')); ?>">
-							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-								<circle cx="12" cy="12" r="9" />
-								<path d="M9.5 9a2.5 2.5 0 0 1 5 .3c0 1.8-2.5 2-2.5 3.7" />
-								<path d="M12 16.5h.01" />
-							</svg>
-						</button>
-					</div>
-					<?php include __DIR__ . '/partials/hr-mail-help.php'; ?>
-
-					<details class="hr-mail-settings-group" id="hr-personal-mail-settings" open>
-						<summary><?php p($l->t('My HR emails')); ?></summary>
-						<p class="hr-mail-settings-hint"><?php p($l->t('These settings apply only to the signed-in HR account.')); ?></p>
-						<div id="hr-notifications-section" class="hr-personal-notifications">
-						<table class="grid hr-notifications-table">
-							<thead>
-								<tr>
-									<th></th>
-									<th><?php p($l->t('Notification')) ?></th>
-									<th><?php p($l->t('Threshold')) ?></th>
-								</tr>
-							</thead>
-							<tbody>
-								<tr>
-									<td><input type="checkbox" id="hr-mail-no-entry-enabled"></td>
-									<td><?php p($l->t('No entry reminder')) ?></td>
-									<td>
-										<input type="number" id="hr-mail-no-entry-days" min="1" max="365" step="1" value="14">
-										<span><?php p($l->t('days')) ?></span>
-									</td>
-								</tr>
-
-								<tr>
-									<td><input type="checkbox" id="hr-mail-overtime-enabled"></td>
-									<td><?php p($l->t('Overtime warning')) ?></td>
-									<td>
-										<input type="time" id="hr-mail-overtime-threshold" value="10:00" step="60">
-										<span><?php p($l->t('hours')) ?></span>
-									</td>
-								</tr>
-
-								<tr>
-									<td><input type="checkbox" id="hr-mail-negative-enabled"></td>
-									<td><?php p($l->t('Negative overtime warning')) ?></td>
-									<td>
-										<input type="time" id="hr-mail-negative-threshold" value="10:00" step="60">
-										<span><?php p($l->t('hours')) ?></span>
-									</td>
-								</tr>
-								<tr class="hr-hint-row">
-									<td colspan="3"><?php p($l->t('When enabled, receive emails about warnings in the user list.')) ?></td>
-								</tr>
-							</tbody>
-						</table>
-						</div>
-					</details>
-					<details class="hr-mail-settings-group" id="hr-group-mail-settings">
-						<summary><?php p($l->t('Reminders and employee emails')); ?></summary>
-						<?php if (is_array($_['notificationRuleSettings'] ?? null)): ?>
-							<?php
-								$ruleEditorData = $_['notificationRuleSettings'];
-								include __DIR__ . '/partials/hr-rule-editor.php';
-							?>
-						<?php else: ?>
-							<p class="hr-mail-settings-error" role="alert"><?php p($l->t('Notification settings could not be loaded. Reload the page to try again.')); ?></p>
-						<?php endif; ?>
-					</details>
-				</div>
-
 			</div>
 
 			<!-- Selected employee timesheet -->

@@ -112,9 +112,7 @@
 #hr-user-table input:focus,
 #hr-user-table textarea:focus,
 #hr-notifications-section input:hover,
-#hr-notifications-section input:focus,
-#hr-warning-thresholds-section input:hover,
-#hr-warning-thresholds-section input:focus {
+#hr-notifications-section input:focus {
 	box-shadow: inset 0 0 0 2px var(--color-primary, #0082c9);
 }
 
@@ -188,9 +186,7 @@
 #hr-user-table input[type="number"],
 #hr-user-table input[type="text"],
 #hr-notifications-section input[type="number"],
-#hr-notifications-section input[type="text"],
-#hr-warning-thresholds-section input[type="number"],
-#hr-warning-thresholds-section input[type="text"] {
+#hr-notifications-section input[type="text"] {
 	text-align: center;
 }
 
@@ -624,7 +620,6 @@
 	justify-content: start;
 	grid-template-columns: auto auto auto;
 	grid-template-areas:
-		"users stats warnings"
 		"users stats infobox"
 		"notificationSettings notificationSettings notificationSettings";
 }
@@ -643,19 +638,15 @@
 	justify-self: start;
 }
 
-#hr-notification-settings-section {
+#hr-notification-block {
 	grid-area: notificationSettings;
 	min-inline-size: 0;
 	justify-self: stretch;
+	display: grid;
+	gap: 8px;
 }
 
-#hr-notifications-section {
-	max-inline-size: 100%;
-	overflow-x: auto;
-}
-
-#hr-warning-thresholds-section {
-	grid-area: warnings;
+#hr-notification-block .hr-app-request {
 	justify-self: start;
 }
 
@@ -664,7 +655,6 @@
 		grid-template-columns: auto auto;
 		grid-template-areas:
 			"users stats"
-			"users warnings"
 			"users infobox"
 			"notificationSettings notificationSettings";
 	}
@@ -675,7 +665,6 @@
 		grid-template-columns: auto auto;
 		grid-template-areas:
 			"stats infobox"
-			"warnings warnings"
 			"users users"
 			"notificationSettings notificationSettings";
 	}
@@ -688,29 +677,22 @@
 		inline-size: 100%;
 		grid-template-areas:
 			"stats"
-			"warnings"
 			"users"
 			"infobox"
 			"notificationSettings";
 	}
 	#hr-userlist-section,
 	#hr-stats-section,
-	#hr-notifications-section,
-	#hr-warning-thresholds-section,
 	#hr-infobox-section {
 		box-sizing: border-box;
 		min-inline-size: 0;
 		max-inline-size: 100%;
 		justify-self: stretch;
 	}
-	#hr-stats-section,
-	#hr-notifications-section,
-	#hr-warning-thresholds-section {
+	#hr-stats-section {
 		overflow-x: auto;
 	}
-	#hr-stats-section th,
-	#hr-notifications-section .hr-hint-row td,
-	#hr-warning-thresholds-section .hr-hint-row td {
+	#hr-stats-section th {
 		white-space: normal;
 	}
 }
@@ -718,45 +700,24 @@
 /* HR overview panels */
 #hr-userlist-section,
 #hr-stats-section,
-#hr-notification-settings-section,
-#hr-warning-thresholds-section {
+#hr-notification-settings-section {
 	background: var(--color-background-dark, #f6f8fa);
 	border: 1px solid var(--color-border, #d0d7de);
 	border-radius: 6px;
 }
 
 #hr-userlist-section h4,
-#hr-stats-section h4,
-#hr-notifications-section h4,
-#hr-warning-thresholds-section h4 {
+#hr-stats-section h4 {
 	margin: 0 5px 8px;
 	font-weight: 700;
 }
 
 #hr-stats-section .hr-stats-table th,
-#hr-stats-section .hr-stats-table td,
-#hr-notifications-section .hr-notifications-table th,
-#hr-notifications-section .hr-notifications-table td,
-#hr-warning-thresholds-section .hr-warning-thresholds-table th,
-#hr-warning-thresholds-section .hr-warning-thresholds-table td {
+#hr-stats-section .hr-stats-table td {
 	border: 1px solid var(--color-border, #e1e4e8);
 	background: var(--color-main-background, #fff);
 	padding: 4px 8px;
 	text-align: center;
-}
-
-#hr-notifications-section .hr-notifications-table th:nth-child(2),
-#hr-notifications-section .hr-notifications-table td:nth-child(2),
-#hr-warning-thresholds-section .hr-warning-thresholds-table th:nth-child(1),
-#hr-warning-thresholds-section .hr-warning-thresholds-table td:nth-child(1) {
-	text-align: left;
-}
-
-#hr-notifications-section .hr-hint-row td,
-#hr-warning-thresholds-section .hr-hint-row td {
-	text-align: left;
-	font-style: italic;
-	color: var(--color-text-maxcontrast, #666);
 }
 
 /* Export choices */
@@ -780,19 +741,112 @@
 	border: 1px solid var(--color-border, #d0d7de);
 }
 
-/* Notification and warning threshold inputs */
-#hr-notifications-section .hr-notifications-table td:nth-child(3) input[type="number"],
-#hr-notifications-section .hr-notifications-table td:nth-child(3) input[type="time"],
-#hr-warning-thresholds-section .hr-warning-thresholds-table td:nth-child(2) input[type="number"],
-#hr-warning-thresholds-section .hr-warning-thresholds-table td:nth-child(2) input[type="time"] {
-	width: 5.0em;
+/* Personal notification settings share the overview panel with the group rules. */
+#hr-notifications-section {
+	border: 0;
 	padding: 0;
-	text-align: center;
+	margin: 0;
+	min-inline-size: 0;
 }
 
-#hr-notifications-section .hr-notifications-table td:nth-child(3) span,
-#hr-warning-thresholds-section .hr-warning-thresholds-table td:nth-child(2) span {
-	display: inline-block;
-	width: 4em;
-	text-align: left;
+#hr-notifications-section legend,
+.hr-group-notifications h5 {
+	padding: 0;
+	margin: 0;
+	font-weight: 700;
 }
+
+.hr-notification-intro {
+	margin: 4px 0 12px;
+}
+
+.hr-notification-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(9rem, .6fr) minmax(0, 1.15fr);
+	align-items: start;
+	gap: 8px 16px;
+	border-block-end: 1px solid var(--color-border);
+	padding-block: 10px;
+}
+
+.hr-notification-header {
+	font-weight: 700;
+	padding-block: 4px 8px;
+}
+
+.hr-notification-topic,
+.hr-notification-value,
+.hr-notification-mail {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 4px 8px;
+}
+
+.hr-notification-topic label {
+	font-weight: 600;
+}
+
+.hr-notification-value input {
+	inline-size: 6.5em;
+	max-inline-size: 100%;
+}
+
+.hr-notification-mail label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+}
+
+.hr-notification-row input[type="checkbox"] {
+	flex-shrink: 0;
+	margin: 0;
+}
+
+.hr-field-help summary {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-inline-size: 24px;
+	min-block-size: 24px;
+	cursor: pointer;
+	border-radius: var(--border-radius, 4px);
+}
+
+.hr-field-help summary::-webkit-details-marker {
+	display: none;
+}
+
+.hr-field-help summary:hover,
+.hr-field-help[open] summary {
+	background: var(--color-background-hover);
+}
+
+.hr-field-help summary:focus-visible {
+	outline: 2px solid var(--color-main-text);
+	outline-offset: 2px;
+}
+
+.hr-field-help p {
+	margin: 4px 0 0;
+	max-inline-size: 40ch;
+	color: var(--color-text-maxcontrast);
+}
+
+.hr-group-notifications {
+	border-block-start: 1px solid var(--color-border);
+	margin-block-start: 20px;
+	padding-block-start: 16px;
+}
+
+@media (max-width: 720px) {
+	.hr-notification-row {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.hr-notification-header {
+		display: none;
+	}
+}
+

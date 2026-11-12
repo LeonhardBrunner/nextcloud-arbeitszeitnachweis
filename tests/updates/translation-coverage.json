@@ -21,7 +21,9 @@
     "HR email recipients can be selected separately for each rule.",
     "HR can review changes to assigned employee time entries and work settings, including previous and new values.",
     "HR changes are kept for twelve months; deleted accounts are removed or anonymised.",
-    "Access checks for employee entries and work settings follow HR responsibility."
+    "Access checks for employee entries and work settings follow HR responsibility.",
+    "HR list warnings and Monday emails now use shared thresholds.",
+    "The HR recipient search suggests matching accounts while typing."
   ],
   "locales": {
     "ar": "nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;",

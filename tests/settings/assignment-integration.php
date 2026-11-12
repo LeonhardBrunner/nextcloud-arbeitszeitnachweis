@@ -43,9 +43,10 @@ foreach (['direct' => 'Dana Direkt', 'extra' => 'Eva Ohne Zuständigkeit'] as $s
 		$configMapper->insert($workConfig);
 	}
 	$hrPreferences->saveNotificationSettings($userId, [
-		'noEntryEnabled' => true, 'noEntryDays' => 14,
-		'overtimeEnabled' => true, 'overtimeThresholdMinutes' => 60,
-		'negativeOvertimeEnabled' => true, 'negativeOvertimeThresholdMinutes' => 60,
+		'noEntryEnabled' => true,
+		'overtimeEnabled' => true,
+		'negativeOvertimeEnabled' => true,
+		'warningThresholds' => ['noEntryDays' => 14, 'overtimeThresholdMinutes' => 60, 'negativeOvertimeThresholdMinutes' => 60],
 	]);
 	$assignmentUsers[$suffix] = $user;
 }
@@ -64,7 +65,7 @@ $assignmentScope = static fn() => new HrService($appConfig, $session, $groups, $
 $assignmentBalanceFixture = new EmploymentBalanceFixture();
 $assignmentBalanceFixture->summaries['employment-never'] = [];
 $assignmentLegacy = static fn() => new HrNotificationService(
-	$entryMapper, $configMapper, new HrService($appConfig, $session, $groups, $users),
+	$hrPreferences, new HrService($appConfig, $session, $groups, $users),
 	$assignmentBalanceFixture, $statuses, $clock, $logger, $users,
 );
 $assignmentWarningNames = static function (array $warnings): array {
@@ -114,7 +115,7 @@ verifyReminder(array_column($capturingMailer->hrSummaries['employment-hr-active'
 verifyReminder(isset($capturingMailer->hrSummaries['employment-hr-freelancer']), false, 'Unselected group members keep access but receive no daily HR mail');
 $mixedLegacy = $assignmentLegacy()->doCron();
 verifyReminder(array_keys($mixedLegacy), ['assignment-direct', 'employment-hr-active'], 'The older warning path uses the same selected recipients');
-verifyReminder($assignmentWarningNames($mixedLegacy['assignment-direct']), ['Dora Rückkehr', 'Erik Ohne Eintrag', 'Marvin Adler'], 'Direct legacy warnings exclude freelancers within its selected employee group');
+verifyReminder($assignmentWarningNames($mixedLegacy['assignment-direct']), ['Dora Rückkehr', 'Marvin Adler'], 'Direct weekly warnings use the shared thresholds for its selected employee group');
 verifyReminder($assignmentWarningNames($mixedLegacy['employment-hr-active']), ['Marvin Fremd'], 'Group legacy warnings exclude the unselected rule');
 
 // Verify actual legacy email delivery and bodies in the isolated Mailpit instance.

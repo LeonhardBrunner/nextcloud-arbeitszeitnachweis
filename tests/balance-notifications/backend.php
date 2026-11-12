@@ -9,7 +9,10 @@ namespace OCP {
 	interface IGroupManager { public function get(string $id); }
 	interface IConfig { public function getUserValueForUsers($app, $key, $users); public function setUserValue($user, $app, $key, $value); }
 	interface IURLGenerator { public function getAbsoluteURL(string $url): string; public function linkToRoute(string $route): string; }
-	interface IL10N { public function t(string $message, array $parameters = []): string; }
+	interface IL10N {
+		public function t(string $message, array $parameters = []): string;
+		public function l(string $type, $data, array $options = []): string;
+	}
 }
 namespace OCP\Lock {
 	class LockedException extends \RuntimeException { }
@@ -134,6 +137,7 @@ namespace {
 	class BalanceTranslator implements \OCP\IL10N {
 		public function __construct(private string $language) { }
 		public function t(string $message, array $parameters = []): string { return '[' . $this->language . '] ' . ($parameters ? vsprintf($message, $parameters) : $message); }
+		public function l(string $type, $data, array $options = []): string { return $data->format($this->language === 'de_DE' ? 'd.m.Y' : 'Y-m-d'); }
 	}
 	class BalanceLanguages implements \OCP\L10N\IFactory {
 		public array $calls = [];
@@ -309,6 +313,7 @@ namespace {
 		$hrService->notifications = ['hr' => ['noEntry' => [], 'overtime' => [['user' => 'Name plus', 'overtime' => '+10:01']], 'negative' => []]];
 		$job = new HrNotificationJob($f['clock'], $f['users'], $f['transport'], $hrService, new BalanceAppConfig(), $f['logger'], $f['languages'], $employeeService);
 		(new \ReflectionMethod($job, 'run'))->invoke($job, []); balanceSame(['hr@example.test'], balanceRecipients($f['transport'])); balanceSame(true, str_contains($f['transport']->messages[0]->plain, 'Too much overtime:'));
+		balanceSame('[en] Timesheet Notifications - 2026-11-09', $f['transport']->messages[0]->subject);
 	});
 
 	fwrite(STDOUT, 'Employee balance notifications: ' . $checks . ' checks, ' . $failures . " failures\n");

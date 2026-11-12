@@ -53,12 +53,15 @@ class PageController extends Controller {
 		// Load modules in dependency order.
 		Util::addScript('timesheet', 'timesheet-header');
 		Util::addScript('timesheet', 'timesheet-core');
+		if ($isHr || $tourEnabled) {
+			Util::addScript('timesheet', 'timesheet-mail-help');
+		}
 		Util::addScript('timesheet', 'timesheet-entries');
 		Util::addScript('timesheet', 'timesheet-employment-status');
 		Util::addScript('timesheet', 'timesheet-hr');
 		Util::addScript('timesheet', 'timesheet-export');
 		Util::addScript('timesheet', 'timesheet-copy');
-		Util::addScript('timesheet', 'timesheet-config');
+		Util::addScript('timesheet', 'timesheet-configuration');
 		if ($isHr) {
 			Util::addScript('timesheet', 'timesheet-change-history');
 			Util::addScript('timesheet', 'hr-settings');
@@ -67,7 +70,7 @@ class PageController extends Controller {
 			Util::addScript('timesheet', 'timesheet-update-notes');
 		}
 		if ($tourEnabled) {
-			Util::addScript('timesheet', 'timesheet-tour-header');
+			Util::addScript('timesheet', 'timesheet-tour-launcher');
 			Util::addScript('timesheet', 'timesheet-tour');
 		}
 		Util::addScript('timesheet', 'timesheet-main');
@@ -79,6 +82,9 @@ class PageController extends Controller {
 		}
 		if ($updateNotesEnabled) {
 			Util::addStyle('timesheet', 'timesheet-update-notes');
+		}
+		if ($isHr || $tourEnabled) {
+			Util::addStyle('timesheet', 'timesheet-help-panels');
 		}
 		if ($tourEnabled) {
 			Util::addStyle('timesheet', 'timesheet-tour');

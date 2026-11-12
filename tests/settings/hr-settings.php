@@ -575,6 +575,28 @@ namespace {
 		$response = $state['controller']->searchPeople(); $expectSame(200, $response->getStatus()); $ids = array_column($response->getData()['users'], 'id'); sort($ids); $expectSame(['anton', 'hr', 'hr-admin'], $ids); $expectSame(0, $state['users']->searches);
 		foreach ([null, '', 'unknown'] as $ruleId) { $state['request']->parameters['ruleId'] = $ruleId; $expectSame(400, $state['controller']->searchPeople()->getStatus()); }
 	});
+	$test('Mail search matches available name and account prefixes within the selected rule', static function () use ($fixture, $defaultRule, $expectSame): void {
+		$state = $fixture('hr', [
+			[...$defaultRule, 'mailRecipients' => ['mode' => 'selected', 'userIds' => ['tara']]],
+			[...$defaultRule, 'id' => 'rule-b', 'hrGroups' => ['HR backup']],
+		]);
+		foreach ([
+			'taskin' => ['Taskin Müller', true, 'HR'],
+			'alex' => ['Alex Taylor', true, 'HR'],
+			'team-a' => ['Andrea Test', true, 'HR'],
+			'tara' => ['Tara Zorn', true, 'HR'],
+			'disabled' => ['Tanja Grau', false, 'HR'],
+			'osman' => ['Osman Otay', true, 'HR'],
+			'other' => ['Tabea Wenig', true, 'HR backup'],
+		] as $id => [$name, $enabled, $group]) {
+			$state['users']->users[$id] = new SettingsUserFixture($id, $name, $enabled);
+			$state['groups']->memberships[$id] = [$group];
+		}
+		$state['request']->parameters = ['purpose' => 'mail', 'ruleId' => 'rule-a', 'search' => 'tA'];
+		$expectSame(['alex', 'taskin'], array_column($state['controller']->searchPeople()->getData()['users'], 'id'));
+		$state['request']->parameters['search'] = 'TEAM-';
+		$expectSame(['team-a'], array_column($state['controller']->searchPeople()->getData()['users'], 'id'));
+	});
 	$test('Directory searches stay bounded, read-only, exclude disabled accounts and hide private failures', static function () use ($fixture, $expectSame): void {
 		$state = $fixture('admin'); $state['request']->parameters = ['search' => 'A']; $expectSame(['users' => [], 'hasMore' => false], $state['controller']->searchPeople()->getData()); $expectSame(0, $state['users']->searches);
 		for ($index = 0; $index < 25; $index++) $state['users']->users['many-' . $index] = new SettingsUserFixture('many-' . $index, 'Many accounts');

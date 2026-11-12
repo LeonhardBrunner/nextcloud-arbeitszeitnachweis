@@ -75,17 +75,6 @@
 		this.dailyMinInputs = Array.from(document.querySelectorAll('.config-daily-min'));
 		this.stateInputs = Array.from(document.querySelectorAll('.config-state'));
 		this.saveConfigBtns = Array.from(document.querySelectorAll('.save-config-btn'));
-		this.hrMailNoEntryEnabled = document.getElementById('hr-mail-no-entry-enabled');
-		this.hrMailNoEntryDays = document.getElementById('hr-mail-no-entry-days');
-		this.hrMailOvertimeEnabled = document.getElementById('hr-mail-overtime-enabled');
-		this.hrMailOvertimeThreshold = document.getElementById('hr-mail-overtime-threshold');
-		this.hrMailNegativeEnabled = document.getElementById('hr-mail-negative-enabled');
-		this.hrMailNegativeThreshold = document.getElementById('hr-mail-negative-threshold');
-		this.hrNotificationsSection = document.getElementById('hr-notifications-section');
-		this.hrWarnNoEntryDays = document.getElementById('hr-warn-no-entry-days');
-		this.hrWarnOvertimeThreshold = document.getElementById('hr-warn-overtime-threshold');
-		this.hrWarnNegativeThreshold = document.getElementById('hr-warn-negative-threshold');
-		this.hrWarningThresholdsSection = document.getElementById('hr-warning-thresholds-section');
 		return this;
 	};
 

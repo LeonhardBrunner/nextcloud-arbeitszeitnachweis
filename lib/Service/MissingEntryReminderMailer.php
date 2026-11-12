@@ -60,7 +60,8 @@ class MissingEntryReminderMailer {
 				$htmlRows = [];
 				foreach ($employee['issues'] as $issue) {
 					$status = $translator->t($issue['reason'] === 'incomplete' ? 'Incomplete entry' : 'Missing entry');
-					$line = $issue['date'] . ': ' . $status;
+					$date = $translator->l('date', $issue['date'], ['width' => 'medium']);
+					$line = $date . ': ' . $status;
 					$plainLines[] = ' - ' . $line;
 					$htmlRows[] = '<li>' . $this->escape($line) . '</li>';
 				}

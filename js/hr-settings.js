@@ -357,7 +357,7 @@
 		return `
 			<div class="ts-rule-section ts-reminder-settings">
 				<table class="ts-notification-table" role="table">
-					<caption>${escapeHtml(t('timesheet', 'Missing time entry reminders'))}</caption>
+					<caption>${escapeHtml(t('timesheet', 'Reminder for missing or incomplete time entries'))}</caption>
 					<colgroup><col class="ts-notification-label-column" /><col class="ts-notification-value-column" /></colgroup>
 					<tbody role="rowgroup">
 						<tr role="row">
@@ -372,8 +372,8 @@
 							</td>
 						</tr>
 						<tr role="row">
-							<th role="rowheader" scope="row"><label for="${identifier}-grace-days">${escapeHtml(t('timesheet', 'Wait before the first reminder'))}</label></th>
-							<td role="cell"><div class="ts-inline"><input type="number" id="${identifier}-grace-days" min="1" max="365" step="1" class="ts-reminder-input" data-reminder-key="graceDays" value="${settings.graceDays}"><span>${escapeHtml(t('timesheet', 'calendar days'))}</span></div></td>
+							<th role="rowheader" scope="row"><label for="${identifier}-grace-days">${escapeHtml(t('timesheet', 'First reminder at the earliest'))}</label></th>
+							<td role="cell"><div class="ts-inline"><input type="number" id="${identifier}-grace-days" min="1" max="365" step="1" class="ts-reminder-input" data-reminder-key="graceDays" value="${settings.graceDays}" aria-describedby="${identifier}-grace-unit"><span id="${identifier}-grace-unit">${escapeHtml(t('timesheet', 'calendar days after the workday'))}</span></div></td>
 						</tr>
 						<tr role="row">
 							<th role="rowheader" scope="row"><label for="${identifier}-start-date">${escapeHtml(t('timesheet', 'Check entries starting on'))}</label></th>
@@ -441,13 +441,19 @@
 		const isResponsible = purpose === 'responsible';
 		const selectedIds = isResponsible ? rule.hrUsers : rule.mailRecipients.userIds;
 		const label = t('timesheet', isResponsible ? 'Individual HR accounts' : 'Selected HR accounts');
-		return `<div class="ts-person-picker" data-person-picker="${purpose}">
-			${showLabel ? `<label for="${identifier}-search">${escapeHtml(label)}</label>` : ''}
-			<div class="ts-chips">${renderPeopleChips(selectedIds, purpose)}</div>
-			<input type="search" id="${identifier}-search" class="ts-person-search" data-person-purpose="${purpose}" placeholder="${escapeHtml(t('timesheet', 'Search by name or account ID'))}" autocomplete="off" aria-describedby="${identifier}-status">
+		const autocomplete = isResponsible ? '' : ` role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${identifier}-suggestions"`;
+		const results = isResponsible ? `
 			<div class="ts-person-choice">
 				<select class="ts-person-results" data-person-purpose="${purpose}" aria-label="${escapeHtml(t('timesheet', 'Choose an account'))}" disabled><option value="">${escapeHtml(t('timesheet', 'Choose an account'))}</option></select>
 				<button type="button" class="ts-person-add" data-person-purpose="${purpose}" disabled>${escapeHtml(t('timesheet', 'Add account'))}</button>
+			</div>` : `
+			<ul id="${identifier}-suggestions" class="ts-person-results ts-person-suggestions" role="listbox" aria-label="${escapeHtml(t('timesheet', 'Choose an account'))}" hidden></ul>`;
+		return `<div class="ts-person-picker" data-person-picker="${purpose}">
+			${showLabel ? `<label for="${identifier}-search">${escapeHtml(label)}</label>` : ''}
+			<div class="ts-chips">${renderPeopleChips(selectedIds, purpose)}</div>
+			<div class="ts-person-search-controls">
+				<input type="search" id="${identifier}-search" class="ts-person-search" data-person-purpose="${purpose}" placeholder="${escapeHtml(t('timesheet', 'Search by name or account ID'))}" autocomplete="off" aria-describedby="${identifier}-status"${autocomplete}>
+				${results}
 			</div>
 			<p id="${identifier}-status" class="ts-person-search-status ts-setting-desc" role="status">${isResponsible ? escapeHtml(t('timesheet', 'Enter at least two characters.')) : ''}</p>
 		</div>`;
@@ -504,12 +510,49 @@
 	}
 
 	function resetPersonResults(controls) {
+		if (!controls.addButton) {
+			closeMailSuggestions(controls);
+			controls.results.replaceChildren();
+			return;
+		}
 		const placeholder = document.createElement('option');
 		placeholder.value = '';
 		placeholder.textContent = t('timesheet', 'Choose an account');
 		controls.results.replaceChildren(placeholder);
 		controls.results.disabled = true;
 		controls.addButton.disabled = true;
+	}
+
+	function setActiveMailSuggestion(controls, option) {
+		controls.results.querySelector('[aria-selected="true"]')?.setAttribute('aria-selected', 'false');
+		if (option) {
+			option.setAttribute('aria-selected', 'true');
+			controls.input.setAttribute('aria-activedescendant', option.id);
+			option.scrollIntoView?.({ block: 'nearest' });
+		} else {
+			controls.input.removeAttribute('aria-activedescendant');
+		}
+	}
+
+	function closeMailSuggestions(controls) {
+		setActiveMailSuggestion(controls, null);
+		controls.results.hidden = true;
+		controls.input.setAttribute('aria-expanded', 'false');
+	}
+
+	function renderMailSuggestions(controls, people) {
+		for (const [index, person] of people.entries()) {
+			const option = document.createElement('li');
+			option.id = controls.results.id + '-' + index;
+			option.className = 'ts-person-suggestion';
+			option.dataset.personId = person.id;
+			option.setAttribute('role', 'option');
+			option.setAttribute('aria-selected', 'false');
+			option.textContent = personLabel(person);
+			controls.results.appendChild(option);
+		}
+		controls.results.hidden = people.length === 0;
+		controls.input.setAttribute('aria-expanded', String(people.length > 0));
 	}
 
 	function searchPeople(ruleCard, purpose, immediate = false) {
@@ -545,15 +588,21 @@
 					if (!person || typeof person.id !== 'string' || !person.id || typeof person.name !== 'string' || typeof person.enabled !== 'boolean') continue;
 					peopleById.set(person.id, person);
 					search.people.set(person.id, person);
-					const option = document.createElement('option');
-					option.value = person.id;
-					option.textContent = personLabel(person) + (person.enabled ? '' : ` (${t('timesheet', 'Disabled account')})`);
-					option.disabled = !person.enabled || selectedIds.includes(person.id);
-					controls.results.appendChild(option);
 				}
-				const available = [...search.people.values()].some(person => person.enabled && !selectedIds.includes(person.id));
-				controls.results.disabled = !available;
-				controls.status.textContent = data.hasMore ? t('timesheet', 'More accounts found. Refine the search.') : available ? '' : t('timesheet', 'No matching accounts.');
+				const available = [...search.people.values()].filter(person => person.enabled && !selectedIds.includes(person.id));
+				if (purpose === 'mail') {
+					renderMailSuggestions(controls, available);
+				} else {
+					for (const person of search.people.values()) {
+						const option = document.createElement('option');
+						option.value = person.id;
+						option.textContent = personLabel(person) + (person.enabled ? '' : ` (${t('timesheet', 'Disabled account')})`);
+						option.disabled = !person.enabled || selectedIds.includes(person.id);
+						controls.results.appendChild(option);
+					}
+					controls.results.disabled = available.length === 0;
+				}
+				controls.status.textContent = data.hasMore ? t('timesheet', 'More accounts found. Refine the search.') : available.length > 0 ? '' : t('timesheet', 'No matching accounts.');
 			} catch (error) {
 				if (personSearches.get(key) !== search || search.controller.signal.aborted) return;
 				controls.status.textContent = t('timesheet', 'Accounts could not be loaded. Try again.');
@@ -795,6 +844,36 @@
 		};
 	}
 
+	async function changePersonSelection(card, purpose, userId, remove) {
+		if (!card || !userId || !['responsible', 'mail'].includes(purpose)) return;
+		if (purpose === 'responsible' && !managesAssignments || purpose === 'mail' && !managesNotifications) return;
+		const ruleId = card.dataset.ruleId;
+		const search = personSearches.get(`${ruleId}:${purpose}`);
+		if (!remove && (search?.card !== card || !search.people.get(userId)?.enabled)) return;
+
+		let restoreFocus = false;
+		if (!remove && purpose === 'mail') {
+			if (search.controls.results.hidden) return;
+			restoreFocus = document.activeElement === search.controls.input;
+			search.controls.input.value = '';
+			search.controls.status.textContent = '';
+			resetPersonResults(search.controls);
+		}
+
+		updateRule(ruleId, rule => {
+			const currentIds = purpose === 'responsible' ? rule.hrUsers : rule.mailRecipients.userIds;
+			const updatedIds = remove ? currentIds.filter(id => id !== userId) : [...new Set([...currentIds, userId])];
+			if (purpose === 'responsible') rule.hrUsers = updatedIds;
+			else rule.mailRecipients = { ...rule.mailRecipients, userIds: updatedIds };
+			return rule;
+		});
+		await saveAndRenderRules(accessRules);
+		if (restoreFocus && document.activeElement === document.body) {
+			const replacement = Array.from(rulesContainer.querySelectorAll('.ts-rule')).find(item => item.dataset.ruleId === ruleId);
+			if (replacement) personSearchControls(replacement, 'mail')?.input.focus({ preventScroll: true });
+		}
+	}
+
 	// Protect in-progress input from a pending save response.
 	rulesContainer.addEventListener('input', event => {
 		localEditRevision++;
@@ -805,11 +884,57 @@
 		const searchInput = event.target.closest('.ts-person-search');
 		if (searchInput) searchPeople(searchInput.closest('.ts-rule'), searchInput.dataset.personPurpose, true);
 	});
-	rulesContainer.addEventListener('keydown', event => {
+	rulesContainer.addEventListener('focusout', event => {
+		const input = event.target.closest('.ts-person-search');
+		if (input?.dataset.personPurpose !== 'mail') return;
+		const search = personSearches.get(`${input.closest('.ts-rule').dataset.ruleId}:mail`);
+		if (!search) return;
+		clearTimeout(search.timer);
+		search.controller.abort();
+		closeMailSuggestions(search.controls);
+	});
+	rulesContainer.addEventListener('mousedown', event => {
+		// A pointer selection keeps focus on the combobox until it is applied.
+		if (event.target.closest('.ts-person-suggestion')) event.preventDefault();
+	});
+	rulesContainer.addEventListener('keydown', async event => {
 		const searchInput = event.target.closest('.ts-person-search');
-		if (searchInput && event.key === 'Enter') {
+		if (!searchInput || event.isComposing) return;
+		const card = searchInput.closest('.ts-rule');
+		const purpose = searchInput.dataset.personPurpose;
+		const search = purpose === 'mail' ? personSearches.get(`${card.dataset.ruleId}:mail`) : null;
+		if (search) {
+			const { controls } = search;
+			const suggestions = Array.from(controls.results.children);
+			const active = controls.results.querySelector('[aria-selected="true"]');
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				clearTimeout(search.timer);
+				search.controller.abort();
+				closeMailSuggestions(controls);
+				controls.status.textContent = '';
+				return;
+			}
+			if (suggestions.length && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+				event.preventDefault();
+				const index = suggestions.indexOf(active);
+				const next = event.key === 'ArrowDown'
+					? (index + 1) % suggestions.length
+					: (index > 0 ? index - 1 : suggestions.length - 1);
+				controls.results.hidden = false;
+				searchInput.setAttribute('aria-expanded', 'true');
+				setActiveMailSuggestion(controls, suggestions[next]);
+				return;
+			}
+			if (event.key === 'Enter' && active && !controls.results.hidden) {
+				event.preventDefault();
+				await changePersonSelection(card, purpose, active.dataset.personId, false);
+				return;
+			}
+		}
+		if (event.key === 'Enter') {
 			event.preventDefault();
-			searchPeople(searchInput.closest('.ts-rule'), searchInput.dataset.personPurpose, true);
+			await searchPeople(card, purpose, true);
 		}
 	});
 	addRuleButton?.addEventListener('click', async () => {
@@ -842,23 +967,15 @@
 	rulesContainer.addEventListener('click', async event => {
 		const removeButton = event.target.closest('.ts-person-remove');
 		const addButton = event.target.closest('.ts-person-add');
-		if (!removeButton && !addButton) return;
+		const suggestion = event.target.closest('.ts-person-suggestion');
+		if (!removeButton && !addButton && !suggestion) return;
 		event.preventDefault();
 		const card = event.target.closest('.ts-rule');
-		const purpose = (removeButton || addButton).dataset.personPurpose;
-		if (!card || !['responsible', 'mail'].includes(purpose)) return;
-		if (purpose === 'responsible' && !managesAssignments || purpose === 'mail' && !managesPolicy) return;
+		if (!card) return;
+		const purpose = suggestion ? 'mail' : (removeButton || addButton).dataset.personPurpose;
 		const search = personSearches.get(`${card.dataset.ruleId}:${purpose}`);
-		const userId = removeButton?.dataset.personId || search?.controls.results.value;
-		if (!userId || addButton && (search?.card !== card || !search.people.get(userId)?.enabled)) return;
-		updateRule(card.dataset.ruleId, rule => {
-			const currentIds = purpose === 'responsible' ? rule.hrUsers : rule.mailRecipients.userIds;
-			const updatedIds = removeButton ? currentIds.filter(id => id !== userId) : [...new Set([...currentIds, userId])];
-			if (purpose === 'responsible') rule.hrUsers = updatedIds;
-			else rule.mailRecipients = { ...rule.mailRecipients, userIds: updatedIds };
-			return rule;
-		});
-		await saveAndRenderRules(accessRules);
+		const userId = (removeButton || suggestion)?.dataset.personId || search?.controls.results.value;
+		await changePersonSelection(card, purpose, userId, Boolean(removeButton));
 	});
 	rulesContainer.addEventListener('click', async event => {
 		if (!managesAssignments) return;

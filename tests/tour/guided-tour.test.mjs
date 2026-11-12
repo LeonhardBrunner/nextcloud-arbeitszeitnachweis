@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const headerSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-tour-header.js'), 'utf8');
+const mailHelpSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-mail-help.js'), 'utf8');
+const headerSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-tour-launcher.js'), 'utf8');
 const tourSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-tour.js'), 'utf8');
 const flush = () => new Promise(setImmediate);
 
@@ -127,7 +128,7 @@ function createFixture({ hr = false, hrDom = false, enabled = true, employeeComp
 		scrollIntoView() {}
 	}
 	document = {
-		body: null, activeElement: null, scrollingElement: null,
+		body: null, activeElement: null, scrollingElement: null, readyState: 'complete',
 		createElement: tag => new Element(tag), createElementNS: (_namespace, tag) => new Element(tag),
 		getElementById: id => [document.body, ...descendants(document.body)].find(element => element.id === id) || null,
 		querySelectorAll: selector => document.body.querySelectorAll(selector), querySelector: selector => document.body.querySelector(selector),
@@ -161,6 +162,12 @@ function createFixture({ hr = false, hrDom = false, enabled = true, employeeComp
 	// The page exposes only the resolved eligibility, never a separate HR tour state.
 	Object.assign(app.dataset, { tourEnabled: String(enabled && !hr), tourVersion: '1', tourEmployeeCompleted: String(employeeCompleted), tourStateAvailable: String(available) });
 	Object.assign(app.dataset, { absenceVacation: absenceTerms.vacation, absenceTimeOffInLieu: absenceTerms.timeOffInLieu });
+	if (enabled && !hr) {
+		const body = [translate('Hello Timesheet team,'), '', '', translate('Best regards,'), translate('Your name')].join('\r\n');
+		const draft = subject => `mailto:karriere@xiller.com?subject=${encodeURIComponent(translate(subject))}&body=${encodeURIComponent(body)}`;
+		app.dataset.tourQuestionDraft = draft('Question about the Timesheet app');
+		app.dataset.tourFeedbackDraft = draft('Feedback on the Timesheet app');
+	}
 	const tabs = element('div', '', 'ts-tabs', app);
 	if (hr || hrDom) for (const name of ['mine', 'hr']) { const tab = element('button', '', `ts-tab${name === 'mine' ? ' active' : ''}`, tabs); tab.dataset.tab = name; }
 	const mine = element('div', 'tab-mine', 'ts-tabview active', app);
@@ -203,6 +210,10 @@ function createFixture({ hr = false, hrDom = false, enabled = true, employeeComp
 	}
 	if (hr || hrDom) {
 		const hrTab = element('div', 'tab-hr', 'ts-tabview', app);
+		if (hr) {
+			const request = element('a', '', 'hr-app-request', hrTab);
+			request.setAttribute('href', 'mailto:info@xiller.com?subject=App%20request');
+		}
 		for (const id of ['hr-userlist-section', 'hr-stats-section', 'hr-notifications-section', 'hr-warning-thresholds-section', 'hr-user-entries']) {
 			const section = element('div', id, 'ts-hr-section', hrTab);
 			if (id === 'hr-userlist-section') element('tbody', 'hr-userlist', '', section);
@@ -246,7 +257,8 @@ function createFixture({ hr = false, hrDom = false, enabled = true, employeeComp
 		},
 		export: { handleExportClick(view) { copyCounts.exportChoices++; const id = `export-${view}-xlsx-choice-ui`; let choices = document.getElementById(id); if (!choices) choices = element('span', id, '', mine); choices.classList.toggle('is-visible'); } },
 	};
-	vm.runInContext(headerSource, context, { filename: 'timesheet-tour-header.js' });
+	vm.runInContext(mailHelpSource, context, { filename: 'timesheet-mail-help.js' });
+	vm.runInContext(headerSource, context, { filename: 'timesheet-tour-launcher.js' });
 	vm.runInContext(tourSource, context, { filename: 'timesheet-tour.js' });
 	context.Timesheet.tour.init();
 	return {
@@ -293,30 +305,34 @@ test('the help button opens three menu choices without starting the tour', () =>
 	assert.equal(fixture.requests.length, 0);
 });
 
-test('question and improvement choices open the agreed email drafts with a greeting and signature', () => {
-	const fixture = createFixture();
-	const launcher = fixture.document.getElementById('ts-tour-launcher');
-	for (const [itemId, subject] of [
-		['ts-tour-menu-questions', 'Frage zum Arbeitszeitnachweis'],
-		['ts-tour-menu-suggestions', 'Feedback für Arbeitszeitnachweis'],
-	]) {
-		launcher.click();
-		const link = fixture.document.getElementById(itemId);
-		assert.equal(link.tagName, 'A');
-		const email = new URL(link.getAttribute('href'));
-		assert.equal(email.protocol, 'mailto:');
-		assert.equal(email.pathname, 'karriere@xiller.com');
-		assert.deepEqual([...email.searchParams], [
-			['subject', subject],
-			['body', 'Hallo liebes Arbeitszeitnachweis-Team,\r\n\r\n\r\nMit freundlichen Grüßen\r\nDein Name'],
-		]);
-		link.click();
-		assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, true);
-		assert.equal(fixture.document.activeElement, launcher);
-		assert.equal(fixture.tour.getState().active, false);
-		assert.equal(fixture.requests.length, 0);
-	}
-});
+for (const locale of ['de', 'de_DE', 'fr', 'en_GB']) {
+	test(`question and improvement choices open localized email drafts: ${locale}`, () => {
+		const { translations } = JSON.parse(readFileSync(resolve(repositoryRoot, 'l10n', `${locale}.json`), 'utf8'));
+		const fixture = createFixture({ translate: message => translations[message] ?? message });
+		const launcher = fixture.document.getElementById('ts-tour-launcher');
+		const expectedBody = [translations['Hello Timesheet team,'], '', '', translations['Best regards,'], translations['Your name']].join('\r\n');
+		for (const [itemId, subject] of [
+			['ts-tour-menu-questions', 'Question about the Timesheet app'],
+			['ts-tour-menu-suggestions', 'Feedback on the Timesheet app'],
+		]) {
+			launcher.click();
+			const link = fixture.document.getElementById(itemId);
+			assert.equal(link.tagName, 'A');
+			const email = new URL(link.getAttribute('href'));
+			assert.equal(email.protocol, 'mailto:');
+			assert.equal(email.pathname, 'karriere@xiller.com');
+			assert.deepEqual([...email.searchParams], [
+				['subject', translations[subject]],
+				['body', expectedBody],
+			]);
+			link.click();
+			assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, true);
+			assert.equal(fixture.document.activeElement, launcher);
+			assert.equal(fixture.tour.getState().active, false);
+			assert.equal(fixture.requests.length, 0);
+		}
+	});
+}
 
 test('an intercepted email link offers conditional help without exposing message details', () => {
 	const scheduledCallbacks = [];
@@ -367,6 +383,30 @@ test('email help stays conditional across focus changes and preserves the email 
 	assert.equal(fixture.document.activeElement, appInput);
 	assert.equal(fixture.requests.length, 0);
 	assert.equal(appInput.value, '07:30');
+});
+
+test('the HR request link opens the shared email help without a tour launcher', () => {
+	const fixture = createFixture({ hr: true });
+	fixture.document.getElementById('tab-hr').classList.add('active');
+	const link = fixture.document.querySelector('.hr-app-request');
+	const href = link.getAttribute('href');
+	assert.equal(fixture.document.getElementById('ts-tour-launcher'), null);
+	assert.equal(fixture.document.getElementById('ts-email-help'), null);
+
+	link.focus();
+	const click = fixture.dispatch(fixture.event('click', link));
+	assert.equal(click.prevented, false);
+	assert.equal(link.getAttribute('href'), href);
+	assert.equal(fixture.document.activeElement, link);
+	assert.equal(fixture.document.getElementById('ts-email-help-status').textContent, 'Opening the default mail app…');
+	assert.equal(fixture.document.getElementById('ts-email-help-title').textContent, 'No mail app opened?');
+
+	const close = fixture.document.getElementById('ts-email-help-close');
+	close.focus();
+	fixture.dispatch(fixture.event('keydown', close, { key: 'Escape' }));
+	assert.equal(fixture.document.getElementById('ts-email-help'), null);
+	assert.equal(fixture.document.activeElement, link);
+	assert.equal(fixture.requests.length, 0);
 });
 
 test('email help closes explicitly, on outside clicks, when reopening the menu and before a tour starts', async () => {

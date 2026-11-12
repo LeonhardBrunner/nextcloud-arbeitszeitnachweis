@@ -9,6 +9,7 @@ namespace OCP {
 	}
 	interface IL10N {
 		public function t(string $text, array $parameters = []): string;
+		public function l(string $type, $data, array $options = []): string;
 	}
 	interface IURLGenerator {
 		public function linkToRoute(string $route): string;
@@ -120,6 +121,9 @@ namespace {
 						$translated = $this->language === 'de' ? (self::GERMAN_TEXTS[$text] ?? $text) : $text;
 						return $parameters === [] ? $translated : vsprintf($translated, $parameters);
 					}
+					public function l(string $type, $data, array $options = []): string {
+						return (new \DateTime($data))->format($this->language === 'de' ? 'd.m.Y' : 'Y-m-d');
+					}
 				};
 			}
 		};
@@ -170,10 +174,10 @@ namespace {
 	$expectSame(['employee-a'], $translations->requestedUsers, 'recipient determines translation language');
 	$expectSame([['timesheet', 'de']], $translations->requestedLanguages, 'German timesheet translator requested');
 	$expectContains('Hallo Alex <script> & "Team",', $message->plainBody, 'plain greeting preserves readable characters');
-	$expectContains('2026-10-01: Fehlender Eintrag', $message->plainBody, 'plain missing date and reason');
-	$expectContains('2026-10-02: Unvollständiger Eintrag', $message->plainBody, 'plain incomplete date and reason');
-	$expectContains('<li>2026-10-01: Fehlender Eintrag</li>', $message->htmlBody, 'HTML missing date and reason');
-	$expectContains('<li>2026-10-02: Unvollständiger Eintrag</li>', $message->htmlBody, 'HTML incomplete date and reason');
+	$expectContains('01.10.2026: Fehlender Eintrag', $message->plainBody, 'plain missing date and reason');
+	$expectContains('02.10.2026: Unvollständiger Eintrag', $message->plainBody, 'plain incomplete date and reason');
+	$expectContains('<li>01.10.2026: Fehlender Eintrag</li>', $message->htmlBody, 'HTML missing date and reason');
+	$expectContains('<li>02.10.2026: Unvollständiger Eintrag</li>', $message->htmlBody, 'HTML incomplete date and reason');
 	$expectContains('Alex &lt;script&gt; &amp; &quot;Team&quot;', $message->htmlBody, 'HTML name escaped');
 	$expectSame(false, str_contains($message->htmlBody, '<script>'), 'raw name markup is not executable HTML');
 	$expectContains('href="https://demo.example.test/apps/timesheet/?label=&quot;open&quot;&amp;section=&lt;entries&gt;"', $message->htmlBody, 'link attribute escaped');

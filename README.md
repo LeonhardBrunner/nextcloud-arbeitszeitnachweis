@@ -9,7 +9,7 @@ Mit Timesheet erfassen Mitarbeitende ihre Arbeitszeiten direkt in Nextcloud. Sie
 
 Die Personalabteilung (HR) erhält eine Übersicht über Mitarbeitende und ihre erfassten Zeiten. Arbeitszeitnachweise lassen sich als Exceldatei herunterladen und weiterverarbeiten.
 
-Dieses Projekt baut auf [Timesheet 1.2.0 von Repa1253](https://github.com/Repa1253/timesheet/releases/tag/1.2.0) auf und wird für die XiLLeR GmbH weitergeführt. Der ursprüngliche Entwickler ist David Gun (Repa1253).
+Dieses Projekt basiert auf Timesheet 1.2.0 von XiLLeR und wird von der XiLLeR GmbH geführt.
 
 ## Funktionen
 
@@ -42,7 +42,7 @@ Feiertage werden für deutsche Bundesländer unterstützt. E-Mail-Hinweise gehen
 
 ## Voraussetzungen
 
-Für Version 1.4.0 ist in den [App-Metadaten](appinfo/info.xml) folgende Kompatibilität vorgesehen:
+Für Version 1.4.1 ist in den [App-Metadaten](appinfo/info.xml) folgende Kompatibilität vorgesehen:
 
 - Nextcloud 30–33
 - PHP 8.2–8.5
@@ -70,7 +70,7 @@ Timesheet lets employees record their working hours directly in Nextcloud. They 
 
 Human Resources (HR) gets an overview of employees and their recorded hours. Timesheets can be downloaded as Excel files for further processing.
 
-This project builds on [Timesheet 1.2.0 by Repa1253](https://github.com/Repa1253/timesheet/releases/tag/1.2.0) and is being continued for XiLLeR GmbH. The original developer is David Gun (Repa1253).
+This project builds on Timesheet 1.2.0 by XiLLeR and is being continued by XiLLeR GmbH.
 
 ## Features
 
@@ -103,7 +103,7 @@ Public holidays are supported for German federal states. Email notifications cur
 
 ## Requirements
 
-The [app metadata](appinfo/info.xml) declares the following compatibility for version 1.4.0:
+The [app metadata](appinfo/info.xml) declares the following compatibility for version 1.4.1:
 
 - Nextcloud 30–33
 - PHP 8.2–8.5

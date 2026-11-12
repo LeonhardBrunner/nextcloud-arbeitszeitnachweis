@@ -144,16 +144,21 @@ verifyReminder($makeService()->sendReminders()['employeeSent'], 0, 'Status chang
 
 // Exclude freelancers from every legacy warning category and preserve regular return delays.
 foreach (['hr-active', 'hr-freelancer', 'hr-inactive', 'hr-foreign'] as $suffix) {
-	$hrPreferences->saveNotificationSettings('employment-' . $suffix, ['noEntryEnabled' => true, 'noEntryDays' => 14, 'overtimeEnabled' => true, 'overtimeThresholdMinutes' => 60, 'negativeOvertimeEnabled' => true, 'negativeOvertimeThresholdMinutes' => 60]);
+	$hrPreferences->saveNotificationSettings('employment-' . $suffix, [
+		'noEntryEnabled' => true,
+		'overtimeEnabled' => true,
+		'negativeOvertimeEnabled' => true,
+		'warningThresholds' => ['noEntryDays' => 14, 'overtimeThresholdMinutes' => 60, 'negativeOvertimeThresholdMinutes' => 60],
+	]);
 }
 $balances = new EmploymentBalanceFixture();
 $balances->summaries['employment-never'] = [];
 $balances->summaries['employment-returned'] = ['lastEntryDate' => null, 'to' => '2026-11-02', 'overtimeMinutes' => 120];
-$makeLegacy = static fn() => new HrNotificationService($entryMapper, $configMapper, new HrService($appConfig, $session, $groups, $users), $balances, $statuses, $clock, $logger, $users);
+$makeLegacy = static fn() => new HrNotificationService($hrPreferences, new HrService($appConfig, $session, $groups, $users), $balances, $statuses, $clock, $logger, $users);
 $legacyWarnings = $makeLegacy()->doCron();
 verifyReminder(isset($legacyWarnings['employment-hr-inactive']), false, 'Inactive HR receives no legacy warnings');
 verifyReminder(isset($legacyWarnings['employment-hr-freelancer']), false, 'Freelance HR receives no legacy warnings');
-verifyReminder(array_column($legacyWarnings['employment-hr-active']['noEntry'], 'user'), ['Erik Ohne Eintrag', 'Marvin Adler'], 'Legacy absence warning excludes current exemptions and waits after return');
+verifyReminder(array_column($legacyWarnings['employment-hr-active']['noEntry'], 'user'), ['Marvin Adler'], 'Weekly inactivity mail requires a complete entry or return date and waits after return');
 verifyReminder(array_column($legacyWarnings['employment-hr-active']['overtime'], 'user'), ['Dora Rückkehr', 'Marvin Adler'], 'Overtime warnings exclude freelancers and inactive subjects');
 $balances->summaries['employment-freelancer'] = ['lastEntryDate' => '2026-10-01', 'to' => '2026-10-01', 'overtimeMinutes' => -120];
 $negativeWarnings = $makeLegacy()->doCron();

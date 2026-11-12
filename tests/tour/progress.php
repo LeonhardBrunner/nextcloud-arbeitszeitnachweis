@@ -296,14 +296,16 @@ namespace {
 			$parameters = $page->index()->getParams();
 			$expectSame(false, $parameters['tourEnabled']);
 			$expectSame(false, $parameters['tourStateAvailable']);
-			$expectSame(false, in_array('timesheet-tour-header', \OCP\Util::$scripts, true));
+			$expectSame(false, in_array('timesheet-tour-launcher', \OCP\Util::$scripts, true));
 			$expectSame(false, in_array('timesheet-tour', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-main', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-header', \OCP\Util::$scripts, true));
 			$expectedStyles = ['style'];
 			if ($isHr) $expectedStyles = array_merge($expectedStyles, ['timesheet-change-history', 'hr-settings']);
 			$expectedStyles[] = 'timesheet-update-notes';
+			if ($isHr) $expectedStyles[] = 'timesheet-help-panels';
 			$expectSame($expectedStyles, \OCP\Util::$styles);
+			$expectSame($isHr, in_array('timesheet-mail-help', \OCP\Util::$scripts, true));
 			$expectSame(true, $parameters['updateNotesEnabled']);
 			$expectSame([], array_values(array_filter($config->reads, static fn(string $key): bool => str_starts_with($key, 'tour_'))));
 			$expectSame([], $config->writes);
@@ -481,9 +483,11 @@ namespace {
 		$expectSame(true, $parameters['tourStateAvailable']);
 		$expectSame(false, $parameters['isHR']);
 		$expectSame(['version' => 1, 'employeeCompleted' => true], $parameters['tourProgress']);
-		$expectSame(true, array_search('timesheet-tour-header', \OCP\Util::$scripts, true) < array_search('timesheet-tour', \OCP\Util::$scripts, true));
+		$expectSame(true, in_array('timesheet-mail-help', \OCP\Util::$scripts, true));
+		$expectSame(true, array_search('timesheet-mail-help', \OCP\Util::$scripts, true) < array_search('timesheet-tour-launcher', \OCP\Util::$scripts, true));
+		$expectSame(true, array_search('timesheet-tour-launcher', \OCP\Util::$scripts, true) < array_search('timesheet-tour', \OCP\Util::$scripts, true));
 		$expectSame(true, array_search('timesheet-tour', \OCP\Util::$scripts, true) < array_search('timesheet-main', \OCP\Util::$scripts, true));
-		$expectSame(['style', 'timesheet-update-notes', 'timesheet-tour'], \OCP\Util::$styles);
+		$expectSame(['style', 'timesheet-update-notes', 'timesheet-help-panels', 'timesheet-tour'], \OCP\Util::$styles);
 		$expectSame([], $logger->warnings);
 	});
 	$test('A tour-state read failure leaves the main timesheet renderable', static function () use ($fixture, $expectSame): void {

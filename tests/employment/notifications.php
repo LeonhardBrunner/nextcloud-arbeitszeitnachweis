@@ -26,16 +26,15 @@ namespace OCA\Timesheet\Db {
 			if (in_array($id, $this->unavailable, true)) throw new \RuntimeException('Synthetic work configuration failure.');
 			return ['dailyMin' => 480, 'state' => $this->states[$id] ?? 'BY'];
 		}
-		public function findByUser(string $id): object {
-			return new class {
-				public function getMailNoEntryEnabled(): bool { return true; }
-				public function getMailOvertimeEnabled(): bool { return true; }
-				public function getMailNegativeEnabled(): bool { return true; }
-				public function getMailNoEntryDays(): int { return 1; }
-				public function getMailOvertimeThresholdMin(): int { return 60; }
-				public function getMailNegativeThresholdMin(): int { return 60; }
-			};
-		}
+	}
+	class HrPreferencesStore {
+		public array $settings = [
+			'noEntryEnabled' => true,
+			'overtimeEnabled' => true,
+			'negativeOvertimeEnabled' => true,
+			'warningThresholds' => ['noEntryDays' => 1, 'overtimeThresholdMinutes' => 60, 'negativeOvertimeThresholdMinutes' => 60],
+		];
+		public function getNotificationSettings(string $id): array { return $this->settings; }
 	}
 	class EmploymentStatusStore {
 		public array $statuses = [];
@@ -163,9 +162,10 @@ namespace {
 		$entries = new \OCA\Timesheet\Db\EntryMapper(); $configs = new \OCA\Timesheet\Db\UserConfigMapper(); $clock = new WarningClock(); $logger = new WarningLogger();
 		$store = new \OCA\Timesheet\Db\MissingEntryReminderStore(); $mailer = new \OCA\Timesheet\Service\MissingEntryReminderMailer(); $rules = new \OCA\Timesheet\Service\GroupRuleService();
 		$holidays = new \OCA\Timesheet\Service\HolidayService();
-		$legacy = static fn() => new HrNotificationService($entries, $configs, $hr, $balances, $statuses, $clock, $logger, $users);
+		$preferences = new \OCA\Timesheet\Db\HrPreferencesStore();
+		$legacy = static fn() => new HrNotificationService($preferences, $hr, $balances, $statuses, $clock, $logger, $users);
 		$daily = static fn() => new MissingEntryReminderService($rules, $entries, $configs, $hr, $holidays, new \OCA\Timesheet\Service\MissingEntryDetector(new \OCA\Timesheet\Service\AbsenceCommentCatalog()), $store, $mailer, $groups, $users, $clock, $logger, $statuses);
-		return compact('users', 'statuses', 'hr', 'balances', 'entries', 'configs', 'holidays', 'rules', 'clock', 'store', 'mailer', 'logger', 'legacy', 'daily');
+		return compact('users', 'statuses', 'hr', 'balances', 'entries', 'configs', 'holidays', 'rules', 'clock', 'store', 'mailer', 'logger', 'preferences', 'legacy', 'daily');
 	}
 	$checks = 0; $failures = 0;
 	function warningSame(mixed $expected, mixed $actual): void { if ($expected !== $actual) throw new RuntimeException('Expected ' . json_encode($expected) . ', got ' . json_encode($actual)); }
@@ -178,6 +178,37 @@ namespace {
 		warningSame(['active-plus'], array_column($warnings['hr']['overtime'], 'user'));
 		warningSame(['active-minus'], array_column($warnings['hr']['negative'], 'user'));
 		warningSame(['active-plus', 'active-minus'], $f['balances']->reads);
+	});
+	warningTest('weekly HR mail uses the shared thresholds at the same boundary as the HR list', function (): void {
+		$f = warningFixture();
+		$f['balances']->summaries['active-plus'] = ['lastEntryDate' => '2026-11-05', 'overtimeMinutes' => 60];
+		$f['balances']->summaries['active-minus'] = ['lastEntryDate' => '2026-11-06', 'overtimeMinutes' => -60];
+
+		$warnings = $f['legacy']()->doCron()['hr'];
+		warningSame([['user' => 'active-plus', 'days' => 1]], $warnings['noEntry']);
+		warningSame(['active-plus'], array_column($warnings['overtime'], 'user'));
+		warningSame(['active-minus'], array_column($warnings['negative'], 'user'));
+	});
+	warningTest('weekly HR mail does not treat zero balance or missing reference as a shared-threshold warning', function (): void {
+		$f = warningFixture();
+		$f['preferences']->settings['warningThresholds']['overtimeThresholdMinutes'] = 0;
+		$f['preferences']->settings['warningThresholds']['negativeOvertimeThresholdMinutes'] = 0;
+		$f['balances']->summaries['active-plus'] = ['lastEntryDate' => null, 'to' => '2026-10-01', 'overtimeMinutes' => 0];
+		$f['balances']->summaries['active-minus'] = ['lastEntryDate' => null, 'overtimeMinutes' => 0];
+
+		warningSame([], $f['legacy']()->doCron());
+	});
+	warningTest('disabled HR email categories stay disabled at the shared thresholds', function (): void {
+		$f = warningFixture();
+		$f['preferences']->settings['noEntryEnabled'] = false;
+		$f['preferences']->settings['negativeOvertimeEnabled'] = false;
+		$f['balances']->summaries['active-plus']['overtimeMinutes'] = 60;
+		$f['balances']->summaries['active-minus']['overtimeMinutes'] = -60;
+
+		$warnings = $f['legacy']()->doCron()['hr'];
+		warningSame([], $warnings['noEntry']);
+		warningSame(['active-plus'], array_column($warnings['overtime'], 'user'));
+		warningSame([], $warnings['negative']);
 	});
 	warningTest('a team containing only freelancers produces no legacy summary', function (): void {
 		$f = warningFixture(); $f['hr']->employees = array_slice($f['hr']->employees, 2, 2);

@@ -95,7 +95,7 @@ Mit Timesheet erhalten Mitarbeitende eine einfache Möglichkeit, ihre Arbeitszei
 	<screenshot>https://nextcloud-agentur.de/timesheet/timesheet_hrOverview.png</screenshot>
 	<screenshot>https://nextcloud-agentur.de/timesheet/timesheet_englishSupport.png</screenshot>
 
-	<version>1.4.0</version>
+	<version>1.4.1</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="dgu@xiller.com">David Gun (www.xiller-academy.de)</author>
 	<category>tools</category>
