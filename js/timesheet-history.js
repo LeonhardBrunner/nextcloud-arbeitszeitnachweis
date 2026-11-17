@@ -5,7 +5,7 @@
 	if (!timesheet) return;
 	const translate = (message, parameters = {}) => t('timesheet', message, parameters);
 	const actionLabels = { created: 'Time entry created', updated: 'Time entry updated', deleted: 'Time entry deleted', settings: 'Work settings updated' };
-	const fieldLabels = { workDate: 'Work date', startMin: 'Start', endMin: 'End', breakMinutes: 'Break', comment: 'Comment', dailyMin: 'Daily working time', state: 'Federal state' };
+	const fieldLabels = { workDate: 'Work date', startMin: 'Start', endMin: 'End', breakMinutes: 'Break', comment: 'Comment', commentType: 'Comment type', dailyMin: 'Daily working time', state: 'Federal state' };
 	let controls;
 	let filters;
 	let nextCursor = null;
@@ -49,14 +49,17 @@
 
 	function readFilters() {
 		return {
-			...Object.fromEntries(['from', 'to', 'employee', 'actor', 'kind'].map(name => [name, controls[name].value])),
+			...filters,
+			from: controls.from.value,
+			to: controls.to.value,
+			kind: controls.kind.value,
 			employeeChanges: controls.employeeChanges.checked,
 		};
 	}
 
-	function writeFilters({ employeeChanges, ...values }) {
-		for (const [name, value] of Object.entries(values)) controls[name].value = value;
-		controls.employeeChanges.checked = employeeChanges;
+	function writeFilters() {
+		for (const name of ['from', 'to', 'kind']) controls[name].value = filters[name];
+		controls.employeeChanges.checked = filters.employeeChanges;
 	}
 
 	function showMessage(message, isError = false) {
@@ -145,23 +148,118 @@
 		return item.actor.id === item.employee.id ? label + ' · ' + controls.root.dataset.employeeEditorLabel : label;
 	}
 
-	function updateOptions(select, accounts, emptyLabel, selectedValue, actors = false) {
-		select.replaceChildren();
-		const initial = element('option', '', translate(emptyLabel));
-		initial.value = '';
-		select.append(initial);
-		for (const account of accounts) {
-			const label = accountLabel(account);
-			const option = element('option', '', !actors && account.isActive === false ? label + ' · ' + translate('Inactive') : label);
-			option.value = actors ? account.id === null ? 'deleted:' : `user:${account.id}` : account.id;
-			select.append(option);
+	function normalizeAccountSearch(value) {
+		return String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+	}
+
+	function employeeLabel(employee) {
+		const label = accountLabel(employee);
+		return employee.isActive === false ? label + ' · ' + translate('Inactive') : label;
+	}
+
+	function editorFilterValue({ id }) {
+		return id === null ? 'deleted:' : `user:${id}`;
+	}
+
+	function bindAccountPicker(name, allLabel, noMatchesLabel, accountValue, labelForAccount) {
+		const id = `history-${name}`;
+		const trigger = document.getElementById(id);
+		const picker = trigger.parentElement;
+		const value = document.getElementById(id + '-value');
+		const popup = document.getElementById(id + '-popup');
+		const search = document.getElementById(id + '-search');
+		const status = document.getElementById(id + '-search-status');
+		const options = document.getElementById(id + '-options');
+		let accounts = [];
+
+		function position() {
+			timesheet.mailHelp.positionPopup(popup, trigger);
 		}
-		select.value = selectedValue;
+
+		function close(restoreFocus = false) {
+			if (popup.hidden) return;
+			popup.hidden = true;
+			trigger.setAttribute('aria-expanded', 'false');
+			search.value = '';
+			if (restoreFocus) trigger.focus({ preventScroll: true });
+		}
+
+		function select(accountId) {
+			close(true);
+			if (accountId === filters[name]) return;
+			filters = { ...readFilters(), [name]: accountId };
+			renderOptions();
+			void load();
+		}
+
+		function option(accountId, label) {
+			const button = element('button', '', label);
+			button.type = 'button';
+			button.value = accountId;
+			if (accountId === filters[name]) button.setAttribute('aria-current', 'true');
+			button.addEventListener('click', () => select(accountId));
+			const item = element('li');
+			item.append(button);
+			return item;
+		}
+
+		function renderOptions() {
+			const selected = accounts.find(account => account.value === filters[name]);
+			value.textContent = selected?.label ?? allLabel;
+			const query = normalizeAccountSearch(search.value.trim());
+			const matches = query ? accounts.filter(account => account.searchTerms.some(term => term.includes(query))) : accounts;
+			options.replaceChildren(option('', allLabel));
+			for (const account of matches) options.append(option(account.value, account.label));
+			status.hidden = !(query && !matches.length);
+			status.textContent = status.hidden ? '' : noMatchesLabel;
+			position();
+		}
+
+		trigger.addEventListener('click', () => {
+			if (!popup.hidden) {
+				close();
+				return;
+			}
+			popup.hidden = false;
+			trigger.setAttribute('aria-expanded', 'true');
+			renderOptions();
+			search.focus({ preventScroll: true });
+		});
+		search.addEventListener('input', renderOptions);
+		popup.addEventListener('keydown', event => {
+			if (event.key !== 'Escape') return;
+			event.preventDefault();
+			event.stopPropagation();
+			close(true);
+		});
+		picker.addEventListener('focusout', event => {
+			if (event.relatedTarget && !picker.contains(event.relatedTarget)) close();
+		});
+		document.addEventListener('click', event => {
+			if (!picker.contains(event.target)) close();
+		});
+		window.addEventListener('resize', position);
+		window.addEventListener('scroll', position, true);
+		return {
+			close,
+			setAccounts(newAccounts) {
+				accounts = newAccounts.map(account => {
+					const label = labelForAccount(account);
+					return {
+						value: accountValue(account),
+						label,
+						searchTerms: [account.name, account.id ?? label].map(normalizeAccountSearch),
+					};
+				});
+				renderOptions();
+			},
+		};
 	}
 
 	function formatValue(field, value) {
 		if (value === null || value === undefined || value === '') return translate('Empty');
 		if (field === 'workDate') return formatDate(value);
+		if (field === 'commentType') return timesheet.entries?.commentTypeLabel(value) || translate('Empty');
 		if (['startMin', 'endMin', 'dailyMin'].includes(field) && Number.isFinite(Number(value))) {
 			const minutes = Number(value);
 			return `${minutes < 0 ? '-' : ''}${String(Math.floor(Math.abs(minutes) / 60)).padStart(2, '0')}:${String(Math.abs(minutes) % 60).padStart(2, '0')}`;
@@ -180,14 +278,16 @@
 		list.append(group);
 	}
 
+	const isCommentField = field => field === 'comment' || field === 'commentType';
+
 	// Comment edits remain identifiable when the same save also changes working times.
 	function actionDescription(item) {
 		const entryDescription = translate(actionLabels[item.kind]);
 		const commentChanged = ['created', 'updated'].includes(item.kind) && item.changes.some(change =>
-			change.field === 'comment' && String(change.before ?? '') !== String(change.after ?? ''));
+			isCommentField(change.field) && String(change.before ?? '') !== String(change.after ?? ''));
 		if (!commentChanged) return entryDescription;
 		const commentDescription = translate('Comment changed');
-		return item.kind === 'updated' && item.changes.every(change => change.field === 'comment')
+		return item.kind === 'updated' && item.changes.every(change => isCommentField(change.field))
 			? commentDescription : `${entryDescription} · ${commentDescription}`;
 	}
 
@@ -300,6 +400,11 @@
 			const data = await timesheet.api('/api/hr/change-history?' + parameters.toString(), { signal });
 			if (currentGeneration !== generation || !visible) return;
 			if (!validResponse(data)) throw new Error('Invalid change history response');
+			if (filters.actor && !data.filters.actors.some(account => editorFilterValue(account) === filters.actor)) {
+				filters.actor = '';
+				controls.actor.setAccounts(data.filters.actors);
+				return load();
+			}
 			if (!append) clearItems();
 			for (const item of data.items) {
 				if (!displayedIds.has(item.id)) {
@@ -308,21 +413,21 @@
 					displayedIds.add(item.id);
 				}
 			}
-			updateOptions(controls.employee, data.filters.employees, 'All employees', filters.employee);
-			updateOptions(controls.actor, data.filters.actors, 'All editors', filters.actor, true);
+			controls.employee.setAccounts(data.filters.employees);
+			controls.actor.setAccounts(data.filters.actors);
 			controls.recording.textContent = translate('Recording started on {date}. Earlier changes are not available.', { date: formatDate(data.recordingStartedAt) });
 			nextCursor = data.nextCursor;
 			controls.more.hidden = nextCursor === null;
-			const noHistoryYet = data.filters.actors.length === 0;
-			showMessage(displayedIds.size ? '' : (noHistoryYet ? controls.root.dataset.emptyHistoryMessage : translate('No changes match the selected filters.')));
+			const hasHistory = data.hasHistory ?? (data.filters.actors.length > 0);
+			showMessage(displayedIds.size ? '' : (hasHistory ? translate('No changes match the selected filters.') : controls.root.dataset.emptyHistoryMessage));
 		} catch (error) {
 			if (currentGeneration !== generation || !visible || signal.aborted) return;
 			clearItems(); nextCursor = null;
 			controls.more.hidden = true;
 			controls.recording.textContent = '';
-			updateOptions(controls.employee, [], 'All employees', '');
-			updateOptions(controls.actor, [], 'All editors', '');
 			filters = { ...filters, employee: '', actor: '' };
+			controls.employee.setAccounts([]);
+			controls.actor.setAccounts([]);
 			showMessage(translate('The change history could not be loaded. Please try again.'), true);
 		} finally {
 			if (currentGeneration === generation) setBusy(false);
@@ -334,13 +439,13 @@
 		const root = document.getElementById('tab-change-history');
 		if (!root) return;
 		controls = { root };
-		for (const name of ['from', 'to', 'employee', 'actor', 'kind', 'refresh', 'more', 'recording', 'message', 'list']) controls[name] = document.getElementById(`history-${name}`);
+		for (const name of ['from', 'to', 'kind', 'refresh', 'more', 'recording', 'message', 'list']) controls[name] = document.getElementById(`history-${name}`);
 		controls.employeeChanges = document.getElementById('history-employee-changes');
 		controls.cardView = document.getElementById('history-view-cards');
 		controls.tableView = document.getElementById('history-view-table');
 		controls.tableContainer = document.getElementById('history-table-container');
 		controls.tableBody = document.getElementById('history-table-body');
-		filters = defaultFilters(); writeFilters(filters);
+		filters = defaultFilters(); writeFilters();
 		const preference = { historyView: root.dataset.historyView, revision: root.dataset.historyViewRevision };
 		savedView = preference.historyView === 'table' ? 'table' : 'cards';
 		savedViewRevision = preference.revision || '';
@@ -349,7 +454,11 @@
 		setViewControlsDisabled();
 		controls.cardView.addEventListener('click', () => saveView('cards'));
 		controls.tableView.addEventListener('click', () => saveView('table'));
-		for (const name of ['from', 'to', 'employee', 'actor', 'kind', 'employeeChanges']) {
+		controls.employee = bindAccountPicker('employee', translate('All employees'), translate('No matching employees.'),
+			account => account.id, employeeLabel);
+		controls.actor = bindAccountPicker('actor', translate('All editors'), translate('No matching accounts.'),
+			editorFilterValue, accountLabel);
+		for (const name of ['from', 'to', 'kind', 'employeeChanges']) {
 			controls[name].addEventListener('change', () => {
 				filters = readFilters();
 				void load();
@@ -360,7 +469,16 @@
 	}
 
 	function show() { init(); if (controls) { visible = true; return load(); } }
-	function hide() { visible = false; generation++; requestController?.abort(); if (controls) setBusy(false); }
+	function hide() {
+		visible = false;
+		generation++;
+		requestController?.abort();
+		if (controls) {
+			controls.employee.close();
+			controls.actor.close();
+			setBusy(false);
+		}
+	}
 
 	timesheet.changeHistory = { init, show, hide };
 })();

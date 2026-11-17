@@ -95,12 +95,14 @@ namespace OCA\Timesheet\Service {
 	class AbsenceCommentCatalog { public function isExemptComment(?string $comment): bool { return false; } }
 	class MissingEntryReminderMailer {
 		public array $employees = [];
+		public array $employeeTemplates = [];
 		public array $hr = [];
 		public array $failedEmployees = [];
 		public array $failedHr = [];
-		public function sendEmployeeReminder(\OCP\IUser $employee, array $issues): bool {
+		public function sendEmployeeReminder(\OCP\IUser $employee, array $issues, array $mailTemplates = []): bool {
 			if (in_array($employee->getUID(), $this->failedEmployees, true)) return false;
 			$this->employees[$employee->getUID()] = $issues;
+			$this->employeeTemplates[$employee->getUID()] = $mailTemplates;
 			return true;
 		}
 		public function sendHrSummary(\OCP\IUser $employee, array $findings): bool {
@@ -117,6 +119,7 @@ namespace {
 
 	require __DIR__ . '/../../lib/Service/EmploymentStatus.php';
 	require __DIR__ . '/../../lib/Service/MissingEntryDetector.php';
+	require __DIR__ . '/../../lib/Service/NotificationMailTemplates.php';
 	require __DIR__ . '/../../lib/Service/MissingEntryReminderSettings.php';
 	require __DIR__ . '/../../lib/Service/HrNotificationService.php';
 	require __DIR__ . '/../../lib/Service/MissingEntryReminderService.php';
@@ -270,6 +273,16 @@ namespace {
 			});
 		}
 	}
+	warningTest('weekly wording is attached for the HR account alongside its current saved thresholds', function (): void {
+		$f = warningFixture();
+		$templates = ['negative' => ['de' => "Ab {threshold}\n{entries}"]];
+		$f['preferences']->settings['weeklyMailTemplates'] = $templates;
+		$f['preferences']->settings['warningThresholds'] = ['noEntryDays' => 3, 'overtimeThresholdMinutes' => 61, 'negativeOvertimeThresholdMinutes' => 90];
+		$warnings = $f['legacy']()->doCron()['hr'];
+		warningSame($templates, $warnings['weeklyMailTemplates']);
+		warningSame(['noEntry' => '3', 'overtime' => '+01:01', 'negative' => '-01:30'], $warnings['thresholds']);
+		warningSame([['user' => 'active-minus', 'deficit' => '-02:00']], $warnings['negative']);
+	});
 	warningTest('mixed winning policies keep each recipient summary limited to HR-enabled findings', function (): void {
 		$f = warningFixture();
 		$f['rules']->rule['missingEntryReminders'] += ['notifyEmployees' => false, 'notifyHr' => true];
@@ -277,6 +290,24 @@ namespace {
 		$f['daily']()->sendReminders();
 		warningSame(['active-minus'], array_keys($f['mailer']->employees));
 		warningSame(['active-plus'], array_column($f['mailer']->hr['hr'], 'name'));
+	});
+	warningTest('localized bodies come from each employee winning rule and stay scoped in one HR summary', function (): void {
+		$f = warningFixture();
+		$employeeBody = ['de' => 'First employee: {entries}'];
+		$hrBody = ['en' => 'First rule to HR: {entries}'];
+		$otherHrBody = ['en' => 'Second rule to HR: {entries}'];
+		$f['rules']->rule['missingEntryReminders']['mailTemplates'] = ['employee' => $employeeBody, 'hr' => $hrBody];
+		$f['rules']->employeeRules['active-minus'] = array_replace($f['rules']->rule, [
+			'id' => 'second',
+			'missingEntryReminders' => array_replace($f['rules']->rule['missingEntryReminders'], ['mailTemplates' => ['hr' => $otherHrBody]]),
+		]);
+		$statistics = $f['daily']()->sendReminders();
+		warningSame(2, $statistics['employeeSent']);
+		warningSame(1, $statistics['hrSent']);
+		warningSame(['active-plus' => $employeeBody, 'active-minus' => []], $f['mailer']->employeeTemplates);
+		warningSame(['hr'], array_keys($f['mailer']->hr));
+		warningSame(['active-plus', 'active-minus'], array_column($f['mailer']->hr['hr'], 'name'));
+		warningSame([$hrBody, $otherHrBody], array_column($f['mailer']->hr['hr'], 'mailTemplates'));
 	});
 	foreach (['region', 'holiday', 'inspection'] as $failure) {
 		foreach ([false, true] as $notifyHr) {

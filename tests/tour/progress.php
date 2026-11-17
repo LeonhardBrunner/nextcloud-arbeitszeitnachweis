@@ -12,6 +12,7 @@ namespace OCP {
 	}
 	interface IL10N {
 		public function getLanguageCode(): string;
+		public function t(string $text, array $parameters = []): string;
 	}
 	interface IUser {
 		public function getUID(): string;
@@ -36,6 +37,13 @@ namespace OCP {
 		public static function addStyle(string $app, string $name): void {
 			self::$styles[] = $name;
 		}
+	}
+}
+
+namespace OCP\L10N {
+	interface IFactory {
+		public function getLanguageIterator(\OCP\IUser $user): \Iterator;
+		public function get(string $app, ?string $language = null): \OCP\IL10N;
 	}
 }
 
@@ -141,6 +149,10 @@ namespace {
 	require_once __DIR__ . '/../../lib/Service/EmploymentStatus.php';
 	require_once __DIR__ . '/../../lib/Db/EmploymentStatusStore.php';
 	require_once __DIR__ . '/../../lib/Service/AbsenceCommentCatalog.php';
+	require_once __DIR__ . '/../../lib/Service/MissingEntryReminderMailer.php';
+	require_once __DIR__ . '/../../lib/Service/NotificationMailTemplates.php';
+	require_once __DIR__ . '/../../lib/Service/HrWeeklyMailTemplates.php';
+	require_once __DIR__ . '/../../lib/Service/MissingEntryReminderSettings.php';
 	require_once __DIR__ . '/../../lib/Controller/TourController.php';
 	require_once __DIR__ . '/../../lib/Controller/PageController.php';
 
@@ -214,6 +226,28 @@ namespace {
 		}
 		public function getLanguageCode(): string {
 			return $this->language;
+		}
+		public function t(string $text, array $parameters = []): string {
+			if ($text === 'Hello %1$s,') {
+				$text = match ($this->language) {
+					'de_DE' => 'Hallo %1$s,',
+					'fr' => 'Bonjour %1$s,',
+					default => $text,
+				};
+			}
+			return $parameters === [] ? $text : vsprintf($text, $parameters);
+		}
+	}
+	class TourMailLanguageFixture implements \OCP\L10N\IFactory {
+		public array $requestedLanguages = [];
+		public function __construct(private string $deliveryLanguage = 'en', private ?string $forcedLanguage = null) {
+		}
+		public function getLanguageIterator(\OCP\IUser $user): \Iterator {
+			return new \ArrayIterator([$this->deliveryLanguage]);
+		}
+		public function get(string $app, ?string $language = null): \OCP\IL10N {
+			$this->requestedLanguages[] = [$app, $language];
+			return new TourTranslationFixture($this->forcedLanguage ?? $language ?? 'en');
 		}
 	}
 	class TourUserFixture implements \OCP\IUser {
@@ -295,20 +329,21 @@ namespace {
 			$logger = new TourLoggerFixture();
 			\OCP\Util::$scripts = [];
 			\OCP\Util::$styles = [];
-			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm());
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm(), new TourMailLanguageFixture());
 			$parameters = $page->index()->getParams();
 			$expectSame(false, $parameters['tourEnabled']);
 			$expectSame(false, $parameters['tourStateAvailable']);
 			$expectSame(false, in_array('timesheet-tour-launcher', \OCP\Util::$scripts, true));
-			$expectSame(false, in_array('timesheet-tour', \OCP\Util::$scripts, true));
+			$expectSame(false, in_array('timesheet-guided-tour-v2', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-main', \OCP\Util::$scripts, true));
 			$expectSame(true, in_array('timesheet-header', \OCP\Util::$scripts, true));
-			$expectedStyles = ['style'];
-			if ($isHr) $expectedStyles = array_merge($expectedStyles, ['timesheet-history-live', 'timesheet-hr-settings']);
-			$expectedStyles[] = 'timesheet-update-notes';
+			$expectedStyles = ['timesheet-layout-v4'];
+			if ($isHr) $expectedStyles = array_merge($expectedStyles, ['timesheet-history', 'timesheet-hr-settings-v7']);
+			$expectedStyles[] = 'timesheet-release-notes';
 			if ($isHr) $expectedStyles[] = 'timesheet-help-panels';
 			$expectSame($expectedStyles, \OCP\Util::$styles);
 			$expectSame($isHr, in_array('timesheet-mail-help', \OCP\Util::$scripts, true));
+			$expectSame($isHr, in_array('timesheet-history', \OCP\Util::$scripts, true));
 			$expectSame(true, $parameters['updateNotesEnabled']);
 			$expectSame([], array_values(array_filter($config->reads, static fn(string $key): bool => str_starts_with($key, 'tour_'))));
 			$expectSame([], $config->writes);
@@ -480,7 +515,7 @@ namespace {
 		$logger = new TourLoggerFixture();
 		\OCP\Util::$scripts = [];
 		\OCP\Util::$styles = [];
-		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm());
+		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm(), new TourMailLanguageFixture());
 		$parameters = $page->index()->getParams();
 		$expectSame(true, $parameters['tourEnabled']);
 		$expectSame(true, $parameters['tourStateAvailable']);
@@ -488,16 +523,16 @@ namespace {
 		$expectSame(['version' => 1, 'employeeCompleted' => true], $parameters['tourProgress']);
 		$expectSame(true, in_array('timesheet-mail-help', \OCP\Util::$scripts, true));
 		$expectSame(true, array_search('timesheet-mail-help', \OCP\Util::$scripts, true) < array_search('timesheet-tour-launcher', \OCP\Util::$scripts, true));
-		$expectSame(true, array_search('timesheet-tour-launcher', \OCP\Util::$scripts, true) < array_search('timesheet-tour', \OCP\Util::$scripts, true));
-		$expectSame(true, array_search('timesheet-tour', \OCP\Util::$scripts, true) < array_search('timesheet-main', \OCP\Util::$scripts, true));
-		$expectSame(['style', 'timesheet-update-notes', 'timesheet-help-panels', 'timesheet-tour'], \OCP\Util::$styles);
+		$expectSame(true, array_search('timesheet-tour-launcher', \OCP\Util::$scripts, true) < array_search('timesheet-guided-tour-v2', \OCP\Util::$scripts, true));
+		$expectSame(true, array_search('timesheet-guided-tour-v2', \OCP\Util::$scripts, true) < array_search('timesheet-main', \OCP\Util::$scripts, true));
+		$expectSame(['timesheet-layout-v4', 'timesheet-release-notes', 'timesheet-help-panels', 'timesheet-tour'], \OCP\Util::$styles);
 		$expectSame([], $logger->warnings);
 	});
 	$test('A tour-state read failure leaves the main timesheet renderable', static function () use ($fixture, $expectSame): void {
 		[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture();
 		$config->rejectReads = true;
 		$logger = new TourLoggerFixture();
-		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm());
+		$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture(), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm(), new TourMailLanguageFixture());
 		$parameters = $page->index()->getParams();
 		$expectSame(false, $parameters['tourStateAvailable']);
 		$expectSame('minutes', $parameters['breakInputMode']);
@@ -512,10 +547,61 @@ namespace {
 			'de_DE' => ['vacation' => 'Urlaub', 'timeOffInLieu' => 'Stundenausgleich'],
 		] as $language => $expectedTerms) {
 			[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture('alice', true);
-			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture($language), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm());
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture($language), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm(), new TourMailLanguageFixture($language));
 			$parameters = $page->index()->getParams();
 			$expectSame($expectedTerms, $parameters['absenceCommentTerms']);
 			$expectSame(false, $parameters['tourEnabled']);
+		}
+	});
+	$test('HR pages expose the localized reminder mail originals and validator limit', static function () use ($fixture, $expectSame): void {
+		foreach ([false, true] as $isHr) {
+			[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture('alice', $isHr);
+			$logger = new TourLoggerFixture();
+			$page = new PageController('timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks), $session, $store, $logger, $groupManager, new AbsenceCommentCatalog(), new TourTranslationFixture('de_DE'), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager), new \OCA\Timesheet\Settings\RuleSettingsForm(), new TourMailLanguageFixture('de_DE'));
+			$parameters = $page->index()->getParams();
+			$editor = $parameters['notificationRuleSettings']['reminderMailEditor'] ?? null;
+			$weekly = $parameters['weeklyMailEditor'];
+			$expectSame([], $logger->warnings);
+			if ($isHr) {
+				$expectSame('de_DE', $weekly['language']);
+				$expectSame(4000, $weekly['maxLength']);
+				$expectSame("No complete entry for at least {threshold} days:\n{entries}", $weekly['originals']['noEntry']);
+				$expectSame("Too much overtime:\n{entries}", $weekly['originals']['overtime']);
+				$expectSame("Too many negative hours:\n{entries}", $weekly['originals']['negative']);
+			} else {
+				$expectSame(null, $weekly);
+			}
+			if (!$isHr) {
+				$expectSame(null, $editor);
+				continue;
+			}
+			$expectSame('de_DE', $editor['language']);
+			$expectSame(4000, $editor['maxLength']);
+			$expectSame(true, str_starts_with($editor['originals']['employee'], 'Hallo {recipient},'));
+			$expectSame(true, str_contains($editor['originals']['hr'], 'The following employees'));
+			$expectSame(1, substr_count($editor['originals']['employee'], '{entries}'));
+			$expectSame(1, substr_count($editor['originals']['hr'], '{entries}'));
+		}
+	});
+	$test('Both mail editors use the delivery language even when a request shows another language', static function () use ($fixture, $expectSame): void {
+		foreach ([
+			['de_DE', 'fr', 'fr', 'Bonjour {recipient},'],
+			['en', 'ja', null, 'Hello {recipient},'],
+		] as [$deliveryLanguage, $pageLanguage, $forcedLanguage, $previewGreeting]) {
+			[, $store, $config, $locks, $session, $hrService, $groupManager] = $fixture('alice', true);
+			$languages = new TourMailLanguageFixture($deliveryLanguage, $forcedLanguage);
+			$page = new PageController(
+				'timesheet', new TourRequestFixture(), $hrService, new UserPreferencesStore($config, $locks),
+				$session, $store, new TourLoggerFixture(), $groupManager, new AbsenceCommentCatalog(),
+				new TourTranslationFixture($pageLanguage), new EmploymentStatusStore($config, $locks, new TourTimeFixture(), $groupManager),
+				new \OCA\Timesheet\Settings\RuleSettingsForm(), $languages,
+			);
+			$parameters = $page->index()->getParams();
+			$reminder = $parameters['notificationRuleSettings']['reminderMailEditor'];
+			$expectSame([['timesheet', $deliveryLanguage]], $languages->requestedLanguages);
+			$expectSame($deliveryLanguage, $reminder['language']);
+			$expectSame($deliveryLanguage, $parameters['weeklyMailEditor']['language']);
+			$expectSame(true, str_starts_with($reminder['originals']['employee'], $previewGreeting));
 		}
 	});
 	$test('Page attributes expose only employee introduction state', static function () use ($expectSame): void {

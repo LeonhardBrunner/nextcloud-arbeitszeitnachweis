@@ -58,9 +58,9 @@ class RecipientTestMailer extends MissingEntryReminderMailer {
 	public array $hrFindings = [];
 	public function __construct(private MissingEntryReminderMailer $realMailer) {
 	}
-	public function sendEmployeeReminder(IUser $employee, array $issues): bool {
+	public function sendEmployeeReminder(IUser $employee, array $issues, array $mailTemplates = []): bool {
 		$this->employeeIds[] = $employee->getUID();
-		return $this->realMailer->sendEmployeeReminder($employee, $issues);
+		return $this->realMailer->sendEmployeeReminder($employee, $issues, $mailTemplates);
 	}
 	public function sendHrSummary(IUser $hrUser, array $employees): bool {
 		$this->hrFindings[$hrUser->getUID()] = $employees;

@@ -25,7 +25,7 @@ $fixture = static function (?string $actor = 'alice'): array {
 	$balances = new \OCA\Timesheet\Service\MonthlyBalanceService();
 	$preferences = new \OCA\Timesheet\Db\UserPreferencesStore();
 	$ruleForm = new \OCA\Timesheet\Settings\RuleSettingsForm();
-	$page = new PageController('timesheet', $request, $hr, $preferences, $session, new \OCA\Timesheet\Db\TourProgressStore(), $logger, $groups, new \OCA\Timesheet\Service\AbsenceCommentCatalog(), new EmploymentTranslationFixture(), $store, $ruleForm);
+	$page = new PageController('timesheet', $request, $hr, $preferences, $session, new \OCA\Timesheet\Db\TourProgressStore(), $logger, $groups, new \OCA\Timesheet\Service\AbsenceCommentCatalog(), new EmploymentTranslationFixture(), $store, $ruleForm, new EmploymentMailLanguageFixture());
 	$overview = new OverviewController('timesheet', $request, new EmploymentAppConfigFixture(), new \OCA\Timesheet\Db\EntryMapper(), new \OCA\Timesheet\Db\UserConfigMapper(), $session, $hr, new \OCA\Timesheet\Service\HolidayService(), $balances, $store);
 	return compact('locks', 'config', 'clock', 'store', 'session', 'request', 'hr', 'logger', 'groups', 'controller', 'balances', 'page', 'overview', 'preferences', 'ruleForm');
 };
@@ -161,7 +161,7 @@ $suite->test('Page startup hydrates the status and loads its module between core
 	$suite->same($status->toPublicArray(), $parameters['employmentStatus']);
 	$suite->same(true, $parameters['employmentStatusAvailable']);
 	$suite->same(true, array_search('timesheet-runtime', \OCP\Util::$scripts, true) < array_search('timesheet-employment-status', \OCP\Util::$scripts, true));
-	$suite->same(true, array_search('timesheet-employment-status', \OCP\Util::$scripts, true) < array_search('timesheet-hr', \OCP\Util::$scripts, true));
+	$suite->same(true, array_search('timesheet-employment-status', \OCP\Util::$scripts, true) < array_search('timesheet-hr-dashboard-v2', \OCP\Util::$scripts, true));
 	$suite->same([], $state['config']->writes);
 });
 $suite->test('Status load failure disables its page controls without blocking the timesheet', static function () use ($suite, $fixture): void {
@@ -207,6 +207,7 @@ $suite->test('HR list only enriches assigned IDs and retains balances for inacti
 	$suite->same(null, $bobRow['missingEntryReferenceDate']);
 	$suite->same(123, $bobRow['overtimeMinutes']);
 	$suite->same(456, $bobRow['totalMinutes']);
+	$suite->same(456, $aliceRow['totalMinutes']);
 	$suite->same([], $state['config']->writes);
 });
 foreach (['read', 'malformed'] as $failure) {
@@ -287,11 +288,11 @@ foreach ([null, 'alice', 'hr', 'admin', 'hr-admin'] as $actor) {
 		$isHr = in_array($actor, ['hr', 'hr-admin'], true);
 		$suite->same($isHr ? ['notifications'] : [], $state['ruleForm']->scopes);
 		$suite->same($isHr, is_array($parameters['notificationRuleSettings']));
-		$suite->same($isHr, in_array('timesheet-rule-settings', \OCP\Util::$scripts, true));
-		$suite->same($isHr, in_array('timesheet-hr-settings', \OCP\Util::$styles, true));
+		$suite->same($isHr, in_array('timesheet-rule-settings-v3', \OCP\Util::$scripts, true));
+		$suite->same($isHr, in_array('timesheet-hr-settings-v7', \OCP\Util::$styles, true));
 		if ($isHr) {
 			$suite->same('notifications', $parameters['notificationRuleSettings']['policySection']);
-			$suite->same(true, array_search('timesheet-rule-settings', \OCP\Util::$scripts, true) < array_search('timesheet-main', \OCP\Util::$scripts, true));
+			$suite->same(true, array_search('timesheet-rule-settings-v3', \OCP\Util::$scripts, true) < array_search('timesheet-main', \OCP\Util::$scripts, true));
 		}
 	});
 }

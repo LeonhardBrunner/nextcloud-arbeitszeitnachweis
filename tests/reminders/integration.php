@@ -77,12 +77,12 @@ class CapturingReminderMailer extends MissingEntryReminderMailer {
 	public bool $deliver = false;
 	public function __construct(private MissingEntryReminderMailer $realMailer) {
 	}
-	public function sendEmployeeReminder(IUser $employee, array $issues): bool {
+	public function sendEmployeeReminder(IUser $employee, array $issues, array $mailTemplates = []): bool {
 		$this->employees[$employee->getUID()] = $issues;
 		if (in_array($employee->getUID(), $this->failEmployeeIds, true) || !$employee->getEMailAddress()) {
 			return false;
 		}
-		return !$this->deliver || $this->realMailer->sendEmployeeReminder($employee, $issues);
+		return !$this->deliver || $this->realMailer->sendEmployeeReminder($employee, $issues, $mailTemplates);
 	}
 	public function sendHrSummary(IUser $hrUser, array $employees): bool {
 		$this->hrSummaries[$hrUser->getUID()] = $employees;

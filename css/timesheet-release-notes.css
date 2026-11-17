@@ -41,6 +41,11 @@
 	line-height: 1.4;
 }
 
+/* The static heading anchors focus at the start of the notes. */
+#ts-update-notes-title:focus {
+	outline: none;
+}
+
 #ts-update-notes-dialog button {
 	border: 1px solid var(--color-border-dark, #aaa);
 	background-color: var(--color-background-dark, #ededed);

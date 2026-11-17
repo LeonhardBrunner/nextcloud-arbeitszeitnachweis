@@ -23,6 +23,8 @@ use OCP\AppFramework\Db\Entity;
  *
  * @method ?string getComment()
  * @method void setComment(?string $comment)
+ * @method ?string getCommentType()
+ * @method void setCommentType(?string $commentType)
  *
  * @method int getCreatedAt()
  * @method void setCreatedAt(int $createdAt)
@@ -43,6 +45,8 @@ class Entry extends Entity implements JsonSerializable {
 	protected $breakMinutes = 0;
 	/** @var ?string */
 	protected $comment;
+	/** @var ?string */
+	protected $commentType;
 	/** @var int */
 	protected $createdAt;
 	/** @var int */
@@ -66,6 +70,7 @@ class Entry extends Entity implements JsonSerializable {
 			'endMin'       => $this->endMin,
 			'breakMinutes' => $this->breakMinutes,
 			'comment'      => $this->comment,
+			'commentType'  => $this->commentType,
 			'createdAt'    => $this->createdAt,
 			'updatedAt'    => $this->updatedAt,
 		];

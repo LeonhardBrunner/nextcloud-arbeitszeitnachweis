@@ -205,25 +205,22 @@
 				prepare: () => setExportVisible(true),
 			},
 			{
-				id: 'working-time', title: 'Working time',
-				text: 'The start of work can be chosen individually in accordance with company guidelines.',
-				selectors: ['#tab-mine label[for="config-daily-min-mine"]', '#config-daily-min-mine'],
-			},
-			{
 				id: 'federal-state', title: 'Federal state',
 				text: 'The public holidays shown in the Status column depend on the selected federal state.',
 				selectors: ['#tab-mine label[for="config-state-mine"]', '#config-state-mine'],
 			},
 			{
 				id: 'comments', title: 'Comments and absences',
-				text: 'Comments add context to a day. An absence can be marked with "{vacation}" or "{timeOffInLieu}".',
-				textParameters: { vacation: appRoot.dataset.absenceVacation, timeOffInLieu: appRoot.dataset.absenceTimeOffInLieu },
-				selectors: ['#ts-body tr:first-child .commentInput', '#ts-table thead th:nth-child(8)'],
+				text: 'Use the Comment column to record your own notes about the workday. If both start and end times are missing, only the preset reasons in the Comment column prevent a notification. Otherwise, entries with no time or only one time are marked as incomplete.',
+				localizedText: appRoot.dataset.tourCommentsDescription,
+				selectors: ['#ts-body tr:first-child .ts-comment-cell', '#ts-table thead .ts-comment-heading'],
+				horizontalPadding: 0,
 			},
 			{
 				id: 'warnings', title: 'Time entry warnings',
 				text: 'Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.',
-				selectors: ['#ts-body tr:first-child .ts-warn', '#ts-table thead th:nth-child(9)'],
+				selectors: ['#ts-body tr:first-child .ts-warn', '#ts-table thead .ts-warning-heading'],
+				horizontalPadding: 0,
 			},
 			{
 				id: 'freelancer-mode', title: 'Freelancer mode',
@@ -419,15 +416,17 @@
 	}
 
 	function highlightedRectangles(width, height) {
-		const stepId = steps[stepIndex]?.id;
+		const step = steps[stepIndex];
+		const stepId = step?.id;
+		const horizontalPadding = step?.horizontalPadding ?? 5;
 		const headerBottom = document.getElementById('header')?.getBoundingClientRect().bottom || 0;
 		const rectangles = targets.filter(isVisible).map(element => {
 			const rectangle = element.getBoundingClientRect();
 			const isApplicationTarget = appRoot.contains(element) && !['profile', 'help'].includes(stepId);
 			return {
-				left: Math.max(4, rectangle.left - 5),
+				left: Math.max(4, rectangle.left - horizontalPadding),
 				top: Math.max(isApplicationTarget ? headerBottom : 4, rectangle.top - 5),
-				right: Math.min(width - 4, rectangle.right + 5),
+				right: Math.min(width - 4, rectangle.right + horizontalPadding),
 				bottom: Math.min(height - 4, rectangle.bottom + 5),
 			};
 		}).filter(rectangle => rectangle.right > rectangle.left && rectangle.bottom > rectangle.top);
@@ -611,7 +610,7 @@
 		const preparation = ++currentPreparation;
 		updateButtons();
 		dialogTitle.textContent = translate(step.title);
-		dialogDescription.textContent = translate(step.text, step.textParameters);
+		dialogDescription.textContent = step.localizedText ?? translate(step.text, step.textParameters);
 		progressLabel.textContent = translate('Step {current} of {total}', { current: stepIndex + 1, total: steps.length });
 		dialog.querySelector('.ts-tour-content').scrollTop = 0;
 		overlay.dataset.step = step.id;

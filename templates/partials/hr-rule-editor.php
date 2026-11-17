@@ -47,6 +47,12 @@
 		<?php print_unescaped(json_encode(array_values($hrPeople), $embeddedJsonFlags)); ?>
 	</script>
 
+	<?php if ($policySection === 'notifications' && isset($ruleEditorData['reminderMailEditor'])): ?>
+	<script id="ts-reminder-mail-editor-data" type="application/json">
+		<?php print_unescaped(json_encode($ruleEditorData['reminderMailEditor'], $embeddedJsonFlags)); ?>
+	</script>
+	<?php endif; ?>
+
 	<?php if ($policySection === 'timeRules'): ?>
 	<hr class="ts-divider" />
 

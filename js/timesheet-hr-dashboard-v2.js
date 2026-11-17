@@ -40,7 +40,8 @@
 	let listGeneration = 0;
 	let listLoaded = false;
 	let initialized = false;
-	const employeeFilter = { mode: 'active', name: '' };
+	let listPopups = [];
+	const employeeFilter = { mode: 'all', name: '' };
 	const translate = (message, parameters = {}) => t(appState.appName, message, parameters);
 	const berlinCalendar = new Intl.DateTimeFormat('en-CA', {
 		timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -110,11 +111,23 @@
 		return cell;
 	}
 
-	function appendBadge(cell, className, text) {
+	function appendBadgeLabel(badge, className, label) {
+		const element = document.createElement('span');
+		element.className = className;
+		element.textContent = label;
+		badge.appendChild(element);
+	}
+
+	function appendStatusBadge(statuses, className, labelKey, compactLabel) {
+		const label = translate(labelKey);
 		const badge = document.createElement('span');
 		badge.className = className;
-		badge.textContent = text;
-		cell.appendChild(badge);
+		badge.title = label;
+		badge.setAttribute('role', 'img');
+		badge.setAttribute('aria-label', label);
+		appendBadgeLabel(badge, 'hr-employee-status-label', label);
+		appendBadgeLabel(badge, 'hr-employee-status-compact', compactLabel);
+		statuses.appendChild(badge);
 	}
 
 	function renderEmployees() {
@@ -150,9 +163,19 @@
 				identifier.textContent = String(employee.id);
 				button.appendChild(identifier);
 			}
-			nameCell.appendChild(button);
-			if (employee.freelancerMode) appendBadge(nameCell, 'ts-freelancer-badge', translate('Freelancer'));
-			if (employee.isActive === false) appendBadge(nameCell, 'ts-inactive-badge', translate('Inactive'));
+			const inactive = employee.isActive === false;
+			if (employee.freelancerMode || inactive) {
+				const nameLine = document.createElement('div');
+				nameLine.className = 'hr-employee-name-line';
+				const statuses = document.createElement('div');
+				statuses.className = 'hr-employee-statuses';
+				if (employee.freelancerMode) appendStatusBadge(statuses, 'ts-freelancer-badge', 'Freelancer', '( F )');
+				if (inactive) appendStatusBadge(statuses, 'ts-inactive-badge', 'Inactive', '( I )');
+				nameLine.append(button, statuses);
+				nameCell.appendChild(nameLine);
+			} else {
+				nameCell.appendChild(button);
+			}
 			appendCell(row, 'hr-user-target', utils.minToHm(finiteMinutes(employee.dailyMin, 480)));
 			appendCell(row, 'hr-user-balance', utils.minToHm(finiteMinutes(employee.overtimeMinutes)));
 			appendCell(row, 'hr-user-last-entry', employee.lastEntryDate ? utils.formatDate(new Date(employee.lastEntryDate)) : '-');
@@ -194,54 +217,143 @@
 		}
 	}
 
-	function closeFilters(restoreFocus = false) {
-		const popup = document.getElementById('hr-employee-filter-popup');
-		if (popup) popup.hidden = true;
-		const button = document.getElementById('hr-employee-filter-button');
-		button?.setAttribute('aria-expanded', 'false');
-		if (restoreFocus) button?.focus();
+	function closeListPopups() {
+		listPopups.forEach(popup => popup.close());
 	}
 
-	function positionFilters() {
-		const popup = document.getElementById('hr-employee-filter-popup');
-		const button = document.getElementById('hr-employee-filter-button');
-		if (!popup || popup.hidden || !button) return;
-		const anchor = button.getBoundingClientRect();
-		const size = popup.getBoundingClientRect();
-		popup.style.left = `${Math.max(12, Math.min(window.innerWidth - size.width - 12, anchor.right - size.width))}px`;
-		popup.style.top = `${Math.max(12, Math.min(window.innerHeight - size.height - 12, anchor.bottom + 8))}px`;
+	function positionListPopups() {
+		listPopups.forEach(popup => popup.position());
+	}
+
+	function bindListPopup(buttonId, popupId, closeId, focusId = closeId) {
+		const button = document.getElementById(buttonId);
+		const popup = document.getElementById(popupId);
+		if (!button || !popup) return null;
+
+		function close(restoreFocus = false) {
+			if (popup.hidden) return;
+			popup.hidden = true;
+			button.setAttribute('aria-expanded', 'false');
+			if (restoreFocus) button.focus({ preventScroll: true });
+		}
+
+		function position() {
+			timesheet.mailHelp?.positionPopup(popup, button);
+		}
+
+		button.addEventListener('click', () => {
+			if (!popup.hidden) {
+				close(true);
+				return;
+			}
+			closeListPopups();
+			popup.hidden = false;
+			button.setAttribute('aria-expanded', 'true');
+			position();
+			document.getElementById(focusId)?.focus({ preventScroll: true });
+		});
+		document.getElementById(closeId)?.addEventListener('click', () => close(true));
+		popup.addEventListener('keydown', event => {
+			if (event.key !== 'Escape') return;
+			event.preventDefault();
+			event.stopPropagation();
+			close(true);
+		});
+		popup.addEventListener('focusout', event => {
+			if (event.relatedTarget && event.relatedTarget !== button && !popup.contains(event.relatedTarget)) close();
+		});
+		document.addEventListener('click', event => {
+			if (!popup.hidden && !popup.contains(event.target) && !button.contains(event.target)) close();
+		});
+		return { close, position };
 	}
 
 	function initializeFilters() {
-		const button = document.getElementById('hr-employee-filter-button');
-		const popup = document.getElementById('hr-employee-filter-popup');
+		listPopups = [
+			bindListPopup('hr-stats-button', 'hr-stats-section', 'hr-stats-close'),
+			bindListPopup('hr-employee-filter-button', 'hr-employee-filter-popup', 'hr-employee-filter-close', 'hr-employee-search'),
+		].filter(Boolean);
+		window.addEventListener('resize', positionListPopups);
+		window.addEventListener('scroll', positionListPopups, true);
+
 		const search = document.getElementById('hr-employee-search');
 		const mode = document.getElementById('hr-employee-filter-mode');
-		button?.addEventListener('click', () => {
-			if (!popup) return;
-			popup.hidden = !popup.hidden;
-			button.setAttribute('aria-expanded', String(!popup.hidden));
-			positionFilters();
-			if (!popup.hidden) search?.focus();
-		});
-		document.getElementById('hr-employee-filter-close')?.addEventListener('click', () => closeFilters(true));
-		popup?.addEventListener('keydown', event => {
-			if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFilters(true); }
-		});
-		document.addEventListener('click', event => {
-			if (popup && !popup.hidden && !popup.contains(event.target) && !button?.contains(event.target)) closeFilters();
-		});
-		window.addEventListener('resize', positionFilters);
-		window.addEventListener('scroll', positionFilters, true);
 		search?.addEventListener('input', () => { employeeFilter.name = search.value; renderEmployees(); });
 		mode?.addEventListener('change', () => { employeeFilter.mode = mode.value; renderEmployees(); });
 		document.getElementById('hr-employee-filter-clear')?.addEventListener('click', () => {
-			employeeFilter.mode = 'active'; employeeFilter.name = '';
-			if (mode) mode.value = 'active';
+			employeeFilter.mode = 'all'; employeeFilter.name = '';
+			if (mode) mode.value = employeeFilter.mode;
 			if (search) search.value = '';
 			renderEmployees();
 		});
 		document.getElementById('hr-employee-list-retry')?.addEventListener('click', loadHrUserList);
+	}
+
+	function initializeOverviewWidth() {
+		const app = document.getElementById('timesheet-app');
+		const layout = document.getElementById('hr-overview-panels')?.parentElement;
+		const control = document.getElementById('hr-overview-width-control');
+		const slider = document.getElementById('hr-overview-width');
+		const output = document.getElementById('hr-overview-width-value');
+		const helpBox = document.getElementById('hr-overview-help-box');
+		const helpButton = layout?.querySelector('[aria-controls="hr-overview-help"]');
+		if (!app || !layout || !control || !slider || !output || !helpBox || !helpButton) return;
+
+		const minimum = Number(slider.min);
+		const maximum = Number(slider.max);
+		const minimumPanelWidth = 320;
+		const minimumSpaceForHelp = 288;
+		let availableWidth = 0;
+		const storageKey = appState.currentUserId && `timesheet:hr-overview-width:${encodeURIComponent(appState.currentUserId)}`;
+		let preferredWidth = maximum;
+		if (storageKey) {
+			try {
+				const savedWidth = Number(window.localStorage.getItem(storageKey));
+				if (Number.isInteger(savedWidth) && savedWidth >= minimum && savedWidth <= maximum) {
+					preferredWidth = savedWidth;
+				}
+			} catch {} // The slider still works with browser storage disabled.
+		}
+
+		function showWidthValue() {
+			const width = `${slider.value}%`;
+			slider.setAttribute('aria-valuetext', width);
+			output.value = width;
+		}
+
+		function applyWidth() {
+			const percent = slider.valueAsNumber;
+			app.style.setProperty('--hr-overview-width', `${percent}%`);
+			const spareWidth = availableWidth * (100 - percent) / 100;
+			const showHelpBox = percent <= 60 && spareWidth >= minimumSpaceForHelp;
+			const helpHadFocus = document.activeElement === helpButton;
+			helpButton.hidden = showHelpBox;
+			helpBox.hidden = !showHelpBox;
+			if (showHelpBox && helpHadFocus) slider.focus();
+			showWidthValue();
+			positionListPopups();
+		}
+
+		// Keep the track in place while it is being dragged above the resizable panel.
+		slider.addEventListener('input', showWidthValue);
+		slider.addEventListener('change', () => {
+			preferredWidth = slider.valueAsNumber;
+			applyWidth();
+			if (!storageKey) return;
+			try { window.localStorage.setItem(storageKey, String(preferredWidth)); } catch {}
+		});
+
+		new ResizeObserver(([entry]) => {
+			const width = entry.contentRect.width;
+			if (width <= 0 || width === availableWidth) return;
+			availableWidth = width;
+
+			const fittingMinimum = Math.min(maximum, Math.max(minimum, Math.ceil(100 * minimumPanelWidth / availableWidth)));
+			slider.min = String(fittingMinimum);
+			slider.value = String(Math.max(fittingMinimum, preferredWidth));
+			control.hidden = fittingMinimum === maximum;
+			applyWidth();
+		}).observe(layout);
 	}
 
 	// Initialize HR module
@@ -249,6 +361,7 @@
 		if (initialized || !document.getElementById('hr-userlist')) return;
 		initialized = true;
 		initializeFilters();
+		initializeOverviewWidth();
 		timesheet.employmentStatus?.onChange(() => { if (listLoaded) loadHrUserList(); });
 		// Load HR user entries on button click
 		document.addEventListener('click', async event => {
@@ -260,13 +373,14 @@
 			if (!userId) {
 				return;
 			}
-			closeFilters();
+			closeListPopups();
 			timesheet.employmentStatus?.setHrEmployee(userId, allEmployees.find(employee => employee.id === userId));
 			const tabHrSection = document.getElementById('tab-hr');
 			const hrConfigRow = tabHrSection?.querySelector('.hr-config-row');
 			const hrDailyMinInput = hrConfigRow?.querySelector('.config-daily-min');
 			const hrStateInput = hrConfigRow?.querySelector('.config-state');
 			if (tabHrSection) {
+				tabHrSection.classList.toggle('is-employee-detail', true);
 				tabHrSection.querySelectorAll('.ts-hr-section').forEach(section => section.style.display = 'none');
 			}
 			appState.hrCurrentMonth = new Date();
@@ -315,6 +429,7 @@
 			if (!tabHrSection) {
 				return;
 			}
+			tabHrSection.classList.toggle('is-employee-detail', false);
 			tabHrSection.querySelectorAll('.ts-hr-section').forEach(section => {
 				if (section.id === 'hr-user-entries') {
 					section.style.display = 'none';

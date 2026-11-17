@@ -69,6 +69,7 @@ class MissingEntryReminderService {
 
 		$findingsByUser = [];
 		$notifyHrByUser = [];
+		$hrTemplatesByUser = [];
 		$holidaysByRegionAndYear = [];
 		foreach ($employeesById as $userId => $employee) {
 			// Unknown status must never silently re-enable reminders for an exempt person.
@@ -84,7 +85,9 @@ class MissingEntryReminderService {
 					continue;
 				}
 				$statistics['checkedEmployees']++;
-				$notifyHrByUser[$userId] = $rule['missingEntryReminders']['notifyHr'];
+				$reminderSettings = $rule['missingEntryReminders'];
+				$notifyHrByUser[$userId] = $reminderSettings['notifyHr'];
+				$hrTemplatesByUser[$userId] = $reminderSettings['mailTemplates']['hr'] ?? [];
 				$finding = $this->checkEmployee($employee, $rule, $now, $holidaysByRegionAndYear, $employmentStatus);
 				if ($finding['issues'] === [] && $finding['setupIssue'] === null) {
 					continue;
@@ -94,9 +97,9 @@ class MissingEntryReminderService {
 					$statistics['skippedEmployees']++;
 					continue;
 				}
-				if ($rule['missingEntryReminders']['notifyEmployees']
+				if ($reminderSettings['notifyEmployees']
 					&& $this->reminderStore->isDeliveryDue((string)$userId, 'employee', $now)) {
-					if ($this->reminderMailer->sendEmployeeReminder($employee, $finding['issues'])) {
+					if ($this->reminderMailer->sendEmployeeReminder($employee, $finding['issues'], $reminderSettings['mailTemplates']['employee'] ?? [])) {
 						$this->reminderStore->markDelivered((string)$userId, 'employee', $now);
 						$statistics['employeeSent']++;
 					} else {
@@ -132,10 +135,15 @@ class MissingEntryReminderService {
 					}
 					$hrFindings = [];
 					foreach ($this->hrService->getMailAccessibleUsers($hrUserId) as $accessibleEmployee) {
-						$currentStatus = $this->loadEmploymentStatus((string)$accessibleEmployee['id']);
+						$employeeId = (string)$accessibleEmployee['id'];
+						$currentStatus = $this->loadEmploymentStatus($employeeId);
 						if ($currentStatus !== null && $currentStatus->isActive && !$currentStatus->freelancerMode
-							&& isset($hrFindingsByUser[$accessibleEmployee['id']])) {
-							$hrFindings[] = $hrFindingsByUser[$accessibleEmployee['id']];
+							&& isset($hrFindingsByUser[$employeeId])) {
+							$finding = $hrFindingsByUser[$employeeId];
+							if ($hrTemplatesByUser[$employeeId] !== []) {
+								$finding['mailTemplates'] = $hrTemplatesByUser[$employeeId];
+							}
+							$hrFindings[] = $finding;
 						}
 					}
 					if ($hrFindings !== []) {

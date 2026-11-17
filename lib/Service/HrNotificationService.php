@@ -127,6 +127,14 @@ class HrNotificationService {
 			}
 
 			if (!empty($hrNotifications['noEntry']) || !empty($hrNotifications['overtime']) || !empty($hrNotifications['negative'])) {
+				if (!empty($settings['weeklyMailTemplates'])) {
+					$hrNotifications['weeklyMailTemplates'] = $settings['weeklyMailTemplates'];
+					$hrNotifications['thresholds'] = [
+						'noEntry' => (string)$noEntryDays,
+						'overtime' => $this->formatHours($overtimeThresholdMin, true),
+						'negative' => $this->formatHours(-$negativeThresholdMin, true),
+					];
+				}
 				$notificationsByHrUser[$hrUserId] = $hrNotifications;
 			}
 		}

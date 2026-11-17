@@ -2,11 +2,17 @@
 
 namespace OCA\Timesheet\Db;
 
+use OCA\Timesheet\Service\HrWeeklyMailTemplates;
+use OCA\Timesheet\Service\NotificationMailTemplates;
 use OCP\DB\Exception;
 use OCP\DB\QueryBuilder\IQueryBuilder;
+use OCP\IConfig;
 use OCP\IDBConnection;
+use OCP\Lock\ILockingProvider;
 
 class HrPreferencesStore {
+	private const APP_ID = 'timesheet';
+	private const WEEKLY_TEMPLATES_KEY = 'weekly_hr_mail_templates';
 	private const DEFAULT_WORK_MINUTES = 480;
 
 	private const SETTINGS = [
@@ -30,12 +36,21 @@ class HrPreferencesStore {
 		],
 	];
 
-	public function __construct(private IDBConnection $db) {
+	public function __construct(
+		private IDBConnection $db,
+		private IConfig $userConfig,
+		private ILockingProvider $lockingProvider,
+	) {
 	}
 
 	/** Flat threshold keys remain available to clients using the previous response shape. */
 	public function getNotificationSettings(string $userId): array {
-		return $this->settingsFromRow($this->readRow($userId));
+		$settings = $this->settingsFromRow($this->readRow($userId));
+		$mailTemplates = $this->decodeWeeklyMailTemplates($this->readWeeklyMailTemplates($userId));
+		if ($mailTemplates !== []) {
+			$settings['weeklyMailTemplates'] = $mailTemplates;
+		}
+		return $settings;
 	}
 
 	public function saveNotificationSettings(string $userId, array $payload): array {
@@ -53,14 +68,16 @@ class HrPreferencesStore {
 			}
 		}
 
-		if ($columns !== []) {
+		if (array_key_exists('weeklyMailTemplates', $payload)) {
+			$this->saveWithWeeklyMailTemplates($userId, $columns, $payload['weeklyMailTemplates']);
+		} elseif ($columns !== []) {
 			$this->writeColumns($userId, $columns);
 		}
 		return $this->getNotificationSettings($userId);
 	}
 
 	public function getWarningThresholds(string $userId): array {
-		return $this->getNotificationSettings($userId)['warningThresholds'];
+		return $this->settingsFromRow($this->readRow($userId))['warningThresholds'];
 	}
 
 	public function saveWarningThresholds(string $userId, array $payload): array {
@@ -70,6 +87,46 @@ class HrPreferencesStore {
 		}
 		$this->writeColumns($userId, $columns);
 		return $this->getWarningThresholds($userId);
+	}
+
+	private function saveWithWeeklyMailTemplates(string $userId, array $columns, mixed $mailTemplatePatch): void {
+		$lockKey = hash('sha256', 'timesheet:weekly-hr-mail-templates:' . $userId);
+		$this->lockingProvider->acquireLock($lockKey, ILockingProvider::LOCK_EXCLUSIVE);
+		try {
+			$rawTemplates = $this->readWeeklyMailTemplates($userId);
+			$stored = $this->decodeWeeklyMailTemplates($rawTemplates);
+			$templates = NotificationMailTemplates::merge($stored, $mailTemplatePatch, HrWeeklyMailTemplates::ALERTS);
+			// Validate before writing and commit the template and threshold changes together.
+			$templatesChanged = $templates != $stored;
+			if ($columns === [] && !$templatesChanged) {
+				return;
+			}
+			$this->db->beginTransaction();
+			try {
+				if ($columns !== []) {
+					$this->writeColumns($userId, $columns);
+				}
+				if ($templatesChanged) {
+					$encoded = json_encode($templates, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+					$this->userConfig->setUserValue($userId, self::APP_ID, self::WEEKLY_TEMPLATES_KEY, $encoded, $rawTemplates);
+				}
+				$this->db->commit();
+			} catch (\Throwable $writeError) {
+				$this->db->rollBack();
+				throw $writeError;
+			}
+		} finally {
+			$this->lockingProvider->releaseLock($lockKey, ILockingProvider::LOCK_EXCLUSIVE);
+		}
+	}
+
+	private function readWeeklyMailTemplates(string $userId): string {
+		$values = $this->userConfig->getUserValueForUsers(self::APP_ID, self::WEEKLY_TEMPLATES_KEY, [$userId]);
+		return $values[$userId] ?? '';
+	}
+
+	private function decodeWeeklyMailTemplates(string $stored): array {
+		return NotificationMailTemplates::read(json_decode($stored, true), HrWeeklyMailTemplates::ALERTS);
 	}
 
 	private function readRow(string $userId): array {

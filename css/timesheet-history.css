@@ -9,21 +9,6 @@
 	background: var(--color-main-background);
 	color: var(--color-main-text);
 }
-/* HR navigation can wrap without widening the app on small screens. */
-#timesheet-app > .ts-tabs {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 6px;
-}
-#timesheet-app > .ts-tabs .ts-tab {
-	max-width: 100%;
-	white-space: normal;
-	overflow-wrap: anywhere;
-}
-#timesheet-app > .ts-tabs .ts-tab:not(.active) {
-	color: var(--color-main-text);
-	border-color: var(--color-border);
-}
 .ts-history-heading {
 	display: flex;
 	align-items: flex-start;
@@ -54,12 +39,102 @@
 	min-width: 0;
 }
 .ts-history-filters input[type="date"],
+.ts-history-filters input[type="search"],
 .ts-history-filters select {
 	box-sizing: border-box;
 	width: 100%;
 	max-width: 100%;
 	min-width: 0;
+	margin: 0;
 }
+.ts-history-account-picker {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+#tab-change-history .ts-history-account-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	box-sizing: border-box;
+	inline-size: 100%;
+	margin: 0;
+	text-align: start;
+}
+
+.ts-history-account-trigger::after {
+	content: '';
+	flex: none;
+	inline-size: 7px;
+	block-size: 7px;
+	border: solid currentColor;
+	border-width: 0 2px 2px 0;
+	transform: translateY(-2px) rotate(45deg);
+}
+
+.ts-history-account-popup {
+	position: fixed;
+	z-index: 3000;
+	box-sizing: border-box;
+	inline-size: min(22rem, calc(100vw - 24px));
+	max-block-size: calc(100dvh - 24px);
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 8px;
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: var(--border-radius-large, 8px);
+	background: var(--color-main-background, #fff);
+	box-shadow: 0 6px 24px rgb(0 0 0 / .2);
+}
+
+.ts-history-account-popup[hidden],
+.ts-history-account-popup .ts-history-note[hidden] {
+	display: none;
+}
+
+.ts-history-account-popup input[type="search"] {
+	flex-shrink: 0;
+}
+
+.ts-history-account-options {
+	min-block-size: 0;
+	max-block-size: min(18rem, 50dvh);
+	overflow-y: auto;
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+#tab-change-history .ts-history-account-options button {
+	box-sizing: border-box;
+	inline-size: 100%;
+	padding: 6px 8px;
+	margin: 0;
+	border-color: transparent;
+	border-radius: var(--border-radius, 4px);
+	background: transparent;
+	text-align: start;
+}
+
+#tab-change-history .ts-history-account-trigger,
+#tab-change-history .ts-history-account-options button {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+#tab-change-history .ts-history-account-options button:hover,
+#tab-change-history .ts-history-account-options button:focus-visible,
+#tab-change-history .ts-history-account-options button[aria-current="true"] {
+	background: var(--color-background-hover);
+}
+
+#tab-change-history .ts-history-account-picker button:focus-visible {
+	outline: 2px solid var(--color-main-text);
+	outline-offset: -2px;
+}
+
 .ts-history-editor-filters {
 	grid-column: span 2;
 	display: flex;
@@ -68,6 +143,7 @@
 	gap: 4px 12px;
 	min-width: 0;
 }
+.ts-history-editor-filters > .ts-history-account-picker,
 .ts-history-editor-filters > label {
 	flex: 1 1 140px;
 }

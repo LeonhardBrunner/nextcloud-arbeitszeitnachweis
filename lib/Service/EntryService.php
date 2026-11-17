@@ -28,7 +28,9 @@ class EntryService {
 			$entry->setStartMin($data['startMin'] ?? null);
 			$entry->setEndMin($data['endMin'] ?? null);
 			$entry->setBreakMinutes((int)($data['breakMinutes'] ?? 0));
-			$entry->setComment($data['comment'] ?? null);
+			$comment = $data['comment'] ?? null;
+			$entry->setComment($comment);
+			$entry->setCommentType($this->resolveCommentType($data['commentType'] ?? null, $comment));
 			$entry->setCreatedAt(time());
 			$entry->setUpdatedAt(time());
 			$createdEntry = $this->mapper->insert($entry);
@@ -37,16 +39,19 @@ class EntryService {
 		});
 	}
 
-	public function upsertCommentOnly(string $userId, string $workDate, string $comment): Entry {
-		return $this->writes->run($userId, function () use ($userId, $workDate, $comment): array {
+	public function upsertCommentOnly(string $userId, string $workDate, string $comment, mixed $commentType = null): Entry {
+		return $this->writes->run($userId, function () use ($userId, $workDate, $comment, $commentType): array {
 			$existingEntry = $this->mapper->findByUserAndDate($userId, $workDate);
 			$before = $existingEntry ? HistoryChangeSet::entry($existingEntry) : null;
-			if ($existingEntry && (string)($existingEntry->getComment() ?? '') === $comment) {
+			$resolvedType = $this->resolveCommentType($commentType, $comment, $existingEntry);
+			if ($existingEntry && $before['comment'] === $comment && $existingEntry->getCommentType() === $resolvedType) {
 				return $this->outcome($existingEntry, 'updated', $before, $before);
 			}
 			// This legacy POST path changes only a comment on an existing entry.
-			$entry = $this->mapper->upsertCommentOnly($userId, $workDate, $comment);
-			$this->monthlyBalanceService->markDirtyFromDate($userId, $workDate);
+			$entry = $this->mapper->upsertCommentOnly($userId, $workDate, $comment, $resolvedType);
+			if ($before === null || $before['comment'] !== $comment) {
+				$this->monthlyBalanceService->markDirtyFromDate($userId, $workDate);
+			}
 			return $this->outcome($entry, $before === null ? 'created' : 'updated', $before, HistoryChangeSet::entry($entry));
 		});
 	}
@@ -69,11 +74,17 @@ class EntryService {
 					}
 				}
 			}
-			foreach (['workDate', 'startMin', 'endMin', 'breakMinutes', 'comment'] as $fieldName) {
+			foreach (['workDate', 'startMin', 'endMin', 'breakMinutes'] as $fieldName) {
 				if (array_key_exists($fieldName, $data)) {
 					$setterMethod = 'set' . ucfirst($fieldName);
 					$entry->$setterMethod($data[$fieldName]);
 				}
+			}
+			if (array_key_exists('comment', $data) || isset($data['commentType'])) {
+				$comment = array_key_exists('comment', $data) ? $data['comment'] : $entry->getComment();
+				$commentType = $this->resolveCommentType($data['commentType'] ?? null, $comment, $entry);
+				$entry->setComment($comment);
+				$entry->setCommentType($commentType);
 			}
 			$after = HistoryChangeSet::entry($entry);
 			if ($before === $after) {
@@ -83,7 +94,9 @@ class EntryService {
 			$updatedEntry = $this->mapper->update($entry);
 			$newWorkDate = (string)$updatedEntry->getWorkDate();
 			$recalculateFromDate = ($newWorkDate !== '' && $newWorkDate < $oldWorkDate) ? $newWorkDate : $oldWorkDate;
-			$this->monthlyBalanceService->markDirtyFromDate($userId, $recalculateFromDate);
+			if (array_diff_key($before, ['commentType' => true]) !== array_diff_key($after, ['commentType' => true])) {
+				$this->monthlyBalanceService->markDirtyFromDate($userId, $recalculateFromDate);
+			}
 			return $this->outcome($updatedEntry, 'updated', $before, HistoryChangeSet::entry($updatedEntry));
 		});
 	}
@@ -100,6 +113,28 @@ class EntryService {
 			$this->monthlyBalanceService->markDirtyFromDate($userId, $before['workDate']);
 			return $this->outcome($entry, 'deleted', $before, null, null);
 		});
+	}
+
+	private function resolveCommentType(mixed $requestedType, ?string $comment, ?Entry $existing = null): ?string {
+		$trimmedComment = $this->trimComment($comment);
+		if ($requestedType === null) {
+			// Older forms may trim a submitted note even when only the times changed.
+			if ($existing !== null && $this->trimComment($existing->getComment()) === $trimmedComment) {
+				return $existing->getCommentType();
+			}
+			return $existing !== null || $trimmedComment !== '' ? EntryCommentType::Custom->value : null;
+		}
+
+		$type = is_string($requestedType) ? EntryCommentType::tryFrom($requestedType) : null;
+		if ($type === null || ($type->isAbsence() && $trimmedComment === '')) {
+			throw new \DomainException('Invalid comment type or label', 400);
+		}
+		return $type->value;
+	}
+
+	private function trimComment(?string $comment): string {
+		$text = $comment ?? '';
+		return preg_replace('/\A[\s\p{Z}\x{FEFF}]+|[\s\p{Z}\x{FEFF}]+\z/u', '', $text) ?? $text;
 	}
 
 	private function outcome(Entry $entry, string $kind, ?array $before, ?array $after, mixed $result = true): array {

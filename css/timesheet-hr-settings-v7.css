@@ -26,6 +26,10 @@
 	vertical-align: middle;
 }
 
+#tab-hr .hr-help-button[hidden] {
+	display: none;
+}
+
 #tab-hr .hr-help-button::before {
 	content: '';
 	inline-size: 16px;
@@ -376,6 +380,194 @@
 	max-width: 100%;
 }
 
+#timesheet-hr-settings .ts-reminder-recipient {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+#hr-notifications-section {
+	container-type: inline-size;
+}
+
+#hr-notifications-section .hr-notifications-grid {
+	display: grid;
+	inline-size: fit-content;
+	max-inline-size: 100%;
+	grid-template-columns: fit-content(24rem) fit-content(14rem) minmax(12rem, 1fr) minmax(0, max-content);
+	column-gap: 16px;
+}
+
+#hr-notifications-section .hr-notification-intro {
+	grid-column: 1 / -1;
+	overflow-wrap: anywhere;
+}
+
+#hr-notifications-section .hr-notification-row {
+	position: relative;
+	grid-column: 1 / -1;
+	grid-template-columns: subgrid;
+	align-items: center;
+	border-block-end: 0;
+}
+
+/* Dividers span the fieldset, while the controls follow the paragraph width. */
+#hr-notifications-section .hr-notification-row::after {
+	content: "";
+	position: absolute;
+	inset-block-end: 0;
+	inset-inline-start: 0;
+	inline-size: 100cqi;
+	border-block-end: 1px solid var(--color-border);
+	pointer-events: none;
+}
+
+#hr-notifications-section .hr-notification-header > :last-child,
+#hr-notifications-section .hr-notification-mail {
+	grid-column: 3 / 5;
+}
+
+#hr-notifications-section .hr-notification-mail {
+	grid-template-columns: subgrid;
+	justify-content: stretch;
+	column-gap: normal;
+	row-gap: 8px;
+}
+
+#hr-notifications-section .ts-weekly-mail-toggle {
+	display: flex;
+	align-items: center;
+	min-inline-size: 0;
+	gap: 4px;
+}
+
+#hr-notifications-section :is(.hr-notification-topic, .hr-notification-value, .ts-weekly-mail-toggle label, [data-edit-weekly-mail]) {
+	min-inline-size: 0;
+	overflow-wrap: anywhere;
+}
+
+@container hr-notifications-width (max-width: 720px) {
+	#hr-notifications-section .hr-notifications-grid {
+		grid-template-columns: minmax(0, max-content) minmax(0, max-content) 1fr;
+	}
+
+	#hr-notifications-section :is(.hr-notification-topic, .hr-notification-value) {
+		grid-column: 1 / -1;
+	}
+
+	#hr-notifications-section .hr-notification-mail {
+		grid-column: 1 / 3;
+	}
+}
+
+@container hr-notifications-width (max-width: 480px) {
+	#hr-notifications-section .hr-notifications-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	#hr-notifications-section .hr-notification-mail {
+		grid-column: 1 / -1;
+	}
+
+	#hr-notifications-section [data-edit-weekly-mail] {
+		justify-self: start;
+		max-inline-size: 100%;
+	}
+}
+
+:is([data-theme-dark], [data-theme-dark-highcontrast]) #hr-notification-settings-section {
+	--ts-reminder-button-text: #fff;
+}
+
+#hr-notification-settings-section :is(.ts-reminder-recipient, .hr-notification-mail, .ts-reminder-mail-actions) > button {
+	min-inline-size: 0;
+	height: auto;
+	margin: 0;
+	border: 1px solid var(--color-border-maxcontrast, #767676);
+	background-color: var(--color-background-dark, #ededed);
+	color: var(--ts-reminder-button-text, var(--color-main-text, #222));
+	white-space: normal;
+}
+
+#hr-notification-settings-section :is(.ts-reminder-recipient, .hr-notification-mail, .ts-reminder-mail-actions) > button:is(:hover, :focus-visible, :active) {
+	background-color: var(--color-background-darker, #ddd);
+}
+
+#hr-notification-settings-section :is(.ts-reminder-recipient, .hr-notification-mail, .ts-reminder-mail-actions) > button:focus-visible {
+	outline: 2px solid var(--color-main-text, #222);
+	outline-offset: 2px;
+}
+
+#hr-notification-settings-section .ts-reminder-mail-actions > button.primary {
+	background-color: var(--color-primary-element, #00679e);
+	color: var(--color-primary-element-text, #fff);
+}
+
+#hr-notification-settings-section .ts-reminder-mail-actions > button.primary:is(:hover, :focus-visible, :active) {
+	background-color: var(--color-primary-element-hover, #005b8c);
+}
+
+#ts-reminder-mail-dialog:not([open]) {
+	display: none;
+}
+
+#ts-reminder-mail-dialog {
+	box-sizing: border-box;
+	inset: 0;
+	width: min(620px, calc(100% - 24px));
+	max-block-size: calc(100dvh - 24px);
+	margin: auto;
+	padding: clamp(12px, 3vw, 24px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	border: 1px solid var(--color-border-dark);
+	border-radius: var(--border-radius-large, 12px);
+	background: var(--color-main-background);
+	color: var(--color-main-text);
+	text-align: start;
+}
+
+#ts-reminder-mail-dialog::backdrop {
+	background: rgb(0 0 0 / 55%);
+}
+
+#ts-reminder-mail-dialog form {
+	display: grid;
+	gap: 10px;
+}
+
+#ts-reminder-mail-dialog h2,
+#ts-reminder-mail-dialog p {
+	margin: 0;
+}
+
+#ts-reminder-mail-dialog label,
+#ts-reminder-mail-audience {
+	font-weight: 600;
+}
+
+#ts-reminder-mail-dialog textarea {
+	box-sizing: border-box;
+	display: block;
+	width: 100%;
+	min-block-size: 9em;
+	margin: 0;
+	resize: vertical;
+}
+
+#ts-reminder-mail-dialog .ts-reminder-mail-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-block-start: 4px;
+}
+
+#ts-reminder-mail-dialog .ts-reminder-mail-actions #ts-reminder-mail-reset {
+	margin-inline-end: auto;
+}
+
 /* General settings */
 #timesheet-hr-settings .ts-divider {
 	margin: 18px 0 14px;
@@ -600,7 +792,7 @@
 	display: none !important;
 }
 
-@media (max-width: 640px) {
+@container hr-notifications-width (max-width: 640px) {
 	#timesheet-hr-settings[data-policy-section="notifications"] .ts-notification-table colgroup {
 		display: none;
 	}

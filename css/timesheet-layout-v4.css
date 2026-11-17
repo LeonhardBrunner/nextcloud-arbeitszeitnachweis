@@ -134,29 +134,75 @@
 	margin: 0;
 	width: 100%;
 	max-width: 100%;
+	min-inline-size: 0;
+	text-align: start;
 	white-space: normal;
 	overflow-wrap: anywhere;
 }
 
 .hr-userlist .hr-employee-name {
+	min-inline-size: 12rem;
 	white-space: normal;
 }
 
-.hr-userlist .hr-employee-name .ts-freelancer-badge,
-.hr-userlist .hr-employee-name .ts-inactive-badge {
+.hr-userlist .hr-employee-name:has(.hr-employee-statuses > span + span) {
+	min-inline-size: 14rem;
+}
+
+.hr-userlist .hr-employee-name-line {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 4px;
+}
+
+.hr-userlist .hr-employee-name-line .hr-load-user {
+	width: auto;
+}
+
+.hr-employee-statuses {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+	max-inline-size: 50%;
+}
+
+.hr-employee-statuses > span {
 	box-sizing: border-box;
-	display: block;
-	width: fit-content;
-	max-width: 100%;
-	margin-inline: auto;
-	white-space: normal;
+	min-inline-size: 0;
+	margin: 0;
 	overflow-wrap: anywhere;
+}
+
+.hr-employee-status-label {
+	display: var(--hr-status-label-display, inline);
+}
+
+.hr-employee-status-compact {
+	display: var(--hr-status-compact-display, none);
+	white-space: nowrap;
 }
 
 /* Only the table scrolls; its employee filter remains above the visible column area. */
 .hr-employee-table-scroll {
 	max-inline-size: 100%;
 	overflow-x: auto;
+	container: hr-employee-table / inline-size;
+}
+
+@container hr-employee-table (max-width: 68rem) {
+	.hr-employee-statuses:has(> span + span) {
+		--hr-status-label-display: none;
+		--hr-status-compact-display: inline;
+	}
+}
+
+@container hr-employee-table (max-width: 52rem) {
+	.hr-employee-statuses {
+		--hr-status-label-display: none;
+		--hr-status-compact-display: inline;
+	}
 }
 
 .hr-userlist {
@@ -177,8 +223,25 @@
 }
 
 /* Table comments and numeric inputs */
+#ts-table .ts-comment-cell,
+#hr-user-table .ts-comment-cell {
+	min-inline-size: 11rem;
+}
+
+#timesheet-app .commentSelect {
+	display: block;
+	box-sizing: border-box;
+	inline-size: 100%;
+	max-inline-size: 100%;
+	min-inline-size: 0;
+	min-block-size: 28px;
+	margin: 2px 0;
+}
+
 #ts-table textarea.commentInput,
 #hr-user-table textarea.commentInput {
+	display: block;
+	box-sizing: border-box;
 	width: 100%;
 	border: none;
 	background: transparent;
@@ -187,6 +250,10 @@
 	min-height: 0;
 	height: 1.3em;
 	resize: none;
+}
+
+#timesheet-app .commentInput[hidden] {
+	display: none;
 }
 
 #ts-table input[type="number"],
@@ -229,13 +296,39 @@
 	font-weight: 600;
 }
 
-/* Tabs */
+/* App toolbar */
+.ts-app-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 12px;
+}
+
+#timesheet-app:has(> #tab-hr.active:not(.is-employee-detail)) > .ts-app-toolbar {
+	margin-block-end: 8px;
+}
+
+.ts-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	max-inline-size: 100%;
+}
+
 .ts-tabs .ts-tab {
 	background: var(--color-background-dark, #f6f8fa);
 	color: #ffffff;
 	border: 1px solid;
-	padding: 0px 5px;
+	padding: 0 5px;
 	font-weight: 600;
+	max-inline-size: 100%;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.ts-tabs .ts-tab:not(.active) {
+	color: var(--color-main-text);
+	border-color: var(--color-border);
 }
 
 .ts-tabs .ts-tab.active {
@@ -556,7 +649,7 @@
 }
 
 .hr-employee-list-header,
-.hr-employee-filter-heading,
+.hr-list-popup-heading,
 .hr-employee-status-controls {
 	display: flex;
 	align-items: center;
@@ -578,7 +671,7 @@
 }
 
 .hr-employee-list-header h4,
-.hr-employee-filter-heading h5 {
+.hr-list-popup-heading h5 {
 	margin: 0;
 }
 
@@ -592,7 +685,7 @@
 	display: none;
 }
 
-.hr-employee-filter-popup {
+.hr-list-popup {
 	position: fixed;
 	z-index: 3000;
 	box-sizing: border-box;
@@ -607,47 +700,40 @@
 	box-shadow: 0 6px 24px rgba(0, 0, 0, .2);
 }
 
-.hr-employee-filter-popup[hidden] {
+.hr-list-popup[hidden] {
 	display: none;
 }
 
-/* Keep secondary filter actions neutral in both Nextcloud themes. */
-#timesheet-app #hr-employee-filter-button,
-#timesheet-app #hr-employee-filter-clear,
-#timesheet-app #hr-employee-filter-close {
+#timesheet-app .hr-employee-list-actions > button,
+#timesheet-app .hr-list-popup button {
 	border: 1px solid var(--color-border-dark, #aaa);
 	background-color: var(--color-background-dark, #ededed);
 	color: var(--color-main-text, #222);
 }
 
-#timesheet-app #hr-employee-filter-button:hover,
-#timesheet-app #hr-employee-filter-clear:hover,
-#timesheet-app #hr-employee-filter-close:hover,
-#timesheet-app #hr-employee-filter-button:active,
-#timesheet-app #hr-employee-filter-clear:active,
-#timesheet-app #hr-employee-filter-close:active {
+#timesheet-app .hr-employee-list-actions > button:is(:hover, :focus-visible, :active),
+#timesheet-app .hr-list-popup button:is(:hover, :focus-visible, :active) {
 	background-color: var(--color-background-hover, #ddd);
 }
 
-#timesheet-app #hr-employee-filter-button:focus-visible,
-#timesheet-app #hr-employee-filter-clear:focus-visible,
-#timesheet-app #hr-employee-filter-close:focus-visible {
+#timesheet-app .hr-employee-list-actions > button:focus-visible,
+#timesheet-app .hr-list-popup button:focus-visible {
 	outline: 2px solid var(--color-main-text, #222);
 	outline-offset: 2px;
 }
 
-.hr-employee-filter-heading {
+.hr-list-popup-heading {
 	justify-content: space-between;
 	padding: 0;
 }
 
-.hr-employee-filter-popup label {
+.hr-list-popup label {
 	display: block;
 	margin-block-start: 8px;
 }
 
-.hr-employee-filter-popup input,
-.hr-employee-filter-popup select {
+.hr-list-popup input,
+.hr-list-popup select {
 	box-sizing: border-box;
 	width: 100%;
 	max-width: 100%;
@@ -706,22 +792,166 @@
 }
 
 /* HR overview */
+.hr-employee-list-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 8px;
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	margin-inline-start: auto;
+}
+
+#timesheet-app .hr-employee-list-actions > button {
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	margin: 0;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.hr-overview-width-control,
+.hr-employee-help-box[hidden] {
+	display: none;
+}
+
+#timesheet-app:has(> #tab-hr.active:not(.is-employee-detail)) .hr-overview-width-control:not([hidden]) {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0 12px;
+	box-sizing: border-box;
+	min-inline-size: 0;
+	max-inline-size: var(--hr-overview-width, 100%);
+	margin-inline-start: auto;
+	margin-inline-end: calc(100% - var(--hr-overview-width, 100%));
+	padding: 2px 8px;
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 6px;
+	background: var(--color-main-background, #fff);
+	color: var(--color-main-text, #222);
+}
+
+.hr-overview-width-control > label {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.hr-overview-width-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-inline-size: 0;
+	max-inline-size: 100%;
+}
+
+#hr-overview-width {
+	--hr-width-track: color-mix(in srgb, currentColor 50%, var(--color-main-background, #fff));
+	appearance: none;
+	inline-size: 11rem;
+	min-inline-size: 0;
+	min-block-size: 32px;
+	margin: 0;
+	padding: 0;
+	background: transparent;
+	color: inherit;
+}
+
+#hr-overview-width::-webkit-slider-runnable-track {
+	block-size: 6px;
+	background: var(--hr-width-track);
+	border-radius: 3px;
+}
+
+#hr-overview-width::-moz-range-track {
+	block-size: 6px;
+	background: var(--hr-width-track);
+	border-radius: 3px;
+}
+
+#hr-overview-width::-webkit-slider-thumb {
+	appearance: none;
+	inline-size: 16px;
+	block-size: 16px;
+	margin-block-start: -5px;
+	background: currentColor;
+	border: 0;
+	border-radius: 50%;
+}
+
+#hr-overview-width::-moz-range-thumb {
+	inline-size: 16px;
+	block-size: 16px;
+	background: currentColor;
+	border: 0;
+	border-radius: 50%;
+}
+
+@media (forced-colors: active) {
+	#hr-overview-width {
+		appearance: auto;
+	}
+}
+
+#hr-overview-width:focus-visible {
+	outline: 2px solid var(--color-main-text);
+	outline-offset: 2px;
+}
+
+#hr-overview-width-value {
+	min-inline-size: 4ch;
+	font-variant-numeric: tabular-nums;
+	text-align: end;
+}
+
+.hr-overview-layout {
+	display: grid;
+	grid-template-columns: minmax(0, var(--hr-overview-width, 100%)) minmax(0, 1fr);
+	align-items: start;
+}
+
 .ts-hr-row {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	gap: 8px;
-	inline-size: 100%;
+}
+
+.hr-employee-help-box {
+	box-sizing: border-box;
+	max-inline-size: 48ch;
+	margin-inline-start: 8px;
+	padding: 12px;
+	border: 1px solid var(--color-border, #d0d7de);
+	border-radius: 6px;
+	background: var(--color-main-background, #fff);
+	color: var(--color-main-text, #222);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+
+.hr-employee-help-box p {
+	margin: 0;
+}
+
+.hr-employee-help-box p + p {
+	margin-block-start: 8px;
 }
 
 #hr-notification-block {
 	min-inline-size: 0;
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	gap: 4px;
+	container: hr-notifications-width / inline-size;
 }
 
 #timesheet-app .hr-app-request {
 	justify-self: start;
+	max-inline-size: 100%;
 	margin: 0;
+	white-space: normal;
+	overflow-wrap: anywhere;
 }
 
 #hr-userlist-section,
@@ -737,26 +967,30 @@
 	padding: 12px;
 }
 
-#hr-userlist-section h4,
-#hr-stats-section h4 {
+#hr-userlist-heading,
+#hr-stats-heading {
 	font-weight: 700;
 }
 
 #hr-stats-section {
-	margin-block-start: 12px;
-	border-block-start: 1px solid var(--color-border, #d0d7de);
-	padding-block-start: 8px;
-}
-
-#hr-stats-section h4 {
-	margin: 0 0 4px;
+	inline-size: min(28rem, calc(100vw - 24px));
 }
 
 .hr-stats {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-	gap: 8px 16px;
-	margin: 0;
+	margin: 4px 0 0;
+}
+
+.hr-stats > div {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: baseline;
+	gap: 12px;
+	padding-block: 8px;
+}
+
+.hr-stats > div + div {
+	border-block-start: 1px solid var(--color-border, #d0d7de);
 }
 
 #hr-stats-section .hr-stats dt,
@@ -776,7 +1010,7 @@
 }
 
 #hr-stats-section .hr-stats dd {
-	margin-block-start: 2px;
+	text-align: end;
 	font-weight: 600;
 	font-variant-numeric: tabular-nums;
 }
@@ -878,7 +1112,7 @@
 	padding-block-start: 16px;
 }
 
-@media (max-width: 720px) {
+@container hr-notifications-width (max-width: 720px) {
 	.hr-notification-row {
 		grid-template-columns: minmax(0, 1fr);
 	}

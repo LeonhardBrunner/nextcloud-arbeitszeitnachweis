@@ -27,23 +27,31 @@ if ($tourEnabled) {
 	data-freelancer-mode="<?php p(($employmentStatus['freelancerMode'] ?? false) ? 'true' : 'false'); ?>"
 	data-employment-status-revision="<?php p($employmentStatus['statusRevision'] ?? ''); ?>"
 	data-absence-vacation="<?php p($absenceCommentTerms['vacation']); ?>"
-	data-absence-time-off-in-lieu="<?php p($absenceCommentTerms['timeOffInLieu']); ?>"
 	data-tour-enabled="<?php p($tourEnabled ? 'true' : 'false'); ?>"
 	<?php if ($tourEnabled): ?>
 		data-tour-question-draft="<?php p($questionDraft); ?>"
 		data-tour-feedback-draft="<?php p($feedbackDraft); ?>"
+		data-tour-comments-description="<?php p($l->t('Use the Comment column to record your own notes about the workday. If both start and end times are missing, only the preset reasons in the Comment column prevent a notification. Otherwise, entries with no time or only one time are marked as incomplete.')); ?>"
 	<?php endif; ?>
 	data-tour-version="<?php p($_['tourProgress']['version'] ?? 1); ?>"
 	data-tour-employee-completed="<?php p(($_['tourProgress']['employeeCompleted'] ?? false) ? 'true' : 'false'); ?>"
 	data-tour-state-available="<?php p(($_['tourStateAvailable'] ?? false) ? 'true' : 'false'); ?>">
-	<!-- Tabs -->
-	<div class="ts-tabs">
-		<?php if ($_['isHR']): ?>
-			<button class="ts-tab active" data-tab="mine"><?php p($l->t('Timesheet')) ?></button>
-			<button class="ts-tab" data-tab="hr"><?php p($l->t('HR overview')) ?></button>
-			<button class="ts-tab" data-tab="change-history"><?php p($l->t('Change history')) ?></button>
-		<?php endif; ?>
-	</div>
+	<?php if ($_['isHR']): ?>
+		<div class="ts-app-toolbar">
+			<div class="ts-tabs">
+				<button class="ts-tab active" data-tab="mine"><?php p($l->t('Timesheet')) ?></button>
+				<button class="ts-tab" data-tab="hr"><?php p($l->t('HR overview')) ?></button>
+				<button class="ts-tab" data-tab="change-history"><?php p($l->t('Change history')) ?></button>
+			</div>
+			<div id="hr-overview-width-control" class="hr-overview-width-control" hidden>
+				<label for="hr-overview-width"><?php p($l->t('HR overview width')); ?></label>
+				<div class="hr-overview-width-field">
+					<input type="range" id="hr-overview-width" min="30" max="100" step="1" value="100" aria-controls="hr-overview-panels">
+					<output id="hr-overview-width-value" for="hr-overview-width" aria-hidden="true">100%</output>
+				</div>
+			</div>
+		</div>
+	<?php endif; ?>
 
 	<!-- Personal timesheet -->
 	<div id="tab-mine" class="ts-tabview active">
@@ -110,8 +118,8 @@ if ($tourEnabled) {
 						<th><?php p($l->t('End')) ?></th>
 						<th><?php p($l->t('Duration')) ?></th>
 						<th><?php p($l->t('Difference')) ?></th>
-						<th><?php p($l->t('Comment')) ?></th>
-						<th><?php p($l->t('Warning')) ?></th>
+						<th class="ts-comment-heading"><?php p($l->t('Comment')) ?></th>
+						<th class="ts-warning-heading"><?php p($l->t('Warning')) ?></th>
 					</tr>
 				</thead>
 
@@ -158,103 +166,120 @@ if ($tourEnabled) {
 	<!-- HR overview -->
 	<?php if ($_['isHR']): ?>
 		<?php require __DIR__ . '/partials/hr-help-popup.php'; ?>
+		<?php
+		$employeeHelpParagraphs = [
+			$l->t('Time rules are managed under Profile → Settings → Timesheet. Email settings are available below under Notifications. Administrators manage HR and employee assignments.'),
+			$l->t('For days with neither a start nor an end time, only the preset reasons in the Comment column prevent a reminder. Custom comments do not prevent reminders. Entries with only one time remain incomplete.'),
+		];
+		?>
 		<div id="tab-hr" class="ts-tabview">
-			<div class="ts-hr-row">
-				<section id="hr-userlist-section" class="ts-hr-section" aria-labelledby="hr-userlist-heading">
-					<div class="hr-employee-list-header">
-						<div class="hr-employee-list-title">
-							<h4 id="hr-userlist-heading"><?php p($l->t('Employee list')); ?></h4>
-							<?php $renderHelpPopup('hr-overview-help', $l->t('Employee list'), [
-								$l->t('Time rules are managed under Profile → Settings → Timesheet. Email settings are available below under Notifications. Administrators manage HR and employee assignments.'),
-								$l->t('For days without start and end times, only the exact comments "%1$s" and "%2$s" prevent a reminder. Letter case and surrounding spaces are ignored. Entries with only one time remain incomplete.', [$absenceCommentTerms['vacation'], $absenceCommentTerms['timeOffInLieu']]),
-							]); ?>
+			<div class="hr-overview-layout">
+				<div id="hr-overview-panels" class="ts-hr-row">
+					<section id="hr-userlist-section" class="ts-hr-section" aria-labelledby="hr-userlist-heading">
+						<div class="hr-employee-list-header">
+							<div class="hr-employee-list-title">
+								<h4 id="hr-userlist-heading"><?php p($l->t('Employee list')); ?></h4>
+								<?php $renderHelpPopup('hr-overview-help', $l->t('Employee list'), $employeeHelpParagraphs); ?>
+							</div>
+							<div class="hr-employee-list-actions">
+								<button type="button" id="hr-stats-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="hr-stats-section"><?php p($l->t('Statistics')); ?></button>
+								<button type="button" id="hr-employee-filter-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="hr-employee-filter-popup"><?php p($l->t('Filter')); ?></button>
+							</div>
 						</div>
-						<button type="button" id="hr-employee-filter-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="hr-employee-filter-popup"><?php p($l->t('Filter')); ?></button>
-					</div>
-					<div id="hr-employee-filter-popup" class="hr-employee-filter-popup" role="dialog" aria-labelledby="hr-employee-filter-heading" hidden>
-						<div class="hr-employee-filter-heading">
-							<h5 id="hr-employee-filter-heading"><?php p($l->t('Filter employees')); ?></h5>
-							<button type="button" id="hr-employee-filter-close" aria-label="<?php p($l->t('Close employee filters')); ?>">&#215;</button>
+						<div id="hr-employee-filter-popup" class="hr-list-popup" role="dialog" aria-labelledby="hr-employee-filter-heading" hidden>
+							<div class="hr-list-popup-heading">
+								<h5 id="hr-employee-filter-heading"><?php p($l->t('Filter employees')); ?></h5>
+								<button type="button" id="hr-employee-filter-close" aria-label="<?php p($l->t('Close employee filters')); ?>">&#215;</button>
+							</div>
+							<label for="hr-employee-search"><?php p($l->t('Search by name')); ?></label>
+							<input type="search" id="hr-employee-search" autocomplete="off">
+							<label for="hr-employee-filter-mode"><?php p($l->t('Show employees')); ?></label>
+							<select id="hr-employee-filter-mode">
+								<option value="all"><?php p($l->t('All employees')); ?></option>
+								<option value="active"><?php p($l->t('Active employees')); ?></option>
+								<option value="inactive"><?php p($l->t('Inactive employees')); ?></option>
+								<option value="freelancers"><?php p($l->t('Freelancers')); ?></option>
+							</select>
+							<button type="button" id="hr-employee-filter-clear"><?php p($l->t('Clear filters')); ?></button>
 						</div>
-						<label for="hr-employee-search"><?php p($l->t('Search by name')); ?></label>
-						<input type="search" id="hr-employee-search" autocomplete="off">
-						<label for="hr-employee-filter-mode"><?php p($l->t('Show employees')); ?></label>
-						<select id="hr-employee-filter-mode">
-							<option value="active"><?php p($l->t('Active employees')); ?></option>
-							<option value="inactive"><?php p($l->t('Inactive employees')); ?></option>
-							<option value="all"><?php p($l->t('All employees')); ?></option>
-							<option value="freelancers"><?php p($l->t('Freelancers')); ?></option>
-						</select>
-						<button type="button" id="hr-employee-filter-clear"><?php p($l->t('Clear filters')); ?></button>
-					</div>
-					<p id="hr-employee-count" class="hr-employee-count" role="status"></p>
-					<p id="hr-employee-list-message" class="hr-employee-list-message" role="status"></p>
-					<button type="button" id="hr-employee-list-retry" hidden><?php p($l->t('Retry')); ?></button>
-					<div class="hr-employee-table-scroll">
-						<table class="grid hr-userlist">
-							<thead>
-								<tr>
-									<th><?php p($l->t('Name')) ?></th>
-									<th><?php p($l->t('Daily target')) ?></th>
-									<th><?php p($l->t('Balance')) ?></th>
-									<th><?php p($l->t('Last entry')) ?></th>
-									<th><?php p($l->t('Days since last entry')) ?></th>
-									<th><?php p($l->t('Warnings')) ?></th>
-								</tr>
-							</thead>
-							<tbody id="hr-userlist">
-								<!-- Rows are rendered by JavaScript. -->
-							</tbody>
-						</table>
-					</div>
-					<section id="hr-stats-section" aria-labelledby="hr-stats-heading">
-						<h4 id="hr-stats-heading"><?php p($l->t('Statistics')); ?></h4>
-						<dl class="hr-stats">
-							<div>
-								<dt><?php p($l->t('Total hours of employees (this Month)')); ?></dt>
-								<dd id="hr-stat-total-hours">-</dd>
+						<section id="hr-stats-section" class="hr-list-popup" role="dialog" aria-labelledby="hr-stats-heading" hidden>
+							<div class="hr-list-popup-heading">
+								<h5 id="hr-stats-heading"><?php p($l->t('Statistics')); ?></h5>
+								<button type="button" id="hr-stats-close" aria-label="<?php p($l->t('Close')); ?>">&#215;</button>
 							</div>
-							<div>
-								<dt><?php p($l->t('Employees with overtime')); ?></dt>
-								<dd id="hr-stat-employees-overtime">-</dd>
-							</div>
-							<div>
-								<dt><?php p($l->t('Employees with negative overtime')); ?></dt>
-								<dd id="hr-stat-employees-negative">-</dd>
-							</div>
-							<div>
-								<dt><?php p($l->t('Total overtime')); ?></dt>
-								<dd id="hr-stat-total-overtime">-</dd>
-							</div>
-							<div>
-								<dt><?php p($l->t('Total negative overtime')); ?></dt>
-								<dd id="hr-stat-total-negative">-</dd>
-							</div>
-							<div>
-								<dt><?php p($l->t('Sum of +/- overtimes')); ?></dt>
-								<dd id="hr-stat-sum-overtimes">-</dd>
-							</div>
-						</dl>
+							<dl class="hr-stats">
+								<div>
+									<dt><?php p($l->t('Total hours of employees (this Month)')); ?></dt>
+									<dd id="hr-stat-total-hours">-</dd>
+								</div>
+								<div>
+									<dt><?php p($l->t('Employees with overtime')); ?></dt>
+									<dd id="hr-stat-employees-overtime">-</dd>
+								</div>
+								<div>
+									<dt><?php p($l->t('Employees with negative overtime')); ?></dt>
+									<dd id="hr-stat-employees-negative">-</dd>
+								</div>
+								<div>
+									<dt><?php p($l->t('Total overtime')); ?></dt>
+									<dd id="hr-stat-total-overtime">-</dd>
+								</div>
+								<div>
+									<dt><?php p($l->t('Total negative overtime')); ?></dt>
+									<dd id="hr-stat-total-negative">-</dd>
+								</div>
+								<div>
+									<dt><?php p($l->t('Sum of +/- overtimes')); ?></dt>
+									<dd id="hr-stat-sum-overtimes">-</dd>
+								</div>
+							</dl>
+						</section>
+						<p id="hr-employee-count" class="hr-employee-count" role="status"></p>
+						<p id="hr-employee-list-message" class="hr-employee-list-message" role="status"></p>
+						<button type="button" id="hr-employee-list-retry" hidden><?php p($l->t('Retry')); ?></button>
+						<div class="hr-employee-table-scroll">
+							<table class="grid hr-userlist">
+								<thead>
+									<tr>
+										<th><?php p($l->t('Name')) ?></th>
+										<th><?php p($l->t('Daily target')) ?></th>
+										<th><?php p($l->t('Balance')) ?></th>
+										<th><?php p($l->t('Last entry')) ?></th>
+										<th><?php p($l->t('Days since last entry')) ?></th>
+										<th><?php p($l->t('Warnings')) ?></th>
+									</tr>
+								</thead>
+								<tbody id="hr-userlist">
+									<!-- Rows are rendered by JavaScript. -->
+								</tbody>
+							</table>
+						</div>
 					</section>
-				</section>
 
-				<?php
-				$appRequestHref = $mailDraft(
-					'kontakt@nextcloud-agentur.de',
-					$l->t('Change request for the Timesheet app'),
-					implode("\r\n\r\n", [
-						$l->t('Dear Timesheet team,'),
-						$l->t('I would like to suggest a change.'),
-						$l->t('Kind regards,'),
-					]),
-				);
-				?>
-				<div id="hr-notification-block" class="ts-hr-section">
-					<a class="button hr-app-request" href="<?php p($appRequestHref); ?>">
-						<?php p($l->t('Do you have any requests for the app?')); ?>
-					</a>
-					<?php include __DIR__ . '/partials/hr-notifications.php'; ?>
+					<?php
+					$appRequestHref = $mailDraft(
+						'kontakt@nextcloud-agentur.de',
+						$l->t('Change request for the Timesheet app'),
+						implode("\r\n\r\n", [
+							$l->t('Dear Timesheet team,'),
+							$l->t('I would like to suggest a change.'),
+							$l->t('Kind regards,'),
+						]),
+					);
+					?>
+					<div id="hr-notification-block" class="ts-hr-section">
+						<a class="button hr-app-request" href="<?php p($appRequestHref); ?>">
+							<?php p($l->t('Do you have any requests for the app?')); ?>
+						</a>
+						<?php include __DIR__ . '/partials/hr-notifications.php'; ?>
+					</div>
 				</div>
+
+				<aside id="hr-overview-help-box" class="hr-employee-help-box ts-hr-section" aria-labelledby="hr-userlist-heading" hidden>
+					<?php foreach ($employeeHelpParagraphs as $paragraph): ?>
+						<p><?php p($paragraph); ?></p>
+					<?php endforeach; ?>
+				</aside>
 			</div>
 
 			<!-- Selected employee timesheet -->
@@ -380,12 +405,32 @@ if ($tourEnabled) {
 			</div>
 			<p id="history-recording" class="ts-history-note"></p>
 			<p class="ts-history-note"><?php p($l->t('Changes are kept for twelve months.')); ?></p>
+			<?php
+			$renderHistoryAccountPicker = static function (string $filter, string $label, string $allLabel) use ($l): void {
+				$id = 'history-' . $filter;
+				?>
+				<div class="ts-history-account-picker">
+					<label id="<?php p($id . '-label'); ?>" for="<?php p($id); ?>"><?php p($label); ?></label>
+					<button type="button" id="<?php p($id); ?>" class="ts-history-account-trigger" aria-haspopup="dialog" aria-expanded="false"
+						aria-controls="<?php p($id . '-popup'); ?>" aria-labelledby="<?php p($id . '-label ' . $id . '-value'); ?>">
+						<span id="<?php p($id . '-value'); ?>"><?php p($allLabel); ?></span>
+					</button>
+					<div id="<?php p($id . '-popup'); ?>" class="ts-history-account-popup" role="dialog" aria-labelledby="<?php p($id . '-label'); ?>" hidden>
+						<label for="<?php p($id . '-search'); ?>"><?php p($l->t('Search by name or account ID')); ?></label>
+						<input type="search" id="<?php p($id . '-search'); ?>" autocomplete="off" aria-controls="<?php p($id . '-options'); ?>">
+						<p id="<?php p($id . '-search-status'); ?>" role="status" class="ts-history-note" hidden></p>
+						<ul id="<?php p($id . '-options'); ?>" class="ts-history-account-options"></ul>
+					</div>
+				</div>
+				<?php
+			};
+			?>
 			<div id="history-filters" class="ts-history-filters">
 				<label for="history-from"><?php p($l->t('Changed from')); ?><input type="date" id="history-from" required></label>
 				<label for="history-to"><?php p($l->t('Changed through')); ?><input type="date" id="history-to" required></label>
-				<label for="history-employee"><?php p($l->t('Employee')); ?><select id="history-employee"><option value=""><?php p($l->t('All employees')); ?></option></select></label>
+				<?php $renderHistoryAccountPicker('employee', $l->t('Employee'), $l->t('All employees')); ?>
 				<div class="ts-history-editor-filters">
-					<label for="history-actor"><?php p($l->t('Changed by')); ?><select id="history-actor"><option value=""><?php p($l->t('All editors')); ?></option></select></label>
+					<?php $renderHistoryAccountPicker('actor', $l->t('Changed by'), $l->t('All editors')); ?>
 					<label class="ts-history-employee-changes" for="history-employee-changes" title="<?php p($l->t('Show only changes employees made to their own time records.')); ?>">
 						<input type="checkbox" id="history-employee-changes">
 						<span><?php p($l->t('Employee changes')); ?></span>

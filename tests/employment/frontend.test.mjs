@@ -7,7 +7,7 @@ import vm from 'node:vm';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const statusSource = readFileSync(resolve(root, 'js/timesheet-employment-status.js'), 'utf8');
-const hrSource = readFileSync(resolve(root, 'js/timesheet-hr.js'), 'utf8');
+const hrSource = readFileSync(resolve(root, 'js/timesheet-hr-dashboard-v2.js'), 'utf8');
 const copy = value => JSON.parse(JSON.stringify(value));
 const flush = () => new Promise(setImmediate);
 
@@ -71,7 +71,7 @@ async function openApp({ available = true, respond = null, records = employees, 
 	Object.assign(app.dataset, { employmentStatusAvailable: String(available), employmentIsActive: 'true', freelancerMode: 'false', employmentStatusRevision: 'alice-1' });
 	for (const id of ['freelancer-mode-switch', 'freelancer-mode-feedback', 'hr-employment-status', 'hr-employment-status-feedback', 'hr-employee-freelancer', 'hr-employee-count', 'hr-employee-list-message', 'hr-employee-list-retry', 'hr-employee-filter-button', 'hr-employee-filter-popup', 'hr-employee-search', 'hr-employee-filter-mode', 'hr-employee-filter-close', 'hr-employee-filter-clear', 'hr-back-button']) element(id.includes('switch') || id.includes('search') ? 'input' : 'div', id, app);
 	elements.get('hr-employment-status').tagName = 'SPAN';
-	elements.get('hr-employee-filter-mode').value = 'active';
+	elements.get('hr-employee-filter-mode').value = 'all';
 	elements.get('hr-employee-filter-popup').hidden = true;
 	elements.get('freelancer-mode-switch').className = 'ts-freelancer-toggle-switch';
 	const breakSwitch = element('input', 'break-switch', app); breakSwitch.className = 'ts-break-toggle-switch';
@@ -120,28 +120,31 @@ async function openApp({ available = true, respond = null, records = employees, 
 	return { context, elements, requests, serverRecords, fire, list, accountTranslations, async load() { await context.Timesheet.hr.loadHrUserList(); }, rows: () => list.children, cell: (row, className) => row.querySelector(`.${className}`) };
 }
 
-test('initial reads never write; active employees and their matching statistics are shown by default', async () => {
+test('initial reads never write; all assigned employees and their matching statistics are shown by default', async () => {
 	const app = await openApp(); await app.load();
-	assert.equal(app.rows().length, 4);
-	assert.equal(app.elements.get('hr-stat-total-hours').textContent, '04:15');
+	assert.deepEqual(app.rows().map(row => row.querySelector('.hr-load-user').dataset.user), employees.map(employee => employee.id));
+	assert.equal(app.elements.get('hr-stat-total-hours').textContent, '11:15');
 	assert.equal(app.elements.get('hr-stat-total-overtime').textContent, '15:00');
-	assert.equal(app.elements.get('hr-stat-total-negative').textContent, '00:00');
-	assert.equal(app.elements.get('hr-employee-count').textContent, '4 of 6 employees');
+	assert.equal(app.elements.get('hr-stat-total-negative').textContent, '-13:20');
+	assert.equal(app.elements.get('hr-employee-count').textContent, '6 of 6 employees');
 	assert.ok(app.requests.every(request => request.method === 'GET'));
 });
 
 test('all four filters, name search and clear keep rows, counts and statistics consistent', async () => {
 	const app = await openApp(); await app.load();
 	const mode = app.elements.get('hr-employee-filter-mode'); const search = app.elements.get('hr-employee-search');
-	for (const [filter, count, hours] of [['inactive', 2, '07:00'], ['all', 6, '11:15'], ['freelancers', 2, '06:00']]) {
+	for (const [filter, count, hours] of [['active', 4, '04:15'], ['inactive', 2, '07:00'], ['all', 6, '11:15'], ['freelancers', 2, '06:00']]) {
 		mode.value = filter; await app.fire(mode, 'change');
 		assert.equal(app.rows().length, count); assert.equal(app.elements.get('hr-stat-total-hours').textContent, hours);
 	}
 	mode.value = 'all'; await app.fire(mode, 'change'); search.value = ' eXaMpLe '; await app.fire(search, 'input');
 	assert.equal(app.rows().length, 2); assert.equal(app.elements.get('hr-stat-total-hours').textContent, '07:00');
 	await app.load(); assert.equal(app.rows().length, 2); assert.equal(search.value, ' eXaMpLe ');
+	mode.value = 'active'; await app.fire(mode, 'change');
+	assert.equal(app.rows().length, 0);
 	await app.fire(app.elements.get('hr-employee-filter-clear'), 'click');
-	assert.equal(mode.value, 'active'); assert.equal(search.value, ''); assert.equal(app.rows().length, 4);
+	assert.equal(mode.value, 'all'); assert.equal(search.value, ''); assert.equal(app.rows().length, 6);
+	assert.equal(app.elements.get('hr-stat-total-hours').textContent, '11:15');
 });
 
 test('duplicate display names remain separate and freelancer identification is not color-only', async () => {
@@ -151,6 +154,11 @@ test('duplicate display names remain separate and freelancer identification is n
 	assert.deepEqual(duplicateRows.map(row => row.querySelector('.hr-employee-identifier').textContent), ['emma', 'frank']);
 	const freelancerRows = app.rows().filter(row => row.querySelector('.ts-freelancer-badge'));
 	assert.equal(freelancerRows.length, 2); assert.ok(freelancerRows.every(row => row.classList.contains('is-freelancer')));
+	const bothStatuses = freelancerRows.find(row => row.querySelector('.ts-inactive-badge'));
+	const nameLine = bothStatuses.querySelector('.hr-employee-name-line');
+	assert.equal(nameLine.children[0], bothStatuses.querySelector('.hr-load-user'));
+	assert.deepEqual(nameLine.children[1].children.map(badge => badge.getAttribute('aria-label')), ['Freelancer', 'Inactive']);
+	assert.equal(bothStatuses.querySelector('.ts-inactive-badge').querySelector('.hr-employee-status-compact').textContent, '( I )');
 	mode.value = 'active'; await app.fire(mode, 'change');
 	assert.equal(app.rows().filter(row => row.querySelector('.ts-freelancer-badge')).length, 1);
 });
@@ -264,10 +272,15 @@ test('updated server status changes the detail label and filters without changin
 	assert.equal(app.elements.get('hr-employment-status').textContent, 'Inactive');
 	assert.equal(app.elements.get('hr-employee-freelancer').hidden, false);
 	await app.load();
+	assert.equal(app.rows().length, 6);
+	const isEmployeeRow = row => row.querySelector('.hr-load-user').dataset.user === employee.id;
+	assert.ok(app.rows().some(isEmployeeRow));
+	const mode = app.elements.get('hr-employee-filter-mode'); mode.value = 'active'; await app.fire(mode, 'change');
 	assert.equal(app.rows().length, 3);
-	const mode = app.elements.get('hr-employee-filter-mode'); mode.value = 'inactive'; await app.fire(mode, 'change');
+	assert.ok(!app.rows().some(isEmployeeRow));
+	mode.value = 'inactive'; await app.fire(mode, 'change');
 	assert.equal(app.rows().length, 3);
-	assert.ok(app.rows().some(row => row.querySelector('.hr-load-user').dataset.user === employee.id));
+	assert.ok(app.rows().some(isEmployeeRow));
 	assert.ok(app.requests.every(request => request.method === 'GET'));
 });
 

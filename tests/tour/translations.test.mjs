@@ -8,10 +8,8 @@ import vm from 'node:vm';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const coverage = JSON.parse(readFileSync(resolve(root, 'tests/tour/translation-coverage.json'), 'utf8'));
 const absenceTerms = JSON.parse(readFileSync(resolve(root, 'lib/Service/absence-comment-terms.json'), 'utf8'));
-const absenceHint = 'For days without start and end times, only the exact comments "%1$s" and "%2$s" prevent a reminder. Letter case and surrounding spaces are ignored. Entries with only one time remain incomplete.';
-const workingTimeExplanation = 'The start of work can be chosen individually in accordance with company guidelines.';
 const federalStateExplanation = 'The public holidays shown in the Status column depend on the selected federal state.';
-const commentsExplanation = 'Comments add context to a day. An absence can be marked with "{vacation}" or "{timeOffInLieu}".';
+const commentsExplanation = 'Use the Comment column to record your own notes about the workday. If both start and end times are missing, only the preset reasons in the Comment column prevent a notification. Otherwise, entries with no time or only one time are marked as incomplete.';
 const generalHelpExplanation = 'Questions, help and privacy information about Nextcloud in general.';
 const restartExplanation = 'Questions and suggestions for HR. The guide can be restarted using the tour icon.';
 const warningsExplanation = 'Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.';
@@ -51,22 +49,14 @@ for (const [locale, pluralForm] of Object.entries(coverage.locales)) {
 			assert.ok(translated.trim(), `Empty ${locale} translation: ${message}`);
 			assert.equal(browser[message], translated);
 			assert.deepEqual(placeholders(translated), placeholders(message));
-			if (message.includes('An absence can be marked')) {
-				assert.deepEqual(placeholders(translated), ['{timeOffInLieu}', '{vacation}'], 'Absence labels come from the shared language catalog');
-				assert.doesNotMatch(translated, /Urlaub|Stundenausgleich/u, 'Tour text does not hard-code German absence labels');
-			}
 		}
-		assert.equal(typeof server.translations[absenceHint], 'string', 'HR absence guidance is translated');
-		assert.equal(browser[absenceHint], server.translations[absenceHint]);
-		assert.deepEqual([...server.translations[absenceHint].matchAll(/%\d\$s/g)].map(match => match[0]).sort(), ['%1$s', '%2$s']);
 		assert.ok(absenceTerms[locale], 'The displayed absence terms are available for this account language');
 		if (!locale.startsWith('en')) {
 			assert.notEqual(server.translations['A short tour explains the main features.'], 'A short tour explains the main features.', 'An English copy is not a translated tour');
-			for (const message of [workingTimeExplanation, federalStateExplanation, generalHelpExplanation, 'Help and tour', 'Tour guide', 'Questions for HR', 'Suggestions for improvement', restartExplanation, 'Time entry warnings', warningsExplanation, 'Freelancer mode', freelancerExplanation, ...Object.keys(emailHelpMessages), ...contactDraftMessages]) {
+			for (const message of [federalStateExplanation, generalHelpExplanation, 'Help and tour', 'Tour guide', 'Questions for HR', 'Suggestions for improvement', restartExplanation, 'Time entry warnings', warningsExplanation, 'Freelancer mode', freelancerExplanation, ...Object.keys(emailHelpMessages), ...contactDraftMessages]) {
 				assert.notEqual(server.translations[message], message, 'New explanations are translated into the account language');
 			}
 		}
-		assert.doesNotMatch(server.translations[workingTimeExplanation], /0?7:30|0?9:30/u, 'Working time follows company guidelines without fixed start times');
 	});
 }
 
@@ -103,15 +93,13 @@ test('Japanese and right-to-left tours have their own translated explanations', 
 	assert.match(hebrew['Explore Timesheet?'], /[\u0590-\u05ff]/u);
 });
 
-test('German employee guidance uses the shortened copy and company guidelines without approval promises', () => {
+test('German employee guidance uses the shortened copy without approval promises', () => {
 	for (const locale of ['de', 'de_DE']) {
 		const translations = JSON.parse(readFileSync(resolve(root, `l10n/${locale}.json`), 'utf8')).translations;
 		assert.equal(translations['Explore Timesheet?'], 'Arbeitszeitnachweis kennenlernen?');
-		assert.equal(translations['Working time'], 'Arbeitszeit');
-		assert.equal(translations[workingTimeExplanation], 'Der Beginn der Arbeitszeit ist individuell nach den Unternehmensrichtlinien wählbar.');
 		assert.equal(translations['Federal state'], 'Bundesland');
 		assert.equal(translations[federalStateExplanation], 'Die Feiertage in der Spalte „Status“ richten sich nach dem gewählten Bundesland.');
-		assert.equal(translations[commentsExplanation], 'Kommentare ergänzen Informationen zum Tag. Abwesenheiten können mit „{vacation}“ oder „{timeOffInLieu}“ eingetragen werden.');
+		assert.equal(translations[commentsExplanation], 'Die Kommentarspalte kann genutzt werden, um eigene Informationen zum Tagesablauf festzuhalten. Fehlen Start- und Endzeit, verhindern nur die in der Kommentarspalte vorgegebenen Gründe eine Benachrichtigung. Einträge mit keiner oder nur einer Zeitangabe werden andernfalls als unvollständig gekennzeichnet.');
 		assert.doesNotMatch(translations[commentsExplanation], /Freigabe|Genehmigung|Warnung|Strg\+C|Command\+C/u);
 		assert.equal(translations['Time entry warnings'], 'Warnungen');
 		assert.equal(translations['Freelancer mode'], 'Freelancer-Modus');

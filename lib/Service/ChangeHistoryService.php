@@ -44,16 +44,17 @@ class ChangeHistoryService {
 		$employeeIds = array_column($employees, 'id');
 		$cutoff = $this->retentionCutoff();
 		$actors = $this->history->actors($employeeIds, $cutoff);
+		$actorIds = array_column($actors, 'id');
 		$pendingIds = $this->accountQueue->pendingAccountIds();
-		if (array_intersect($pendingIds, [...$employeeIds, ...array_column($actors, 'id')]) !== []) {
+		if (array_intersect($pendingIds, [...$employeeIds, ...$actorIds]) !== []) {
 			throw new \RuntimeException('Account history cleanup is pending.');
 		}
 		$filters = $this->filters($query);
 		if ($filters['employee'] !== '' && !in_array($filters['employee'], $employeeIds, true)) {
 			throw new ForbiddenException();
 		}
-		if (($filters['actor'] !== '' && !in_array($filters['actor'], array_column($actors, 'id'), true))
-			|| ($filters['actorDeleted'] && !in_array(null, array_column($actors, 'id'), true))) {
+		if (($filters['actor'] !== '' && !in_array($filters['actor'], $actorIds, true))
+			|| ($filters['actorDeleted'] && !in_array(null, $actorIds, true))) {
 			throw new \InvalidArgumentException('Invalid history filter');
 		}
 		$limit = $this->positiveInteger($query['limit'] ?? 50, 50);
@@ -65,12 +66,14 @@ class ChangeHistoryService {
 			'nextCursor' => $hasMore ? $items[count($items) - 1]['id'] : null,
 			'recordingStartedAt' => $this->recording->getStartedAt(),
 			'retentionMonths' => self::RETENTION_MONTHS,
+			'hasHistory' => $actors !== [],
 			'filters' => [
 				'employees' => array_map(fn (array $employee): array => [
 					...$employee,
 					'isActive' => $this->groupManager->isInGroup($employee['id'], EmploymentStatusStore::ACTIVE_GROUP_ID),
 				], $employees),
-				'actors' => $actors,
+				'actors' => array_values(array_filter($actors, fn (array $actor): bool =>
+					$actor['id'] !== null && $this->hrService->isHr($actor['id']))),
 			],
 		];
 	}

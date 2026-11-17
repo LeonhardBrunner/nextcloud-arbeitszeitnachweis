@@ -112,7 +112,7 @@ class MonthlyBalanceService {
 		$targetMonth = (int)$nextMonth->format('m');
 
 		$currentMonth = $today->modify('first day of this month');
-		$this->ensureMonthSnapshot($userId, (int)$currentMonth->format('Y'), (int)$currentMonth->format('m'));
+		$currentMonthSnapshot = $this->ensureMonthSnapshot($userId, (int)$currentMonth->format('Y'), (int)$currentMonth->format('m'));
 
 		$workConfig = $this->getWorkConfig($userId);
 		// Start with the latest clean snapshot, then add the remaining entries.
@@ -141,6 +141,7 @@ class MonthlyBalanceService {
 					: $today->format('Y-m-d')
 			),
 			'totalMinutes' => $openRangeValues['actualMinutes'],
+			'currentMonthActualMinutes' => (int)$currentMonthSnapshot->getActualMinutes(),
 			'totalWorkdays' => $openRangeValues['workdays'],
 			'targetMinutes' => $openRangeValues['targetMinutes'],
 			'dailyMin' => $workConfig['dailyMin'],

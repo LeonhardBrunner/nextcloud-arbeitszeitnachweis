@@ -6,22 +6,29 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const historySource = readFileSync(resolve(root, 'js/timesheet-history-live.js'), 'utf8');
+const historySource = readFileSync(resolve(root, 'js/timesheet-history.js'), 'utf8');
 const flush = () => new Promise(setImmediate);
 const copy = value => JSON.parse(JSON.stringify(value));
 const preferenceRevision = number => number.toString(16).padStart(64, '0');
 
-function createElementClass() {
+function createElementClass(onFocus) {
 	return class Element {
 		constructor(tagName = 'div') {
 			this.tagName = tagName.toUpperCase(); this.children = []; this.parentElement = null;
-			this.className = ''; this.dataset = {}; this.attributes = new Map(); this.listeners = new Map();
+			this.className = ''; this.dataset = {}; this.attributes = new Map(); this.listeners = new Map(); this.style = {};
 			this.textContent = ''; this.value = ''; this.hidden = false; this.disabled = false; this.validity = { valid: true };
 			this.classList = { toggle: (name, active) => { const classes = new Set(this.className.split(/\s+/).filter(Boolean)); if (active) classes.add(name); else classes.delete(name); this.className = [...classes].join(' '); }, contains: name => this.className.split(/\s+/).includes(name) };
 		}
 		set innerHTML(value) { throw new Error('Stored history must never be rendered as HTML: ' + value); }
 		append(...children) { for (const child of children) { child.parentElement = this; this.children.push(child); } }
-		replaceChildren(...children) { this.children = []; this.append(...children); }
+		replaceChildren(...children) { for (const child of this.children) child.parentElement = null; this.children = []; this.append(...children); }
+		contains(node) { return node === this || this.children.some(child => child.contains(node)); }
+		closest(selector) {
+			if (selector === this.tagName.toLowerCase() || selector === `#${this.id}`
+				|| selector.startsWith('.') && this.classList.contains(selector.slice(1))) return this;
+			return this.parentElement?.closest(selector) ?? null;
+		}
+		focus() { onFocus(this); }
 		setAttribute(name, value) { this.attributes.set(name, String(value)); }
 		getAttribute(name) { return this.attributes.get(name) ?? null; }
 		addEventListener(name, listener) { this.listeners.set(name, [...(this.listeners.get(name) || []), listener]); }
@@ -31,7 +38,7 @@ function createElementClass() {
 function response(items = [], overrides = {}) {
 	return {
 		items: copy(items), nextCursor: null, recordingStartedAt: 1793664000, retentionMonths: 12,
-		filters: { employees: [{ id: 'marvin-one', name: 'Marvin Beispiel', isActive: true }, { id: 'marvin-two', name: 'Marvin Beispiel', isActive: false }], actors: [{ id: 'anton', name: 'Anton Beispiel' }, { id: null, name: '' }] },
+		filters: { employees: [{ id: 'marvin-one', name: 'Marvin Beispiel', isActive: true }, { id: 'marvin-two', name: 'Marvin Beispiel', isActive: false }], actors: [{ id: 'anton', name: 'Anton Beispiel' }] },
 		...overrides,
 	};
 }
@@ -44,11 +51,15 @@ function openHistory({ present = true, now = '2026-11-03T23:30:00Z', respond = (
 	preference = { historyView: 'cards', revision: preferenceRevision(0) }, preferenceAvailable = true,
 	respondPreference = (_path, options, count) => ({ historyView: JSON.parse(options.body).historyView, revision: preferenceRevision(count) }),
 } = {}) {
-	const Element = createElementClass();
+	let document;
+	const Element = createElementClass(node => { document.activeElement = node; });
 	const nodes = new Map();
 	const requests = [];
 	const preferenceRequests = [];
 	const messages = [];
+	const documentListeners = new Map();
+	const windowListeners = new Map();
+	const popupPositions = [];
 	function add(tag, id) { const node = new Element(tag); node.id = id; nodes.set(id, node); return node; }
 	if (present) {
 		const historyRoot = add('div', 'tab-change-history');
@@ -57,7 +68,25 @@ function openHistory({ present = true, now = '2026-11-03T23:30:00Z', respond = (
 			employeeEditorLabel: 'Changed by the employee', emptyHistoryMessage: 'No changes have been recorded yet.',
 			invalidDateRangeMessage: 'Select a valid date range.' };
 		for (const name of ['from', 'to', 'employee-changes']) add('input', `history-${name}`);
-		for (const name of ['employee', 'actor', 'kind']) add('select', `history-${name}`);
+		add('select', 'history-kind');
+		for (const [field, allLabel] of Object.entries({ employee: 'All employees', actor: 'All editors' })) {
+			const id = `history-${field}`;
+			const picker = add('div', `${id}-picker`);
+			picker.className = 'ts-history-account-filter';
+			const trigger = add('button', id);
+			trigger.setAttribute('aria-expanded', 'false');
+			trigger.setAttribute('aria-controls', `${id}-popup`);
+			const value = add('span', `${id}-value`);
+			value.textContent = allLabel;
+			trigger.append(value);
+			const popup = add('div', `${id}-popup`);
+			popup.hidden = true;
+			const searchStatus = add('p', `${id}-search-status`);
+			searchStatus.hidden = true;
+			popup.append(add('input', `${id}-search`), add('ul', `${id}-options`), searchStatus);
+			picker.append(trigger, popup);
+			historyRoot.append(picker);
+		}
 		for (const name of ['refresh', 'more']) add('button', `history-${name}`);
 		for (const name of ['cards', 'table']) add('button', `history-view-${name}`);
 		for (const name of ['recording', 'message']) add('p', `history-${name}`);
@@ -65,13 +94,19 @@ function openHistory({ present = true, now = '2026-11-03T23:30:00Z', respond = (
 		add('div', 'history-table-container').append(add('tbody', 'history-table-body'));
 	}
 	class FixedDate extends Date { constructor(...values) { super(...(values.length ? values : [now])); } static now() { return new Date(now).getTime(); } }
-	const document = { documentElement: { lang: 'en-GB' }, getElementById: id => nodes.get(id) || null, createElement: tag => new Element(tag) };
+	document = { documentElement: { lang: 'en-GB' }, activeElement: null, listeners: documentListeners,
+		getElementById: id => nodes.get(id) || null, createElement: tag => new Element(tag),
+		addEventListener(type, listener) { documentListeners.set(type, [...(documentListeners.get(type) || []), listener]); },
+	};
 	const context = vm.createContext({ document, Date: FixedDate, Intl, URLSearchParams, AbortController, Set, Object,
+		listeners: windowListeners,
+		addEventListener(type, listener) { windowListeners.set(type, [...(windowListeners.get(type) || []), listener]); },
 		t: (_app, message, parameters = {}) => Object.entries(parameters).reduce((text, [key, value]) => text.replace(`{${key}}`, value), message),
 	});
 	context.window = context;
 	context.Timesheet = {
 		entries: { awaitPendingSaves: awaitSaves },
+		mailHelp: { positionPopup(popup, anchor) { popupPositions.push([popup, anchor]); } },
 		notify: message => messages.push(message),
 		api: async (path, options) => {
 			if (path === '/api/preferences/change-history-view') {
@@ -84,8 +119,31 @@ function openHistory({ present = true, now = '2026-11-03T23:30:00Z', respond = (
 	};
 	vm.runInContext(historySource, context);
 	context.Timesheet.changeHistory.init();
-	return { context, history: context.Timesheet.changeHistory, nodes, requests, preferenceRequests, messages,
-		async fire(target, type = 'click') { const node = typeof target === 'string' ? nodes.get(target) : target; for (const listener of node.listeners.get(type) || []) listener({ preventDefault() {} }); await flush(); },
+	return { context, history: context.Timesheet.changeHistory, nodes, requests, preferenceRequests, messages, popupPositions,
+		pickerOptions(field) { return nodes.get(`history-${field}-options`).children.map(option => option.children[0]); },
+		async chooseFilter(field, id) {
+			if (nodes.get(`history-${field}-popup`).hidden) await this.fire(`history-${field}`);
+			const option = this.pickerOptions(field).find(button => button.value === id);
+			assert.ok(option, `Expected a ${field} choice for ${id || 'all'}`);
+			await this.fire(option);
+		},
+		async fire(target, type = 'click', props = {}) {
+			const node = typeof target === 'string' ? nodes.get(target) : target;
+			const event = { target: node, defaultPrevented: false, bubblingStopped: false, ...props,
+				preventDefault() { this.defaultPrevented = true; },
+				stopPropagation() { this.bubblingStopped = true; },
+			};
+			const chain = [];
+			for (let element = node; element; element = element.parentElement) chain.push(element);
+			if (!chain.includes(document) && node !== context) chain.push(document);
+			for (const element of chain) {
+				event.currentTarget = element;
+				for (const listener of element.listeners.get(type) || []) listener(event);
+				if (event.bubblingStopped) break;
+			}
+			await flush();
+			return event;
+		},
 		text(node = nodes.get('history-list')) { return [node.textContent, ...node.children.map(child => this.text(child))].filter(Boolean).join('\n'); },
 	};
 }
@@ -301,10 +359,10 @@ test('both views identify employee edits to their own record without relabeling 
 });
 
 test('view choice preserves filter selection and paged records and survives tabs and clearing a filter', async () => {
-	const app = openHistory({ respond: (_path, _options, count) => count === 3
+	const app = openHistory({ respond: (_path, _options, count) => count === 4
 		? response([item(7), item(6)]) : response([item(8), item(7)], { nextCursor: 7 }) });
 	await app.history.show();
-	app.nodes.get('history-employee').value = 'marvin-two';
+	await app.chooseFilter('employee', 'marvin-two');
 	app.nodes.get('history-kind').value = 'comment';
 	const employeeChanges = app.nodes.get('history-employee-changes');
 	assert.equal(employeeChanges.checked, false);
@@ -312,8 +370,8 @@ test('view choice preserves filter selection and paged records and survives tabs
 	employeeChanges.checked = true;
 	await app.fire('history-employee-changes', 'change');
 	await app.fire('history-view-table');
-	assert.equal(app.requests.length, 2);
-	assert.equal(app.nodes.get('history-employee').value, 'marvin-two');
+	assert.equal(app.requests.length, 3);
+	assert.equal(app.nodes.get('history-employee-value').textContent, 'Marvin Beispiel (marvin-two) · Inactive');
 	await app.fire('history-more');
 	const query = new URL('http://localhost' + app.requests.at(-1).path).searchParams;
 	assert.equal(query.get('employee'), 'marvin-two'); assert.equal(query.get('kind'), 'comment'); assert.equal(query.get('beforeId'), '7');
@@ -322,13 +380,13 @@ test('view choice preserves filter selection and paged records and survives tabs
 		assert.deepEqual(app.nodes.get(container).children.filter(row => row.dataset.historyId).map(row => row.dataset.historyId), ['8', '7', '6']);
 	}
 	await app.fire('history-view-cards'); await app.fire('history-view-table');
-	assert.equal(app.requests.length, 3);
+	assert.equal(app.requests.length, 4);
 	app.history.hide(); await app.history.show();
 	assert.equal(app.nodes.get('history-view-table').getAttribute('aria-pressed'), 'true');
 	assert.equal(app.nodes.get('history-list').hidden, true);
 	employeeChanges.checked = false;
 	await app.fire('history-employee-changes', 'change');
-	assert.equal(app.nodes.get('history-employee').value, 'marvin-two');
+	assert.equal(app.nodes.get('history-employee-value').textContent, 'Marvin Beispiel (marvin-two) · Inactive');
 	assert.equal(app.nodes.get('history-kind').value, 'comment');
 	assert.equal(new URL('http://localhost' + app.requests.at(-1).path).searchParams.has('employeeChanges'), false);
 	assert.equal(app.nodes.get('history-view-table').getAttribute('aria-pressed'), 'true');
@@ -364,13 +422,113 @@ test('details retain literal comments, null, midnight, zero target and historica
 	assert.equal(app.nodes.get('history-list').children[0].children.at(-1).children[0].textContent, 'Details');
 });
 
+test('employee picker searches active and inactive employees without applying the query as a filter', async () => {
+	const employees = [
+		{ id: 'active-tim', name: 'Tim Adler', isActive: true },
+		{ id: 'inactive-tim', name: 'Tìm Brunner', isActive: false },
+		{ id: 'active-sara', name: 'Sara Klein', isActive: true },
+	];
+	const app = openHistory({ respond: () => response([], { filters: { employees, actors: [] } }) });
+	await app.history.show();
+	const search = app.nodes.get('history-employee-search');
+	const trigger = app.nodes.get('history-employee');
+	const label = app.nodes.get('history-employee-value');
+	const popup = app.nodes.get('history-employee-popup');
+	const status = app.nodes.get('history-employee-search-status');
+	assert.equal(popup.hidden, true);
+	assert.equal(label.textContent, 'All employees');
+	assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+	await app.fire(trigger);
+	assert.equal(popup.hidden, false);
+	assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+	assert.equal(app.context.document.activeElement, search);
+	assert.deepEqual(app.popupPositions.at(-1), [popup, trigger]);
+	search.value = 'TIM';
+	await app.fire(search, 'input');
+	assert.deepEqual(app.pickerOptions('employee').map(option => option.value), ['', 'active-tim', 'inactive-tim']);
+	assert.match(app.pickerOptions('employee')[2].textContent, /Inactive$/);
+	assert.equal(label.textContent, 'All employees');
+	assert.equal(app.requests.length, 1);
+
+	await app.chooseFilter('employee', 'inactive-tim');
+	assert.equal(search.value, '');
+	assert.equal(popup.hidden, true);
+	assert.equal(app.context.document.activeElement, trigger);
+	assert.equal(label.textContent, 'Tìm Brunner (inactive-tim) · Inactive');
+	assert.equal(app.requests.length, 2);
+	assert.equal(new URL('http://localhost' + app.requests.at(-1).path).searchParams.get('employee'), 'inactive-tim');
+
+	await app.fire(trigger);
+	search.value = 'active-sara';
+	await app.fire(search, 'input');
+	assert.deepEqual(app.pickerOptions('employee').map(option => option.value), ['', 'active-sara']);
+	search.value = 'unknown';
+	await app.fire(search, 'input');
+	assert.equal(status.hidden, false);
+	assert.equal(status.textContent, 'No matching employees.');
+	assert.deepEqual(app.pickerOptions('employee').map(option => option.value), ['']);
+	assert.equal(label.textContent, 'Tìm Brunner (inactive-tim) · Inactive');
+	app.nodes.get('history-kind').value = 'comment';
+	await app.fire('history-kind', 'change');
+	assert.equal(new URL('http://localhost' + app.requests.at(-1).path).searchParams.get('employee'), 'inactive-tim');
+	await app.chooseFilter('employee', '');
+	assert.equal(status.hidden, true);
+	assert.equal(label.textContent, 'All employees');
+	assert.equal(new URL('http://localhost' + app.requests.at(-1).path).searchParams.has('employee'), false);
+});
+
+test('employee picker Escape, outside click and tab changes close without changing the filter', async () => {
+	const app = openHistory();
+	await app.history.show();
+	const trigger = app.nodes.get('history-employee');
+	const popup = app.nodes.get('history-employee-popup');
+	const search = app.nodes.get('history-employee-search');
+	const outside = app.nodes.get('history-kind');
+	await app.fire(trigger);
+	const inactive = app.pickerOptions('employee').find(option => option.value === 'marvin-two');
+	assert.equal(inactive.tagName, 'BUTTON', 'Employee results use native keyboard-activatable buttons');
+	const escape = await app.fire(inactive, 'keydown', { key: 'Escape' });
+	assert.equal(escape.defaultPrevented, true);
+	assert.equal(popup.hidden, true);
+	assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+	assert.equal(app.context.document.activeElement, trigger);
+
+	await app.fire(trigger);
+	const firstChoice = app.pickerOptions('employee')[0];
+	await app.fire(search, 'focusout', { relatedTarget: null });
+	assert.equal(popup.hidden, false, 'Scrollbar interaction must leave the employee picker open');
+	await app.fire(search, 'focusout', { relatedTarget: firstChoice });
+	assert.equal(popup.hidden, false);
+	outside.focus();
+	await app.fire(firstChoice, 'focusout', { relatedTarget: outside });
+	assert.equal(popup.hidden, true);
+	assert.equal(app.context.document.activeElement, outside);
+
+	await app.fire(trigger);
+	outside.focus();
+	await app.fire(outside);
+	assert.equal(popup.hidden, true);
+	assert.equal(app.context.document.activeElement, outside);
+	await app.fire(trigger);
+	await app.chooseFilter('employee', '');
+	assert.equal(popup.hidden, true);
+	await app.fire(trigger);
+	app.history.hide();
+	assert.equal(popup.hidden, true);
+	assert.equal(app.requests.length, 1, 'Closing and choosing the existing filter must not send extra requests');
+});
+
 test('date, employee, editor and kind filters combine and survive tab changes', async () => {
 	const app = openHistory(); await app.history.show();
 	for (const [name, value] of Object.entries({ from: '2026-10-01', to: '2026-10-31', employee: 'marvin-two', actor: 'user:anton', kind: 'deleted' })) {
-		const field = `history-${name}`;
-		app.nodes.get(field).value = value;
 		const previousRequests = app.requests.length;
-		await app.fire(field, 'change');
+		if (name === 'employee' || name === 'actor') {
+			await app.chooseFilter(name, value);
+		} else {
+			const field = `history-${name}`;
+			app.nodes.get(field).value = value;
+			await app.fire(field, 'change');
+		}
 		assert.equal(app.requests.length, previousRequests + 1);
 	}
 	let query = new URL('http://localhost' + app.requests.at(-1).path).searchParams;
@@ -378,12 +536,16 @@ test('date, employee, editor and kind filters combine and survive tab changes', 
 	app.history.hide(); await app.history.show();
 	query = new URL('http://localhost' + app.requests.at(-1).path).searchParams;
 	assert.equal(query.get('from'), '2026-10-01'); assert.equal(query.get('employee'), 'marvin-two');
-	const names = app.nodes.get('history-employee').children.map(option => option.textContent);
+	const names = app.pickerOptions('employee').map(option => option.textContent);
 	assert.ok(names.includes('Marvin Beispiel (marvin-one)') && names.includes('Marvin Beispiel (marvin-two) · Inactive'));
 	for (const name of ['employee', 'actor', 'kind']) {
-		const field = `history-${name}`;
-		app.nodes.get(field).value = '';
-		await app.fire(field, 'change');
+		if (name === 'employee' || name === 'actor') {
+			await app.chooseFilter(name, '');
+		} else {
+			const field = `history-${name}`;
+			app.nodes.get(field).value = '';
+			await app.fire(field, 'change');
+		}
 		query = new URL('http://localhost' + app.requests.at(-1).path).searchParams;
 		assert.equal(query.has(name), false);
 	}
@@ -423,14 +585,117 @@ test('the comment filter reaches the server and remains selected between pages a
 });
 
 test('deleted editors have a distinct filter without colliding with a real account ID', async () => {
-	const app = openHistory({ respond: () => response([item(1, { actor: { id: null, name: '' }, kind: 'deleted' })]) });
+	const payload = response([item(1, { actor: { id: null, name: '' }, kind: 'deleted' })]);
+	payload.filters.actors = [{ id: null, name: '' }, { id: 'deleted:', name: 'Active editor' }];
+	const app = openHistory({ respond: () => payload });
 	await app.history.show(); assert.ok(app.text().includes('Deleted account'));
-	app.nodes.get('history-actor').value = 'deleted:'; await app.fire('history-actor', 'change');
+	assert.deepEqual(app.pickerOptions('actor').map(option => option.value), ['', 'deleted:', 'user:deleted:']);
+	await app.chooseFilter('actor', 'deleted:');
 	let query = new URL('http://localhost' + app.requests.at(-1).path).searchParams;
 	assert.equal(query.get('actorDeleted'), '1'); assert.equal(query.has('actor'), false);
-	app.nodes.get('history-actor').value = 'user:deleted:'; await app.fire('history-actor', 'change');
+	assert.equal(app.nodes.get('history-actor-value').textContent, 'Deleted account');
+	await app.chooseFilter('actor', 'user:deleted:');
 	query = new URL('http://localhost' + app.requests.at(-1).path).searchParams;
 	assert.equal(query.get('actor'), 'deleted:'); assert.equal(query.has('actorDeleted'), false);
+	assert.equal(app.nodes.get('history-actor-value').textContent, 'Active editor (deleted:)');
+});
+
+test('editor picker searches scoped actors by name or ID and only applies an explicit choice', async () => {
+	const payload = response([item(1, { actor: { id: 'former-editor', name: 'Former editor' } })]);
+	payload.filters.actors = [
+		{ id: 'hr-account-a', name: 'Élodie Blanc' },
+		{ id: 'hr-account-b', name: 'Élodie Blanc' },
+		{ id: 'hr-account-c', name: 'Alex Lane' },
+	];
+	const app = openHistory({ respond: () => payload });
+	await app.history.show();
+	const trigger = app.nodes.get('history-actor');
+	const popup = app.nodes.get('history-actor-popup');
+	const search = app.nodes.get('history-actor-search');
+	const status = app.nodes.get('history-actor-search-status');
+	const label = app.nodes.get('history-actor-value');
+	assert.equal(popup.hidden, true);
+	assert.equal(label.textContent, 'All editors');
+
+	await app.fire('history-employee');
+	await app.fire(trigger);
+	assert.equal(app.nodes.get('history-employee-popup').hidden, true);
+	assert.equal(popup.hidden, false);
+	assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+	assert.equal(app.context.document.activeElement, search);
+	assert.deepEqual(app.popupPositions.at(-1), [popup, trigger]);
+	search.value = 'ELODIE';
+	await app.fire(search, 'input');
+	assert.deepEqual(app.pickerOptions('actor').map(option => option.textContent), [
+		'All editors', 'Élodie Blanc (hr-account-a)', 'Élodie Blanc (hr-account-b)',
+	]);
+	search.value = 'former-editor';
+	await app.fire(search, 'input');
+	assert.deepEqual(app.pickerOptions('actor').map(option => option.value), ['']);
+	assert.equal(status.textContent, 'No matching accounts.');
+	assert.equal(status.hidden, false);
+	assert.ok(app.text().includes('Former editor'), 'Rendering an actor in a row does not make them a filter option');
+	search.value = 'HR-ACCOUNT-B';
+	await app.fire(search, 'input');
+	assert.deepEqual(app.pickerOptions('actor').map(option => option.value), ['', 'user:hr-account-b']);
+	assert.equal(status.hidden, true);
+	assert.equal(app.requests.length, 1);
+	assert.equal(label.textContent, 'All editors');
+
+	await app.chooseFilter('actor', 'user:hr-account-b');
+	assert.equal(app.requests.length, 2);
+	assert.equal(new URL('http://localhost' + app.requests.at(-1).path).searchParams.get('actor'), 'hr-account-b');
+	assert.equal(search.value, '');
+	assert.equal(label.textContent, 'Élodie Blanc (hr-account-b)');
+	assert.equal(popup.hidden, true);
+	assert.equal(app.context.document.activeElement, trigger);
+	await app.fire(trigger);
+	const escape = await app.fire(search, 'keydown', { key: 'Escape' });
+	assert.equal(escape.defaultPrevented, true);
+	assert.equal(popup.hidden, true);
+	assert.equal(app.context.document.activeElement, trigger);
+	assert.equal(app.requests.length, 2);
+});
+
+test('an editor leaving the scoped choices clears only the editor and reloads before displaying filtered rows', async () => {
+	let editorIsEligible = true;
+	let completeRefetch;
+	const app = openHistory({ respond: path => {
+		if (editorIsEligible) return response([item(1)]);
+		const query = new URL('http://localhost' + path).searchParams;
+		if (query.has('actor')) {
+			const stale = response([item(2)]);
+			stale.filters.actors = [];
+			return stale;
+		}
+		return new Promise(resolve => { completeRefetch = resolve; });
+	} });
+	await app.history.show();
+	await app.chooseFilter('employee', 'marvin-two');
+	app.nodes.get('history-kind').value = 'comment';
+	await app.fire('history-kind', 'change');
+	await app.chooseFilter('actor', 'user:anton');
+	assert.equal(app.nodes.get('history-actor-value').textContent, 'Anton Beispiel (anton)');
+
+	const requestCount = app.requests.length;
+	editorIsEligible = false;
+	await app.fire('history-refresh');
+	assert.equal(app.requests.length, requestCount + 2);
+	const requests = app.requests.slice(-2).map(request => new URL('http://localhost' + request.path).searchParams);
+	assert.equal(requests[0].get('actor'), 'anton');
+	assert.equal(requests[1].has('actor'), false);
+	assert.equal(requests[1].has('actorDeleted'), false);
+	assert.equal(requests[1].get('employee'), 'marvin-two');
+	assert.equal(requests[1].get('kind'), 'comment');
+	assert.equal(app.nodes.get('history-actor-value').textContent, 'All editors');
+	assert.ok(app.nodes.get('history-list').children.every(row => row.dataset.historyId !== '2'));
+	const fresh = response([item(3)]);
+	fresh.filters.actors = [];
+	completeRefetch(fresh);
+	await flush();
+	assert.equal(app.requests.length, requestCount + 2, 'A missing actor does not cause a reload loop');
+	assert.deepEqual(app.nodes.get('history-list').children.map(row => row.dataset.historyId), ['3']);
+	assert.equal(app.nodes.get('history-employee-value').textContent, 'Marvin Beispiel (marvin-two) · Inactive');
 });
 
 test('load more uses a stable cursor, deduplicates entries and refresh starts from the newest page', async () => {
@@ -488,11 +753,16 @@ test('invalid date changes cancel pending requests and reload when the range is 
 test('load errors clear previously scoped names and records and can be retried', async () => {
 	let fail = false;
 	const app = openHistory({ respond: () => { if (fail) throw new Error('403'); return response([item()]); } });
-	await app.history.show(); fail = true; await app.fire('history-refresh');
+	await app.history.show();
+	await app.chooseFilter('employee', 'marvin-two');
+	await app.chooseFilter('actor', 'user:anton');
+	fail = true; await app.fire('history-refresh');
 	assert.equal(app.nodes.get('history-list').children.length, 0);
 	assert.equal(app.nodes.get('history-table-body').children.length, 0);
-	assert.equal(app.nodes.get('history-employee').children.length, 1);
-	assert.equal(app.nodes.get('history-actor').children.length, 1);
+	assert.deepEqual(app.pickerOptions('employee').map(option => option.value), ['']);
+	assert.equal(app.nodes.get('history-employee-value').textContent, 'All employees');
+	assert.deepEqual(app.pickerOptions('actor').map(option => option.value), ['']);
+	assert.equal(app.nodes.get('history-actor-value').textContent, 'All editors');
 	assert.equal(app.nodes.get('history-more').hidden, true);
 	assert.equal(app.nodes.get('history-message').textContent, 'The change history could not be loaded. Please try again.');
 	fail = false; await app.fire('history-refresh'); assert.equal(app.nodes.get('history-list').children.length, 1);
@@ -514,7 +784,8 @@ test('a failed save clears both already loaded views without exposing stale tabl
 test('no retained history and no matching filters have separate messages', async () => {
 	const empty = openHistory({ respond: () => response([], { filters: { employees: [], actors: [] } }) });
 	await empty.history.show(); assert.equal(empty.nodes.get('history-message').textContent, 'No changes have been recorded yet.');
-	const filtered = openHistory(); await filtered.history.show();
+	const filtered = openHistory({ respond: () => response([], { hasHistory: true, filters: { employees: [], actors: [] } }) });
+	await filtered.history.show();
 	assert.equal(filtered.nodes.get('history-message').textContent, 'No changes match the selected filters.');
 });
 

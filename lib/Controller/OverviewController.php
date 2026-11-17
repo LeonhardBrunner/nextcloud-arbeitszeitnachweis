@@ -118,7 +118,7 @@ class OverviewController extends Controller {
 				'name' => $user['name'] ?? $userId,
 				'dailyMin' => (int)$summary['dailyMin'],
 				'overtimeMinutes' => (int)$summary['overtimeMinutes'],
-				'totalMinutes' => (int)$summary['totalMinutes'],
+				'totalMinutes' => $summary['currentMonthActualMinutes'],
 				'lastEntryDate' => $summary['lastEntryDate'] ?? null,
 				'balanceSource' => $summary['source'] ?? 'entries',
 				'lastSnapshot' => $summary['lastSnapshot'] ?? null,

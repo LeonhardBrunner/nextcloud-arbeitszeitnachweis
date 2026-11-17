@@ -27,6 +27,7 @@ namespace {
 	use OCA\Timesheet\Service\GroupRuleService;
 	use OCA\Timesheet\Service\MissingEntryReminderSettings;
 
+	require_once __DIR__ . '/../../lib/Service/NotificationMailTemplates.php';
 	require_once __DIR__ . '/../../lib/Service/MissingEntryReminderSettings.php';
 	require_once __DIR__ . '/../../lib/Service/EmployeeBalanceNotificationSettings.php';
 	require_once __DIR__ . '/../../lib/Service/HrRuleAssignments.php';

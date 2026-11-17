@@ -6,10 +6,13 @@ namespace OCA\Timesheet\Service;
  * Defines and validates the reminder settings stored with each group rule.
  */
 class MissingEntryReminderSettings {
+	public const MAIL_TEMPLATE_MAX_LENGTH = NotificationMailTemplates::MAX_LENGTH;
+
+	private const MAIL_RECIPIENT_TYPES = ['employee', 'hr'];
 	private const DEFAULT_GRACE_DAYS = 14;
 	private const DEFAULT_WEEKDAYS = [1, 2, 3, 4, 5];
 
-	/** @return array{enabled:bool,notifyEmployees:bool,notifyHr:bool,graceDays:int,weekdays:int[],startDate:string} */
+	/** @return array{enabled:bool,notifyEmployees:bool,notifyHr:bool,graceDays:int,weekdays:int[],startDate:string,mailTemplates?:array<string,array<string,string>>} */
 	public static function normalize(mixed $settings): array {
 		$settings = is_array($settings) ? $settings : [];
 		$graceDays = array_key_exists('graceDays', $settings) ? $settings['graceDays'] : self::DEFAULT_GRACE_DAYS;
@@ -33,17 +36,18 @@ class MissingEntryReminderSettings {
 			'graceDays' => $validGraceDays ? $graceDays : self::DEFAULT_GRACE_DAYS,
 			'weekdays' => $validWeekdays ? self::normalizeWeekdays($weekdays) : self::DEFAULT_WEEKDAYS,
 			'startDate' => $validStartDate ? $startDate : '',
+			...self::mailTemplateFields(NotificationMailTemplates::read($settings['mailTemplates'] ?? null, self::MAIL_RECIPIENT_TYPES)),
 		];
 	}
 
 	/**
 	 * Reject invalid submitted values rather than silently changing an active policy.
 	 *
-	 * @return array{enabled:bool,notifyEmployees:bool,notifyHr:bool,graceDays:int,weekdays:int[],startDate:string}
+	 * @return array{enabled:bool,notifyEmployees:bool,notifyHr:bool,graceDays:int,weekdays:int[],startDate:string,mailTemplates?:array<string,array<string,string>>}
 	 */
 	public static function validateForSave(mixed $settings, string $todayDate, ?array $previousSettings = null): array {
 		if ($settings === null) {
-			return self::normalize(null);
+			return self::normalize(['mailTemplates' => $previousSettings['mailTemplates'] ?? null]);
 		}
 		if (!is_array($settings)) {
 			throw new \InvalidArgumentException('Invalid missing-entry reminder settings');
@@ -75,6 +79,11 @@ class MissingEntryReminderSettings {
 			throw new \InvalidArgumentException('Reminder start date must be a valid date in YYYY-MM-DD format');
 		}
 
+		$mailTemplates = NotificationMailTemplates::read($previousSettings['mailTemplates'] ?? null, self::MAIL_RECIPIENT_TYPES);
+		if (array_key_exists('mailTemplates', $settings)) {
+			$mailTemplates = NotificationMailTemplates::merge($mailTemplates, $settings['mailTemplates'], self::MAIL_RECIPIENT_TYPES);
+		}
+
 		return [
 			'enabled' => $enabled,
 			'notifyEmployees' => $notifyEmployees,
@@ -82,7 +91,12 @@ class MissingEntryReminderSettings {
 			'graceDays' => $graceDays,
 			'weekdays' => self::normalizeWeekdays($weekdays),
 			'startDate' => $startDate,
+			...self::mailTemplateFields($mailTemplates),
 		];
+	}
+
+	private static function mailTemplateFields(array $templates): array {
+		return $templates === [] ? [] : ['mailTemplates' => $templates];
 	}
 
 	/** Legacy rules used one switch; explicit recipient choices never fall back to it. */

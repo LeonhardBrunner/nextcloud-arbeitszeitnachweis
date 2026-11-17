@@ -26,6 +26,7 @@ $appConfig = $container->get(\OCP\AppFramework\Services\IAppConfig::class);
 $entryMapper = $container->get(\OCA\Timesheet\Db\EntryMapper::class);
 $configMapper = $container->get(\OCA\Timesheet\Db\UserConfigMapper::class);
 $phase = $argv[1] ?? 'test';
+$appVersion = $server::get(\OCP\App\IAppManager::class)->getAppVersion('timesheet', false);
 $checks = 0;
 function historyCheck(mixed $actual, mixed $expected, string $description): void {
 	global $checks;
@@ -44,7 +45,7 @@ function historyAs(string $userId): void {
 }
 
 if ($phase === 'fresh') {
-	historyCheck($appConfig->getAppValueString('installed_version'), '1.4.0', 'Fresh installation enables 1.4.0');
+	historyCheck($appConfig->getAppValueString('installed_version'), $appVersion, 'Fresh installation enables the code version');
 	historyCheck(count(historyRows('ts_change_history')), 0, 'Fresh installation creates an empty history table');
 	historyCheck((int)$appConfig->getAppValueString('change_history_started_at') > 0, true, 'Fresh installation records its activation date');
 	historyCheck($server::get(\OCP\BackgroundJob\IJobList::class)->has(\OCA\Timesheet\BackgroundJob\ChangeHistoryCleanupJob::class, null), true, 'Fresh installation registers daily cleanup');
@@ -140,8 +141,15 @@ if ($phase === 'seed') {
 	exit;
 }
 
+$baseline = json_decode($appConfig->getAppValueString('history_test_baseline'), true, 512, JSON_THROW_ON_ERROR);
+$baseline['entries'] = array_map(static fn (array $row): array => $row + ['comment_type' => null], $baseline['entries']);
+$baseline['configs'] = array_map(static fn (array $row): array => $row + [
+	'mail_no_entry_override' => 0,
+	'mail_overtime_override' => 0,
+	'mail_negative_override' => 0,
+], $baseline['configs']);
+
 if ($phase === 'reset') {
-	$baseline = json_decode($appConfig->getAppValueString('history_test_baseline'), true, 512, JSON_THROW_ON_ERROR);
 	foreach (['ts_change_history', 'ts_entries', 'ts_user_config', 'ts_monthly_balances'] as $table) {
 		$database->getQueryBuilder()->delete($table)->executeStatement();
 	}
@@ -155,9 +163,8 @@ if ($phase === 'reset') {
 	echo "Reset only the guarded disposable history database to its saved baseline.\n";
 	exit;
 }
-historyCheck($appConfig->getAppValueString('installed_version'), '1.4.0', 'The isolated upgrade installed 1.4.0');
-$baseline = json_decode($appConfig->getAppValueString('history_test_baseline'), true, 512, JSON_THROW_ON_ERROR);
-historyCheck(historyRows('ts_entries'), $baseline['entries'], 'Upgrade preserves every original entry and historical negative break');
+historyCheck($appConfig->getAppValueString('installed_version'), $appVersion, 'The isolated upgrade installed the code version');
+historyCheck(historyRows('ts_entries'), $baseline['entries'], 'Upgrade preserves every original entry with its original comment and negative break');
 historyCheck(historyRows('ts_user_config'), $baseline['configs'], 'Upgrade preserves work settings');
 historyCheck(historyRows('ts_monthly_balances'), $baseline['balances'], 'Upgrade preserves every original balance');
 $entries = $container->get(\OCA\Timesheet\Service\EntryService::class);
@@ -190,6 +197,8 @@ historyAs('history-hr-a');
 $employeeChanges = $history->list(['employeeChanges' => '1', 'employee' => 'history-employee-a', 'actor' => 'history-employee-a', 'kind' => 'comment']);
 historyCheck(count($employeeChanges['items']), 1, 'The employee changes filter finds the scoped self-edit');
 historyCheck($employeeChanges['items'][0]['changes'], [['field' => 'comment', 'before' => '<script>alert("literal")</script>', 'after' => 'Eigenänderung']], 'The self-edit retains both comment values');
+historyCheck($employeeChanges['hasHistory'], true, 'Historical events exist even when a writer is absent from the dropdown');
+historyCheck(in_array('history-employee-a', array_column($employeeChanges['filters']['actors'], 'id'), true), false, 'An ordinary employee is not listed as an editor');
 $entries->update((int)$entry->getId(), ['comment' => 'Nach Eigenänderung']);
 historyCheck($history->list([])['items'][0]['changes'][0]['before'], 'Eigenänderung', 'Fresh values include the intervening employee self-edit');
 $self = $entries->create(['workDate' => '2026-10-29', 'startMin' => null, 'endMin' => null, 'breakMinutes' => 0, 'comment' => 'Eigener HR-Eintrag']);
@@ -257,6 +266,17 @@ historyCheck($denied, true, 'Ordinary employees have no history endpoint');
 historyAs('history-hr-admin');
 historyCheck(count($history->list([])['items']) > 0, true, 'An administrator with an HR assignment is treated as HR');
 historyAs('history-hr-a');
+$hrEditors = $groups->get('history-hr-main');
+$historicalEditor = $users->get('history-hr-b');
+$hrEditors->removeUser($historicalEditor);
+try {
+	$formerEditorHistory = $history->list(['actor' => 'history-hr-b']);
+	historyCheck(in_array('history-hr-b', array_column($formerEditorHistory['filters']['actors'], 'id'), true), false, 'An editor losing HR rights disappears from the dropdown');
+	historyCheck(count($formerEditorHistory['items']), 1, 'An explicit historical editor filter still reads scoped records');
+} finally {
+	$hrEditors->addUser($historicalEditor);
+}
+historyCheck(in_array('history-hr-b', array_column($history->list([])['filters']['actors'], 'id'), true), true, 'An editor regaining HR rights returns to the dropdown');
 $groups->get('history-staff-main')->removeUser($users->get('history-inactive'));
 historyCheck(in_array('history-inactive', array_column(array_column($history->list([])['items'], 'employee'), 'id'), true), false, 'Removed employee assignment hides earlier history');
 $groups->get('history-staff-main')->addUser($users->get('history-inactive'));
@@ -273,9 +293,11 @@ historyAs('history-deleted-hr');
 $entries->upsertCommentOnly('history-freelancer', '2026-10-30', 'Former HR editor');
 historyAs('history-hr-a');
 $users->get('history-deleted-hr')->delete();
-$anonymous = $history->list(['actorDeleted' => 1])['items'];
+$anonymizedHistory = $history->list(['actorDeleted' => 1]);
+$anonymous = $anonymizedHistory['items'];
 historyCheck(count($anonymous), 1, 'A deleted HR account leaves an anonymised event');
 historyCheck($anonymous[0]['actor'], ['id' => null, 'name' => ''], 'Deleted editor name and ID are erased');
+historyCheck(in_array(null, array_column($anonymizedHistory['filters']['actors'], 'id'), true), false, 'A deleted account is not available in the editor dropdown');
 $entries->upsertCommentOnly('history-deleted-employee', '2026-10-30', 'Temporary employee history');
 $users->get('history-deleted-employee')->delete();
 historyCheck(count(array_filter(historyRows('ts_change_history'), static fn(array $row): bool => $row['employee_id'] === 'history-deleted-employee')), 0, 'Deleting the employee removes their history');
@@ -299,6 +321,12 @@ historyCheck(is_int($first['nextCursor']), true, 'A stable next cursor is return
 $second = $history->list(['employee' => 'history-inactive', 'beforeId' => $first['nextCursor']]);
 historyCheck(count(array_intersect(array_column($first['items'], 'id'), array_column($second['items'], 'id'))), 0, 'Pages do not duplicate events');
 historyCheck(count($first['items']) + count($second['items']), 57, 'Pagination does not skip retained events');
+$typedAbsence = $entries->upsertCommentOnly('history-employee-a', '2026-10-30', 'Urlaub', 'vacation');
+historyCheck($entryMapper->findById((int)$typedAbsence->getId())->jsonSerialize()['commentType'], 'vacation', 'A preset is persisted and returned after a new database read');
+$entries->update((int)$typedAbsence->getId(), ['comment' => 'Urlaub', 'commentType' => 'custom']);
+historyCheck($entryMapper->findById((int)$typedAbsence->getId())->getCommentType(), 'custom', 'An explicit custom remark can have the exact same text');
+$typeChange = $history->list(['employee' => 'history-employee-a', 'kind' => 'comment'])['items'][0];
+historyCheck($typeChange['changes'], [['field' => 'commentType', 'before' => 'vacation', 'after' => 'custom']], 'A type-only update is recorded by the comment filter');
 historyCheck(historyRows('ts_monthly_balances'), $baseline['balances'], 'All tests preserve original historical balances');
 $baselineEntries = array_values(array_filter(historyRows('ts_entries'), static fn(array $row): bool => $row['user_id'] === 'history-baseline'));
 historyCheck($baselineEntries, $baseline['entries'], 'All tests preserve original entries and negative pauses');

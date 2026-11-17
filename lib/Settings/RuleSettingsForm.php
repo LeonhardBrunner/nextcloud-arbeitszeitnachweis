@@ -34,8 +34,8 @@ class RuleSettingsForm {
 	}
 
 	public function getForm(string $scope): TemplateResponse {
-		Util::addScript($this->appName, 'timesheet-rule-settings');
-		Util::addStyle($this->appName, 'timesheet-hr-settings');
+		Util::addScript($this->appName, 'timesheet-rule-settings-v3');
+		Util::addStyle($this->appName, 'timesheet-hr-settings-v7');
 		return new TemplateResponse($this->appName, 'settings-hr', $this->getData($scope));
 	}
 

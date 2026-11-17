@@ -9,10 +9,14 @@ use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IRequest;
 use OCP\IGroupManager;
 use OCP\IL10N;
+use OCP\L10N\IFactory;
 use OCP\Util;
 use OCA\Timesheet\Service\AbsenceCommentCatalog;
 use OCA\Timesheet\Service\HrService;
+use OCA\Timesheet\Service\HrWeeklyMailTemplates;
 use OCA\Timesheet\Settings\RuleSettingsForm;
+use OCA\Timesheet\Service\MissingEntryReminderMailer;
+use OCA\Timesheet\Service\MissingEntryReminderSettings;
 use OCA\Timesheet\Db\UserPreferencesStore;
 use OCA\Timesheet\Db\TourProgressStore;
 use OCA\Timesheet\Db\EmploymentStatusStore;
@@ -35,6 +39,7 @@ class PageController extends Controller {
 		private IL10N $l10n,
 		private EmploymentStatusStore $employmentStatusStore,
 		private RuleSettingsForm $ruleSettingsForm,
+		private IFactory $l10nFactory,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -59,30 +64,30 @@ class PageController extends Controller {
 		}
 		Util::addScript('timesheet', 'timesheet-entries');
 		Util::addScript('timesheet', 'timesheet-employment-status');
-		Util::addScript('timesheet', 'timesheet-hr');
+		Util::addScript('timesheet', 'timesheet-hr-dashboard-v2');
 		Util::addScript('timesheet', 'timesheet-export');
 		Util::addScript('timesheet', 'timesheet-copy');
-		Util::addScript('timesheet', 'timesheet-settings');
+		Util::addScript('timesheet', 'timesheet-settings-v2');
 		if ($isHr) {
-			Util::addScript('timesheet', 'timesheet-history-live');
-			Util::addScript('timesheet', 'timesheet-rule-settings');
+			Util::addScript('timesheet', 'timesheet-history');
+			Util::addScript('timesheet', 'timesheet-rule-settings-v3');
 		}
 		if ($updateNotesEnabled) {
 			Util::addScript('timesheet', 'timesheet-update-notes');
 		}
 		if ($tourEnabled) {
 			Util::addScript('timesheet', 'timesheet-tour-launcher');
-			Util::addScript('timesheet', 'timesheet-tour');
+			Util::addScript('timesheet', 'timesheet-guided-tour-v2');
 		}
 		Util::addScript('timesheet', 'timesheet-main');
 
-		Util::addStyle('timesheet', 'style');
+		Util::addStyle('timesheet', 'timesheet-layout-v4');
 		if ($isHr) {
-			Util::addStyle('timesheet', 'timesheet-history-live');
-			Util::addStyle('timesheet', 'timesheet-hr-settings');
+			Util::addStyle('timesheet', 'timesheet-history');
+			Util::addStyle('timesheet', 'timesheet-hr-settings-v7');
 		}
 		if ($updateNotesEnabled) {
-			Util::addStyle('timesheet', 'timesheet-update-notes');
+			Util::addStyle('timesheet', 'timesheet-release-notes');
 		}
 		if ($isHr || $tourEnabled) {
 			Util::addStyle('timesheet', 'timesheet-help-panels');
@@ -131,9 +136,22 @@ class PageController extends Controller {
 			}
 		}
 		$notificationRuleSettings = null;
-		if ($isHr) {
+		$weeklyMailEditor = null;
+		if ($isHr && $currentUser !== null) {
+			// Match background delivery even when the editor request overrides its display language.
+			$mailLanguage = $this->l10nFactory->getLanguageIterator($currentUser)->current();
+			$mailTranslator = $this->l10nFactory->get($this->appName, $mailLanguage);
+			$weeklyMailEditor = HrWeeklyMailTemplates::editor($mailTranslator, $mailLanguage);
 			try {
 				$notificationRuleSettings = $this->ruleSettingsForm->getData('notifications');
+				$notificationRuleSettings['reminderMailEditor'] = [
+					'language' => $mailLanguage,
+					'originals' => [
+						'employee' => MissingEntryReminderMailer::originalBody($mailTranslator, false),
+						'hr' => MissingEntryReminderMailer::originalBody($mailTranslator, true),
+					],
+					'maxLength' => MissingEntryReminderSettings::MAIL_TEMPLATE_MAX_LENGTH,
+				];
 			} catch (\Throwable $loadError) {
 				// A failed rule snapshot must not block entries or personal HR settings.
 				$this->logger->warning('Notification rules could not be loaded.', ['exception' => $loadError]);
@@ -142,6 +160,7 @@ class PageController extends Controller {
 		return new TemplateResponse($this->appName, 'main', [
 			'isHR' => $isHr,
 			'notificationRuleSettings' => $notificationRuleSettings,
+			'weeklyMailEditor' => $weeklyMailEditor,
 			'updateNotesEnabled' => $updateNotesEnabled,
 			'breakInputMode' => $breakPreference['breakInputMode'],
 			'breakInputRevision' => $breakPreference['revision'],

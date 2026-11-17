@@ -7,20 +7,28 @@ namespace OCP {
 	interface IUser { public function getUID(): string; public function getDisplayName(): string; public function getEMailAddress(): ?string; public function isEnabled(): bool; }
 	interface IUserManager { public function get(string $id): ?IUser; }
 	interface IGroupManager { public function get(string $id); }
-	interface IConfig { public function getUserValueForUsers($app, $key, $users); public function setUserValue($user, $app, $key, $value); }
+	interface IConfig { public function getUserValueForUsers($app, $key, $users); public function setUserValue($user, $app, $key, $value, $preCondition = null); }
+	interface IDBConnection { public function getQueryBuilder(); public function beginTransaction(); public function commit(); public function rollBack(); }
 	interface IURLGenerator { public function getAbsoluteURL(string $url): string; public function linkToRoute(string $route): string; }
 	interface IL10N {
 		public function t(string $message, array $parameters = []): string;
 		public function l(string $type, $data, array $options = []): string;
 	}
 }
+namespace OCP\DB\QueryBuilder { interface IQueryBuilder { public const PARAM_INT = 1; } }
 namespace OCP\Lock {
 	class LockedException extends \RuntimeException { }
 	interface ILockingProvider { public const LOCK_EXCLUSIVE = 2; public function acquireLock(string $key, int $type): void; public function releaseLock(string $key, int $type): void; }
 }
 namespace OCP\AppFramework\Services { interface IAppConfig { public function getAppValueString(string $key, string $default = ''): string; } }
 namespace OCP\AppFramework\Utility { interface ITimeFactory { public function getDateTime(string $time = 'now', ?\DateTimeZone $timezone = null): \DateTime; } }
-namespace OCP\L10N { interface IFactory { public function getUserLanguage(\OCP\IUser $user): string; public function get(string $app, ?string $language = null): \OCP\IL10N; } }
+namespace OCP\L10N {
+	interface IFactory {
+		public function getLanguageIterator(\OCP\IUser $user): \Iterator;
+		public function getUserLanguage(\OCP\IUser $user): string;
+		public function get(string $app, ?string $language = null): \OCP\IL10N;
+	}
+}
 namespace OCP\Mail { interface IMailer { public function createMessage(); public function send($message); } }
 namespace OCP\BackgroundJob {
 	interface IJob { public const TIME_INSENSITIVE = 0; }
@@ -69,6 +77,7 @@ namespace {
 	use OCA\Timesheet\BackgroundJob\HrNotificationJob;
 	use OCA\Timesheet\Db\EmployeeBalanceNotificationStore;
 	use OCA\Timesheet\Db\EmploymentStatusStore;
+	use OCA\Timesheet\Db\HrPreferencesStore;
 	use OCA\Timesheet\Service\EmployeeBalanceNotificationMailer;
 	use OCA\Timesheet\Service\EmployeeBalanceNotificationService;
 	use OCA\Timesheet\Service\EmployeeBalanceNotificationSettings;
@@ -76,7 +85,7 @@ namespace {
 	use OCA\Timesheet\Service\HrNotificationService;
 	use OCA\Timesheet\Service\MonthlyBalanceService;
 
-	foreach (['Service/EmployeeBalanceNotificationSettings', 'Db/EmployeeBalanceNotificationStore', 'Service/EmployeeBalanceNotificationMailer', 'Service/EmployeeBalanceNotificationService', 'BackgroundJob/HrNotificationJob'] as $class) {
+	foreach (['Service/NotificationMailTemplates', 'Service/HrWeeklyMailTemplates', 'Db/HrPreferencesStore', 'Service/EmployeeBalanceNotificationSettings', 'Db/EmployeeBalanceNotificationStore', 'Service/EmployeeBalanceNotificationMailer', 'Service/EmployeeBalanceNotificationService', 'BackgroundJob/HrNotificationJob'] as $class) {
 		require __DIR__ . '/../../lib/' . $class . '.php';
 	}
 	class BalanceUser implements \OCP\IUser {
@@ -117,7 +126,46 @@ namespace {
 			foreach ($users as $user) if (isset($this->values[$user][$app][$key])) $result[$user] = $this->values[$user][$app][$key];
 			return $result;
 		}
-		public function setUserValue($user, $app, $key, $value): void { $this->values[$user][$app][$key] = $value; $this->writes[] = [$user, $app, $key, $value]; }
+		public bool $rejectTemplateWrites = false;
+		public function setUserValue($user, $app, $key, $value, $preCondition = null): void {
+			$stored = $this->values[$user][$app][$key] ?? '';
+			if ($this->rejectTemplateWrites || ($preCondition !== null && $preCondition !== $stored)) {
+				throw new \RuntimeException('Synthetic preference save failure.');
+			}
+			$this->values[$user][$app][$key] = $value;
+			$this->writes[] = [$user, $app, $key, $value];
+		}
+	}
+	// Minimal local table double keeps these settings tests independent of Nextcloud and SQL engines.
+	class BalancePreferenceDb implements \OCP\IDBConnection {
+		public array $rows = [];
+		private array $before = [];
+		private string $id;
+		private array $changes = [];
+		public function beginTransaction(): void { $this->before = $this->rows; }
+		public function commit(): void { $this->before = []; }
+		public function rollBack(): void { $this->rows = $this->before; }
+		public function getQueryBuilder(): self { $this->changes = []; return $this; }
+		public function select(string $columns): self { return $this; }
+		public function from(string $table): self { return $this; }
+		public function update(string $table): self { return $this; }
+		public function insert(string $table): self { return $this; }
+		public function expr(): self { return $this; }
+		public function eq(string $field, string $id): string { return $id; }
+		public function createNamedParameter(mixed $value, ?int $type = null): mixed { return $value; }
+		public function where(string $id): self { $this->id = $id; return $this; }
+		public function set(string $field, int $value): void { $this->changes[$field] = $value; }
+		public function values(array $values): self { $this->id = $values['user_id']; $this->changes = $values; return $this; }
+		public function executeQuery(): self { return $this; }
+		public function fetch(): array|false { return $this->rows[$this->id] ?? false; }
+		public function executeStatement(): int {
+			$current = $this->rows[$this->id] ?? [];
+			if ($current === [] && !isset($this->changes['user_id'])) {
+				return 0;
+			}
+			$this->rows[$this->id] = array_replace($current, $this->changes);
+			return 1;
+		}
 	}
 	class BalanceClock implements \OCP\AppFramework\Utility\ITimeFactory {
 		public string $instant = '2026-11-09T10:00:00+01:00';
@@ -141,6 +189,7 @@ namespace {
 	}
 	class BalanceLanguages implements \OCP\L10N\IFactory {
 		public array $calls = [];
+		public function getLanguageIterator(\OCP\IUser $user): \Iterator { return new \ArrayIterator([$user->language]); }
 		public function getUserLanguage(\OCP\IUser $user): string { return $user->language; }
 		public function get(string $app, ?string $language = null): \OCP\IL10N { $this->calls[] = [$app, $language]; return new BalanceTranslator($language ?? 'en'); }
 	}
@@ -314,6 +363,86 @@ namespace {
 		$job = new HrNotificationJob($f['clock'], $f['users'], $f['transport'], $hrService, new BalanceAppConfig(), $f['logger'], $f['languages'], $employeeService);
 		(new \ReflectionMethod($job, 'run'))->invoke($job, []); balanceSame(['hr@example.test'], balanceRecipients($f['transport'])); balanceSame(true, str_contains($f['transport']->messages[0]->plain, 'Too much overtime:'));
 		balanceSame('[en] Timesheet Notifications - 2026-11-09', $f['transport']->messages[0]->subject);
+	});
+
+	balanceTest('Weekly section text localizes by HR account, preserves generated values, and stays in one digest', static function (): void {
+		$f = balanceFixture();
+		$f['users']->users['hr'] = new BalanceUser('hr', 'HR', 'hr@example.test', true, 'de_DE');
+		$f['users']->users['other-hr'] = new BalanceUser('other-hr', 'Other HR', 'other-hr@example.test', true, 'en');
+		$employeeService = new BalanceJobService();
+		$hrService = new HrNotificationService();
+		$notifications = [
+			'noEntry' => [['user' => 'Name <script>', 'days' => 19]],
+			'noEntryDays' => 14,
+			'overtime' => [['user' => 'Name plus', 'overtime' => '+10:01']],
+			'negative' => [['user' => 'Name minus', 'deficit' => '-09:29']],
+			'thresholds' => ['noEntry' => '14', 'overtime' => '+09:40', 'negative' => '-08:15'],
+			'weeklyMailTemplates' => [
+				'noEntry' => ['de_DE' => "Fehlend ab {threshold} <b>\n{entries}"],
+				'overtime' => ['de_DE' => "Plus ab {threshold}\n{entries}"],
+				'negative' => ['de_DE' => "Minus ab {threshold}\n{entries}"],
+			],
+		];
+		$hrService->notifications = [
+			'hr' => $notifications,
+			'other-hr' => array_replace($notifications, ['negative' => []]),
+		];
+		$job = new HrNotificationJob($f['clock'], $f['users'], $f['transport'], $hrService, new BalanceAppConfig(), $f['logger'], $f['languages'], $employeeService);
+		(new \ReflectionMethod($job, 'run'))->invoke($job, []);
+		balanceSame(1, $employeeService->calls);
+		balanceSame(['hr@example.test', 'other-hr@example.test'], balanceRecipients($f['transport']));
+		[$german, $english] = $f['transport']->messages;
+		foreach (['Fehlend ab 14 <b>', '19 days without a complete entry', 'Plus ab +09:40', '+10:01 overtime', 'Minus ab -08:15', '-09:29 deficit'] as $text) {
+			balanceSame(true, str_contains($german->plain, $text));
+		}
+		balanceSame('[de_DE] Timesheet Notifications - 09.11.2026', $german->subject);
+		balanceSame(true, str_contains($german->html, 'Fehlend ab 14 &lt;b&gt;'));
+		balanceSame(true, str_contains($german->html, 'Name &lt;script&gt;'));
+		balanceSame(false, str_contains($german->html, '<script>'));
+		balanceSame(true, str_contains($english->plain, 'No complete entry for at least 14 days:'));
+		balanceSame(true, str_contains($english->plain, 'Too much overtime:'));
+		balanceSame(false, str_contains($english->plain, 'Too many negative hours:'));
+		balanceSame(false, str_contains($english->plain, 'Plus ab'));
+	});
+	balanceTest('Personal weekly preference updates are sparse, account-local and preserve other languages', static function (): void {
+		$db = new BalancePreferenceDb(); $config = new BalanceConfig(); $locks = new BalanceLocks();
+		$store = new HrPreferencesStore($db, $config, $locks);
+		$settings = $store->saveNotificationSettings('hr', [
+			'warningThresholds' => ['noEntryDays' => 9],
+			'negativeOvertimeEnabled' => true,
+			'weeklyMailTemplates' => ['noEntry' => ['de' => "Deutsch\r\n{entries}", 'en' => 'English {entries}']],
+		]);
+		balanceSame(['noEntry' => ['de' => "Deutsch\n{entries}", 'en' => 'English {entries}']], $settings['weeklyMailTemplates']);
+		balanceSame(9, $settings['warningThresholds']['noEntryDays']);
+		balanceSame(true, $settings['negativeOvertimeEnabled']);
+		$settings = $store->saveNotificationSettings('hr', ['weeklyMailTemplates' => ['noEntry' => ['de' => null], 'overtime' => ['de' => 'Plus {entries}']]]);
+		balanceSame(['noEntry' => ['en' => 'English {entries}'], 'overtime' => ['de' => 'Plus {entries}']], $settings['weeklyMailTemplates']);
+		balanceSame(9, $settings['warningThresholds']['noEntryDays']);
+		balanceSame(true, $settings['negativeOvertimeEnabled']);
+		balanceSame(false, array_key_exists('weeklyMailTemplates', $store->getNotificationSettings('other-hr')));
+		balanceSame($settings['weeklyMailTemplates'], $store->saveNotificationSettings('hr', ['overtimeEnabled' => true])['weeklyMailTemplates']);
+		$reset = ['weeklyMailTemplates' => ['noEntry' => ['en' => null], 'overtime' => ['de' => null]]];
+		balanceSame(false, array_key_exists('weeklyMailTemplates', $store->saveNotificationSettings('hr', $reset)));
+		balanceSame(false, array_key_exists('weeklyMailTemplates', $store->saveNotificationSettings('hr', $reset)));
+		balanceSame([], $locks->held);
+	});
+	balanceTest('Rejected templates or storage failures roll back a combined personal save and allow retry', static function (): void {
+		$db = new BalancePreferenceDb(); $config = new BalanceConfig(); $locks = new BalanceLocks();
+		$store = new HrPreferencesStore($db, $config, $locks);
+		$store->saveNotificationSettings('hr', ['warningThresholds' => ['noEntryDays' => 9]]);
+		$patch = ['warningThresholds' => ['noEntryDays' => 12], 'weeklyMailTemplates' => ['noEntry' => ['de' => 'No entries token']]];
+		balanceThrows(\InvalidArgumentException::class, static fn () => $store->saveNotificationSettings('hr', $patch));
+		balanceSame(9, $store->getNotificationSettings('hr')['noEntryDays']);
+		$patch['weeklyMailTemplates']['noEntry']['de'] = 'Valid {entries}';
+		$config->rejectTemplateWrites = true;
+		balanceThrows(\RuntimeException::class, static fn () => $store->saveNotificationSettings('hr', $patch));
+		balanceSame(9, $store->getNotificationSettings('hr')['noEntryDays']);
+		balanceSame(false, array_key_exists('weeklyMailTemplates', $store->getNotificationSettings('hr')));
+		balanceSame([], $locks->held);
+		$config->rejectTemplateWrites = false;
+		$settings = $store->saveNotificationSettings('hr', $patch);
+		balanceSame(12, $settings['noEntryDays']);
+		balanceSame('Valid {entries}', $settings['weeklyMailTemplates']['noEntry']['de']);
 	});
 
 	fwrite(STDOUT, 'Employee balance notifications: ' . $checks . ' checks, ' . $failures . " failures\n");

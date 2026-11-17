@@ -9,13 +9,17 @@ use OCA\Timesheet\Db\Entry;
 /** Compares stored input values without changing time calculations or historical pause values. */
 class HistoryChangeSet {
 	public static function entry(Entry $entry): array {
-		return [
+		$values = [
 			'workDate' => (string)$entry->getWorkDate(),
 			'startMin' => $entry->getStartMin() === null ? null : (int)$entry->getStartMin(),
 			'endMin' => $entry->getEndMin() === null ? null : (int)$entry->getEndMin(),
 			'breakMinutes' => (int)$entry->getBreakMinutes(),
 			'comment' => (string)($entry->getComment() ?? ''),
 		];
+		if ($entry->getCommentType() !== null) {
+			$values['commentType'] = $entry->getCommentType();
+		}
+		return $values;
 	}
 
 	public static function settings(array $settings): array {
@@ -33,6 +37,9 @@ class HistoryChangeSet {
 		}
 		foreach ($record['changes'] as $change) {
 			if ($change['field'] === 'comment' && (string)($change['before'] ?? '') !== (string)($change['after'] ?? '')) {
+				return true;
+			}
+			if ($record['kind'] === 'updated' && $change['field'] === 'commentType' && ($change['before'] ?? null) !== ($change['after'] ?? null)) {
 				return true;
 			}
 		}

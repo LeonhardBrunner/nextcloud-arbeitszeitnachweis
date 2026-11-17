@@ -163,6 +163,7 @@ namespace {
 
 	require_once __DIR__ . '/../../lib/Service/HrRuleAssignments.php';
 	require_once __DIR__ . '/../../lib/Service/HrService.php';
+	require_once __DIR__ . '/../../lib/Service/NotificationMailTemplates.php';
 	require_once __DIR__ . '/../../lib/Service/MissingEntryReminderSettings.php';
 	require_once __DIR__ . '/../../lib/Service/EmployeeBalanceNotificationSettings.php';
 	require_once __DIR__ . '/../../lib/Controller/SettingsController.php';
@@ -381,8 +382,8 @@ namespace {
 					$expectSame($scope, $form->getParams()['settingsScope']);
 					$expectSame(hash('sha256', $state['config']->values['hr_access_rules']), $form->getParams()['rulesRevision']);
 					$expectSame('rule-a', $form->getParams()['hrAccessRules'][0]['id']);
-					$expectSame([['timesheet', 'timesheet-rule-settings']], \OCP\Util::$scripts);
-					$expectSame([['timesheet', 'timesheet-hr-settings']], \OCP\Util::$styles);
+					$expectSame([['timesheet', 'timesheet-rule-settings-v3']], \OCP\Util::$scripts);
+					$expectSame([['timesheet', 'timesheet-hr-settings-v7']], \OCP\Util::$styles);
 					$expectSame($scope === 'policy' ? 'timeRules' : null, $form->getParams()['policySection']);
 				} else {
 					$expectSame([], $form->getParams());
@@ -543,6 +544,64 @@ namespace {
 			$state = $fixture(); $response = $save($state, [[...$defaultRule, ...$invalid]]); $expectSame(400, $response->getStatus()); $expectSame([], $state['config']->writes); $expectSame([], $state['reminders']->preparations);
 		});
 	}
+	$test('Reminder mail overrides save, reload, and reset only the selected recipient and locale', static function () use ($fixture, $save, $defaultRule, $expectSame): void {
+		$state = $fixture();
+		$templates = [
+			'employee' => ['de' => "Hallo {recipient}\n\n{entries}", 'en' => 'Employee: {entries}'],
+			'hr' => ['de' => 'HR: {entries}'],
+		];
+		$settings = ['enabled' => true, 'mailTemplates' => $templates];
+		$rule = [...$defaultRule, 'missingEntryReminders' => $settings];
+		$response = $save($state, [$rule], 'policy', null, 'notifications');
+		$expectSame(200, $response->getStatus());
+		$previousRevision = $response->getData()['rulesRevision'];
+		$snapshot = $state['provider']->getForm()->getParams()['hrAccessRules'][0]['missingEntryReminders'];
+		$expectSame($templates, $snapshot['mailTemplates']);
+
+		$legacyRule = [...$rule, 'missingEntryReminders' => ['enabled' => true, 'graceDays' => 3]];
+		$response = $save($state, [$legacyRule], 'policy', null, 'notifications');
+		$expectSame(200, $response->getStatus());
+		$expectSame($templates, $response->getData()['rules'][0]['missingEntryReminders']['mailTemplates']);
+		$expectSame(3, $response->getData()['rules'][0]['missingEntryReminders']['graceDays']);
+
+		$rule = [...$legacyRule, 'missingEntryReminders' => [...$legacyRule['missingEntryReminders'], 'mailTemplates' => ['employee' => ['de' => null]]]];
+		$conflict = $save($state, [$rule], 'policy', $previousRevision, 'notifications');
+		$expectSame(409, $conflict->getStatus());
+		$expectSame($templates, $conflict->getData()['rules'][0]['missingEntryReminders']['mailTemplates']);
+		$response = $save($state, [$rule], 'policy', null, 'notifications');
+		$expectSame(200, $response->getStatus());
+		unset($templates['employee']['de']);
+		$expectSame($templates, $response->getData()['rules'][0]['missingEntryReminders']['mailTemplates']);
+
+		$rule['missingEntryReminders']['mailTemplates'] = ['employee' => ['en' => null], 'hr' => ['de' => null]];
+		$response = $save($state, [$rule], 'policy', null, 'notifications');
+		$expectSame(200, $response->getStatus());
+		$expectSame(false, array_key_exists('mailTemplates', $response->getData()['rules'][0]['missingEntryReminders']));
+		$expectSame(200, $save($state, [$rule], 'policy', null, 'notifications')->getStatus());
+	});
+	$test('Reminder mail overrides are protected by the existing editor scopes and body validation', static function () use ($fixture, $save, $defaultRule, $expectSame): void {
+		$rule = [...$defaultRule, 'missingEntryReminders' => ['mailTemplates' => ['employee' => ['de' => 'Valid {entries}']]]];
+		$expectSame(403, $save($fixture('employee'), [$rule], 'policy', null, 'notifications')->getStatus());
+		foreach ([['admin', 'assignments', null], ['hr', 'policy', 'timeRules']] as [$actor, $scope, $section]) {
+			$response = $save($fixture($actor), [$rule], $scope, null, $section);
+			$expectSame(200, $response->getStatus());
+			$expectSame(false, array_key_exists('mailTemplates', $response->getData()['rules'][0]['missingEntryReminders']));
+		}
+		$state = $fixture();
+		foreach ([
+			['employee' => ['de' => 'Missing placeholder']],
+			['employee' => ['de' => '{entries} and {entries}']],
+			['employee' => ['de' => str_repeat('ü', 4000) . '{entries}']],
+			['employee' => ['de' => "Invalid control \0: {entries}"]],
+			['employee' => ['not a locale' => '{entries}']],
+			['unknown' => ['de' => '{entries}']],
+		] as $invalid) {
+			$rule['missingEntryReminders']['mailTemplates'] = $invalid;
+			$expectSame(400, $save($state, [$rule], 'policy', null, 'notifications')->getStatus());
+		}
+		$expectSame([], $state['config']->writes);
+		$expectSame([], $state['reminders']->preparations);
+	});
 	$test('Enabling reminders retains validation and prepares enrollment before writing', static function () use ($fixture, $save, $defaultRule, $expectSame): void {
 		$state = $fixture(); $state['config']->beforeWrite = static function () use ($state, $expectSame): void { $expectSame(1, count($state['reminders']->preparations)); };
 		$response = $save($state, [[...$defaultRule, 'missingEntryReminders' => ['enabled' => true]]]); $expectSame(200, $response->getStatus());

@@ -19,7 +19,7 @@ namespace OCP {
 
 namespace OCP\L10N {
 	interface IFactory {
-		public function getUserLanguage(\OCP\IUser $user): string;
+		public function getLanguageIterator(\OCP\IUser $user): \Iterator;
 		public function get(string $app, ?string $language = null): \OCP\IL10N;
 	}
 }
@@ -100,9 +100,9 @@ namespace {
 			public array $requestedUsers = [];
 			public array $requestedLanguages = [];
 			public array $requestedTexts = [];
-			public function getUserLanguage(IUser $user): string {
+			public function getLanguageIterator(IUser $user): \Iterator {
 				$this->requestedUsers[] = $user->getUID();
-				return $this->userLanguages[$user->getUID()] ?? 'en';
+				return new \ArrayIterator([$this->userLanguages[$user->getUID()] ?? 'en']);
 			}
 			public function get(string $app, ?string $language = null): \OCP\IL10N {
 				$this->requestedLanguages[] = [$app, $language];
@@ -216,6 +216,52 @@ namespace {
 	$expectContains('public holidays could not be loaded', $summaryMessage->plainBody, 'holiday failure setup notice');
 	$expectContains('See the Nextcloud log.', $summaryMessage->plainBody, 'inspection failure setup notice');
 	$expectSame([['timesheet', 'en']], $translations->requestedLanguages, 'HR language selected independently');
+
+	// The editor displays the built-in text with literal placeholders and the recipient's localization.
+	$editorBody = MissingEntryReminderMailer::originalBody($translations->get('timesheet', 'de'), false);
+	$expectContains('Hallo {recipient},', $editorBody, 'editor greeting is localized and editable');
+	$expectContains("Timesheet öffnen: {appUrl}", $editorBody, 'editor includes localized link text');
+	$expectSame(1, substr_count($editorBody, '{entries}'), 'editor has exactly one dynamic findings placeholder');
+	$expectContains('The following employees have missing or incomplete time entries', MissingEntryReminderMailer::originalBody($translations->get('timesheet', 'en'), true), 'HR editor has HR-specific original');
+
+	[$mailer, $transport, , $urls] = createReminderMailFixture();
+	$body = "Guten Tag {recipient},\n\nBitte prüfen. <img src=x>\n\n{entries}\n\nLink: {appUrl}";
+	$expectSame(true, $mailer->sendEmployeeReminder($employee, $issues, ['de' => $body]), 'employee locale override is sent');
+	$customEmployee = $transport->messages[0];
+	$expectSame('Timesheet: fehlende Zeiteinträge', $customEmployee->subject, 'custom body retains subject');
+	$expectContains('Guten Tag Alex <script> & "Team",', $customEmployee->plainBody, 'recipient token expands in plain output');
+	$expectContains('Bitte prüfen. &lt;img src=x&gt;', $customEmployee->htmlBody, 'custom text is escaped in HTML output');
+	$expectSame(false, str_contains($customEmployee->htmlBody, '<img src=x>'), 'custom text cannot inject HTML');
+	$expectContains('<li>02.10.2026: Unvollständiger Eintrag</li>', $customEmployee->htmlBody, 'required entries expand using the recipient locale');
+	$expectContains($urls->appUrl, $customEmployee->plainBody, 'optional link token expands in plain output');
+	$expectContains('href="https://demo.example.test/apps/timesheet/?label=&quot;open&quot;&amp;section=&lt;entries&gt;"', $customEmployee->htmlBody, 'optional link token generates an escaped HTML anchor');
+	$expectSame(true, $mailer->sendEmployeeReminder($otherEmployee, $issues, ['de' => $body]), 'unconfigured locale still receives a reminder');
+	$expectContains('The following days have missing or incomplete time entries.', $transport->messages[1]->plainBody, 'unconfigured locale retains built-in body');
+	$expectSame(false, str_contains($transport->messages[1]->plainBody, 'Bitte prüfen.'), 'wrong locale gets no custom text');
+
+	[$mailer, $transport] = createReminderMailFixture();
+	$teamABody = "Custom A {recipient}\n\n{entries}";
+	$teamBBody = "Custom B\n\n{entries}";
+	$scopedFindings = [
+		$summary[0] + ['mailTemplates' => ['en' => $teamABody]],
+		$summary[1] + ['mailTemplates' => ['de' => $body]],
+		$summary[2] + ['mailTemplates' => ['en' => $teamBBody]],
+		$summary[3] + ['mailTemplates' => ['en' => $teamABody]],
+	];
+	$expectSame(true, $mailer->sendHrSummary($hrUser, $scopedFindings), 'mixed HR templates deliver successfully');
+	$expectSame(1, count($transport->messages), 'mixed HR templates retain one envelope');
+	$customHr = $transport->messages[0];
+	$expectSame($summaryMessage->to, $customHr->to, 'custom summary retains private HR recipient');
+	$expectSame($summaryMessage->subject, $customHr->subject, 'custom summary retains subject');
+	$expectSame(1, substr_count($customHr->plainBody, 'Custom A HR Team'), 'identical template shared by two rules renders once');
+	$expectSame(1, substr_count($customHr->plainBody, 'Custom B'), 'second custom template appears once');
+	$sections = explode('<hr>', $customHr->htmlBody);
+	$expectContains('<h3>Alex &lt;script&gt;</h3>', $sections[0], 'first employee appears in their own template section');
+	$expectContains('<h3>Check Failure</h3>', $sections[0], 'another rule with the same template shares its section');
+	$expectContains('<h3>Missing Region</h3>', $sections[1], 'unconfigured recipient language keeps default findings section');
+	$expectContains('set a valid German federal state', $sections[1], 'default template section keeps setup issues');
+	$expectContains('<h3>Holiday Failure</h3>', $sections[3], 'second override gets its own findings section');
+	$expectContains('public holidays could not be loaded', $sections[3], 'custom template section keeps setup issues');
 
 	// Rejected recipients are failures even when the transport does not throw.
 	[$mailer, $transport, $translations, $urls, $logger] = createReminderMailFixture();

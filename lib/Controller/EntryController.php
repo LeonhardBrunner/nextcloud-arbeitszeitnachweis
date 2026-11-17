@@ -50,7 +50,7 @@ class EntryController extends Controller {
 	}
 
 	#[NoAdminRequired]
-	public function create(string $workDate, ?string $start = null, ?string $end = null, int $breakMinutes = 0, ?string $comment = null): DataResponse {
+	public function create(string $workDate, ?string $start = null, ?string $end = null, int $breakMinutes = 0, ?string $comment = null, mixed $commentType = null): DataResponse {
 		$currentUser = $this->userSession->getUser();
 		if (!$currentUser) {
 			return new DataResponse(['error' => 'Unauthorized'], 401);
@@ -85,6 +85,7 @@ class EntryController extends Controller {
 		}
 
 		$commentOnly = ((int)$this->request->getParam('commentOnly', 0) === 1);
+		$commentType ??= $this->request->getParam('commentType');
 		$trimmedComment = trim((string)($comment ?? ''));
 
 		$startString = trim((string)($start ?? ''));
@@ -104,7 +105,7 @@ class EntryController extends Controller {
 		$hasEnd = ($endMinutes !== null);
 
 		if ($commentOnly || (!$hasStart && !$hasEnd && $trimmedComment !== '')) {
-			return $this->saveEntryResponse(fn() => $this->entryService->upsertCommentOnly($targetUserId, $workDate, $trimmedComment));
+			return $this->saveEntryResponse(fn() => $this->entryService->upsertCommentOnly($targetUserId, $workDate, $trimmedComment, $commentType));
 		}
 
 		if (!$hasStart && !$hasEnd) {
@@ -117,13 +118,14 @@ class EntryController extends Controller {
 			'endMin' => $endMinutes,
 			'breakMinutes' => $breakMinutes,
 			'comment' => $comment,
+			'commentType' => $commentType,
 		];
 
 		return $this->saveEntryResponse(fn() => $this->entryService->create($payload, $targetUserId));
 	}
 
 	#[NoAdminRequired]
-	public function update(int $id, ?string $workDate = null, ?string $start = null, ?string $end = null, ?int $breakMinutes = null, ?string $comment = null): DataResponse {
+	public function update(int $id, ?string $workDate = null, ?string $start = null, ?string $end = null, ?int $breakMinutes = null, ?string $comment = null, mixed $commentType = null): DataResponse {
 		if ($comment === null) {
 			$commentParameter = $this->request->getParam('comment');
 			if ($commentParameter !== null) {
@@ -156,9 +158,13 @@ class EntryController extends Controller {
 		}
 
 		$commentOnly = ((int)$this->request->getParam('commentOnly', 0) === 1);
+		$commentType ??= $this->request->getParam('commentType');
 		$trimmedComment = trim((string)($comment ?? ''));
 
 		$changes = [];
+		if ($commentType !== null) {
+			$changes['commentType'] = $commentType;
+		}
 		if ($workDate !== null) {
 			$changes['workDate'] = $workDate;
 		}
@@ -218,6 +224,9 @@ class EntryController extends Controller {
 		} catch (\OCP\AppFramework\Db\DoesNotExistException) {
 			return new DataResponse(['error' => 'Entry not found'], 404);
 		} catch (\DomainException $exception) {
+			if ($exception->getCode() === 400) {
+				return new DataResponse(['error' => 'Invalid comment type or label'], 400);
+			}
 			if (in_array($exception->getCode(), [404, 409], true)) {
 				return new DataResponse(['error' => $exception->getCode() === 409 ? 'Entry already exists' : 'Entry not found'], $exception->getCode());
 			}

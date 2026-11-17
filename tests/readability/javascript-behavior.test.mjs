@@ -263,6 +263,47 @@ test('edits made during an in-flight save are queued and persisted in the same o
 	assert.equal(result.dataset.saveQueued, undefined);
 });
 
+test('comment-only saves distinguish a selected reason from the same words entered as free text', async () => {
+	const environment = createEnvironment(candidateRoot);
+	environment.load('timesheet-entries.js');
+	const fixture = createRow(environment, { '.startTime': '', '.endTime': '', '.commentInput': 'Urlaub' });
+	fixture.fields['.commentSelect'] = { value: 'vacation' };
+	fixture.row.dataset.commentType = 'vacation';
+	const writes = [];
+	environment.context.Timesheet.api = async (path, options = {}) => {
+		if (options.method) writes.push({ path, method: options.method, body: JSON.parse(options.body) });
+		return path.includes('/summary') ? { overtimeMinutes: 0 } : { id: 42 };
+	};
+	await environment.context.Timesheet.entries.saveRowIfNeeded(fixture.row);
+	fixture.fields['.commentSelect'].value = 'custom';
+	fixture.row.dataset.commentType = 'custom';
+	await environment.context.Timesheet.entries.saveRowIfNeeded(fixture.row);
+	await environment.context.Timesheet.entries.saveRowIfNeeded(fixture.row);
+
+	assert.deepEqual(writes.map(({ method, body }) => [method, body.comment, body.commentType]), [
+		['POST', 'Urlaub', 'vacation'],
+		['PUT', 'Urlaub', 'custom'],
+	]);
+	assert.equal(fixture.row.dataset.savedCommentType, 'custom');
+});
+
+test('a time edit preserves an unchanged legacy comment', async () => {
+	const environment = createEnvironment(candidateRoot);
+	environment.load('timesheet-entries.js');
+	const fixture = createRow(environment, { '.commentInput': '  Urlaub  ' });
+	fixture.fields['.commentSelect'] = { value: 'custom' };
+	Object.assign(fixture.row.dataset, { id: '42', savedComment: '  Urlaub  ', savedCommentType: '' });
+	const writes = [];
+	environment.context.Timesheet.api = async (_path, options = {}) => {
+		if (options.method) writes.push(JSON.parse(options.body));
+		return { id: 42 };
+	};
+	await environment.context.Timesheet.entries.saveRowIfNeeded(fixture.row);
+	assert.equal(writes.length, 1);
+	assert.equal(writes[0].start, '08:00');
+	assert.ok(!Object.hasOwn(writes[0], 'comment') && !Object.hasOwn(writes[0], 'commentType'));
+});
+
 test('rule and holiday caches match baseline', async () => {
 	const result = await runForBoth(async (root) => {
 		const environment = createEnvironment(root);
@@ -291,7 +332,7 @@ test('administrator assignment editor retains rule creation, group constraints a
 	// The role split intentionally differs from the original combined settings page.
 	const result = await (async (root) => {
 		// The unchanged reference checkout retains its original asset and root names.
-		const settingsScript = root === candidateRoot ? 'timesheet-rule-settings.js' : 'admin.js';
+		const settingsScript = root === candidateRoot ? 'timesheet-rule-settings-v3.js' : 'admin.js';
 		const settingsRootId = root === candidateRoot ? 'timesheet-hr-settings' : 'timesheet-admin-settings';
 		const events = new Map();
 		const requests = [];

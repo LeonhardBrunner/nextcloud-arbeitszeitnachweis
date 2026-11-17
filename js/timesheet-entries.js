@@ -147,6 +147,33 @@
 		return inputDailyMinimum ?? configuredDailyMinimum ?? 480;
 	}
 
+	const commentTypeLabels = { vacation: 'Vacation', sick: 'Sick leave', appointment: 'Appointment', custom: 'Custom comment' };
+
+	function commentTypeLabel(type) {
+		if (!Object.hasOwn(commentTypeLabels, type)) return '';
+		const vacation = type === 'vacation' ? document.getElementById('timesheet-app')?.dataset.absenceVacation : null;
+		return vacation || t(appState.appName, commentTypeLabels[type]);
+	}
+
+	function escapeCommentHtml(text) {
+		return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+	}
+
+	function renderCommentEditor(comment, type) {
+		const selected = type && type !== 'custom' ? type : comment ? 'custom' : '';
+		const options = [
+			['', t(appState.appName, 'No comment')],
+			['vacation', commentTypeLabel('vacation')],
+			['sick', commentTypeLabel('sick')],
+			['appointment', commentTypeLabel('appointment')],
+			['custom', t(appState.appName, 'Write a custom comment')],
+		].map(([value, label]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${escapeCommentHtml(label)}</option>`).join('');
+		const selectLabel = escapeCommentHtml(t(appState.appName, 'Comment'));
+		const inputLabel = escapeCommentHtml(t(appState.appName, 'Custom comment'));
+		return `<select class="commentSelect" aria-label="${selectLabel}">${options}</select>
+			<textarea class="commentInput" aria-label="${inputLabel}" rows="1"${selected === 'custom' ? '' : ' hidden'}>\n${escapeCommentHtml(comment)}</textarea>`;
+	}
+
 	// Entry row rendering and monthly totals
 	function createEntryTableRow(date, entry, holidayMap = {}, dailyMinimumMinutes = null, specialDaysEnabled = false, thresholds = null) {
 		const dateString = utils.toLocalIsoDate(date);
@@ -188,6 +215,7 @@
 		entryRow.dataset.savedEnd = endText;
 		entryRow.dataset.savedBreak = String(breakMinutes ?? 0);
 		entryRow.dataset.savedComment = commentText;
+		entryRow.dataset.savedCommentType = entry?.commentType ?? '';
 		if (isHoliday || isWeekend) {
 			entryRow.classList.add('is-weekend-row');
 		}
@@ -204,7 +232,7 @@
       <td><input type="time" class="endTime" value="${endText}"></td>
       <td class="ts-duration">${durationText}</td>
       <td class="ts-diff">${differenceText}</td>
-      <td><textarea class="commentInput">${commentText}</textarea></td>
+      <td class="ts-comment-cell">${renderCommentEditor(commentText, entryRow.dataset.savedCommentType)}</td>
       <td class="ts-warn">${warning}</td>
     `;
 		return entryRow;
@@ -340,6 +368,7 @@
 			endInput: row.querySelector('.endTime'),
 			breakInput: row.querySelector('.breakMinutes'),
 			commentInput: row.querySelector('.commentInput'),
+			commentSelect: row.querySelector('.commentSelect'),
 			warningCell: row.querySelector('.ts-warn'),
 			durationCell: row.querySelector('.ts-duration'),
 			differenceCell: row.querySelector('.ts-diff')
@@ -351,7 +380,8 @@
 			savedStart: row.dataset.savedStart || '',
 			savedEnd: row.dataset.savedEnd || '',
 			savedBreak: row.dataset.savedBreak != null ? parseInt(row.dataset.savedBreak, 10) : 0,
-			savedComment: String(row.dataset.savedComment ?? '').trim()
+			savedComment: String(row.dataset.savedComment ?? '').trim(),
+			savedCommentType: row.dataset.savedCommentType || ''
 		};
 	}
 
@@ -399,20 +429,16 @@
 	}
 
 	function storeSavedEntryValues(row, values, isCommentOnly) {
-		if (!isCommentOnly) {
-			row.dataset.savedStart = values.start;
-			row.dataset.savedEnd = values.end;
-			row.dataset.savedBreak = String(values.breakMinutes);
-			row.dataset.savedComment = values.comment;
-		} else {
-			row.dataset.savedStart = '';
-			row.dataset.savedEnd = '';
-			row.dataset.savedBreak = '0';
-			row.dataset.savedComment = values.comment;
+		row.dataset.savedStart = isCommentOnly ? '' : values.start;
+		row.dataset.savedEnd = isCommentOnly ? '' : values.end;
+		row.dataset.savedBreak = isCommentOnly ? '0' : String(values.breakMinutes);
+		row.dataset.savedComment = values.comment;
+		if (row.dataset.savedCommentType !== undefined || values.commentType) {
+			row.dataset.savedCommentType = values.commentType;
 		}
 	}
 
-	async function deleteEntryRow(row) {
+	async function deleteEntryRow(row, resetInputs = true) {
 		const entryId = row.dataset.id || null;
 		if (!entryId) {
 			return;
@@ -425,24 +451,27 @@
 			startInput,
 			endInput,
 			breakInput,
-			commentInput
+			commentInput,
+			commentSelect
 		} = fields;
 		await timesheet.api(`/api/entries/${encodeURIComponent(entryId)}`, {
 			method: 'DELETE'
 		});
 		delete row.dataset.id;
-		clearTimeField(startInput);
-		clearTimeField(endInput);
-		if (breakInput) {
+		if (resetInputs) {
+			clearTimeField(startInput);
+			clearTimeField(endInput);
+			if (commentInput) {
+				commentInput.value = '';
+				commentInput.hidden = !!commentSelect;
+			}
+			if (commentSelect) commentSelect.value = '';
+			delete row.dataset.commentType;
+		}
+		if (breakInput && !startInput?.value && !endInput?.value && !commentInput?.value) {
 			breakInput.value = utils.formatBreakValue(0, appState.breakInputMode);
 		}
-		if (commentInput) {
-			commentInput.value = '';
-		}
-		row.dataset.savedStart = '';
-		row.dataset.savedEnd = '';
-		row.dataset.savedBreak = '0';
-		row.dataset.savedComment = '';
+		storeSavedEntryValues(row, { comment: '', commentType: '' }, true);
 		clearEntryRowSummary(fields);
 		updateMonthTotals(row);
 		const isHrView = !!row.closest('#hr-user-entries');
@@ -495,13 +524,17 @@
 			savedStart,
 			savedEnd,
 			savedBreak: savedBreakMinutes,
-			savedComment
+			savedComment,
+			savedCommentType
 		} = readSavedEntryValues(row);
+		const editedFreeText = fields.commentSelect && comment !== savedComment;
+		const commentType = row.dataset.commentType || savedCommentType || (editedFreeText ? 'custom' : '');
+		const commentChanged = comment !== savedComment || commentType !== savedCommentType;
 		if (hasNoTimes && comment.length === 0) {
 			if (hasEntryId) {
 				row.dataset.saving = '1';
 				try {
-					await deleteEntryRow(row);
+					await deleteEntryRow(row, false);
 				} catch (error) {
 					reportSaveFailure(row);
 				} finally {
@@ -543,7 +576,7 @@
 				}, isHrView);
 
 				// Check if anything changed
-				if (startValue === savedStart && endValue === savedEnd && breakMinutes === savedBreakMinutes && comment === savedComment) {
+				if (startValue === savedStart && endValue === savedEnd && breakMinutes === savedBreakMinutes && !commentChanged) {
 					clearSaveFailure(row);
 					return;
 				}
@@ -551,7 +584,7 @@
 				clearEntryRowSummary(fields, warningCell ? t(appState.appName, 'Time incomplete') : '');
 
 				// Check if anything changed
-				if (startValue === savedStart && endValue === savedEnd && breakMinutes === savedBreakMinutes && comment === savedComment) {
+				if (startValue === savedStart && endValue === savedEnd && breakMinutes === savedBreakMinutes && !commentChanged) {
 					clearSaveFailure(row);
 					return;
 				}
@@ -562,7 +595,7 @@
 			}
 
 			// Check if anything changed
-			if (!(savedStart !== '' || savedEnd !== '' || (Number.isFinite(savedBreakMinutes) ? savedBreakMinutes : 0) !== 0) && comment === savedComment) {
+			if (!(savedStart !== '' || savedEnd !== '' || (Number.isFinite(savedBreakMinutes) ? savedBreakMinutes : 0) !== 0) && !commentChanged) {
 				clearSaveFailure(row);
 				return;
 			}
@@ -584,6 +617,11 @@
 				breakMinutes: breakMinutes,
 				comment
 			};
+			if (hasEntryId && fields.commentSelect && !isCommentOnly && !commentChanged) {
+				delete payload.comment;
+			} else if (commentType) {
+				payload.commentType = commentType;
+			}
 			if (hasEntryId) {
 				savedEntry = await timesheet.api(`/api/entries/${encodeURIComponent(row.dataset.id)}`, {
 					method: 'PUT',
@@ -600,19 +638,16 @@
 					row.dataset.id = savedEntry.id;
 				}
 			}
-			if (isCommentOnly) {
-				clearTimeField(startInput);
-				clearTimeField(endInput);
-				if (breakInput) {
-					breakInput.value = utils.formatBreakValue(0, appState.breakInputMode);
-				}
+			if (isCommentOnly && !startInput.value && !endInput.value) {
+				breakInput.value = utils.formatBreakValue(0, appState.breakInputMode);
 				clearEntryRowSummary(fields);
 			}
 			storeSavedEntryValues(row, {
 				start: startValue,
 				end: endValue,
 				breakMinutes,
-				comment
+				comment,
+				commentType
 			}, isCommentOnly);
 			updateMonthTotals(row);
 			const targetUserId = isHrView ? document.querySelector('#hr-user-title span')?.textContent : appState.currentUserId;
@@ -681,6 +716,7 @@
 	entryModule.getHolidays = loadHolidays;
 	entryModule.getEffectiveDailyMin = getEffectiveDailyMinimum;
 	entryModule.createEntryRow = createEntryTableRow;
+	entryModule.commentTypeLabel = commentTypeLabel;
 	entryModule.loadUserEntries = loadMonthEntries;
 	entryModule.loadRuleThresholds = loadRuleThresholds;
 	entryModule.getRuleThresholds = getCachedRuleThresholds;

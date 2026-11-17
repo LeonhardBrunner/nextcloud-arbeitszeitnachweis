@@ -37,6 +37,13 @@
 	for (const person of Array.isArray(embeddedPeople) ? embeddedPeople : []) {
 		if (person && typeof person.id === 'string') peopleById.set(person.id, person);
 	}
+	const reminderMailEditor = readEmbeddedJson('ts-reminder-mail-editor-data');
+	const reminderMailLanguage = reminderMailEditor.language;
+	const reminderMailEditLabel = document.getElementById('ts-reminder-mail-title')?.textContent;
+	const reminderMailLabels = {
+		employee: 'Send reminders to employees',
+		hr: 'Send reminders to responsible HR'
+	};
 	const personSearches = new Map();
 	let accessRules = readEmbeddedJson('timesheet-hr-rules-data');
 	let notifiedDuplicateEmployeeGroups = false;
@@ -107,7 +114,8 @@
 			notifyHr,
 			graceDays: Number.isInteger(graceDays) && graceDays >= 1 && graceDays <= 365 ? graceDays : 14,
 			weekdays: [...new Set(weekdays.filter(day => Number.isInteger(day) && day >= 1 && day <= 7))].sort((firstDay, secondDay) => firstDay - secondDay),
-			startDate: typeof settings.startDate === 'string' ? settings.startDate.trim() : ''
+			startDate: typeof settings.startDate === 'string' ? settings.startDate.trim() : '',
+			...(settings.mailTemplates && Object.keys(settings.mailTemplates).length ? { mailTemplates: settings.mailTemplates } : {})
 		};
 	}
 
@@ -342,6 +350,21 @@
 	}
 
 	// Notification tables keep each label, control and explanatory note in one row.
+	function renderReminderRecipient(audience, identifier, checked) {
+		const key = audience === 'employee' ? 'notifyEmployees' : 'notifyHr';
+		const inputId = audience === 'employee' ? identifier + '-employees' : identifier + '-hr';
+		return `
+			<tr role="row">
+				<th role="rowheader" scope="row"><label id="${inputId}-label" for="${inputId}">${escapeHtml(t('timesheet', reminderMailLabels[audience]))}</label></th>
+				<td role="cell">
+					<div class="ts-reminder-recipient">
+						<input type="checkbox" id="${inputId}" class="ts-reminder-input" data-reminder-key="${key}" aria-describedby="${identifier}-summary"${checked ? ' checked' : ''}>
+						${reminderMailEditor.originals && reminderMailEditLabel ? `<button type="button" data-edit-reminder-mail="${audience}" aria-haspopup="dialog" aria-controls="ts-reminder-mail-dialog" aria-describedby="${inputId}-label">${escapeHtml(reminderMailEditLabel)}</button>` : ''}
+					</div>
+				</td>
+			</tr>`;
+	}
+
 	function renderReminderSettings(rule) {
 		const settings = normalizeReminderSettings(rule.missingEntryReminders);
 		const identifier = `ts-reminder-${encodeURIComponent(rule.id)}`;
@@ -361,16 +384,8 @@
 					</span></caption>
 					<colgroup><col class="ts-notification-label-column" /><col class="ts-notification-value-column" /></colgroup>
 					<tbody role="rowgroup">
-						<tr role="row">
-							<th role="rowheader" scope="row"><label for="${identifier}-employees">${escapeHtml(t('timesheet', 'Send reminders to employees'))}</label></th>
-							<td role="cell"><input type="checkbox" id="${identifier}-employees" class="ts-reminder-input" data-reminder-key="notifyEmployees" aria-describedby="${identifier}-summary"${settings.notifyEmployees ? ' checked' : ''}></td>
-						</tr>
-						<tr role="row">
-							<th role="rowheader" scope="row"><label for="${identifier}-hr">${escapeHtml(t('timesheet', 'Send reminders to responsible HR'))}</label></th>
-							<td role="cell">
-								<input type="checkbox" id="${identifier}-hr" class="ts-reminder-input" data-reminder-key="notifyHr" aria-describedby="${identifier}-summary"${settings.notifyHr ? ' checked' : ''}>
-							</td>
-						</tr>
+						${renderReminderRecipient('employee', identifier, settings.notifyEmployees)}
+						${renderReminderRecipient('hr', identifier, settings.notifyHr)}
 						<tr role="row">
 							<th role="rowheader" scope="row"><label for="${identifier}-grace-days">${escapeHtml(t('timesheet', 'First reminder at the earliest'))}</label></th>
 							<td role="cell"><div class="ts-inline"><input type="number" id="${identifier}-grace-days" min="1" max="365" step="1" class="ts-reminder-input" data-reminder-key="graceDays" value="${settings.graceDays}" aria-describedby="${identifier}-grace-unit"><span id="${identifier}-grace-unit">${escapeHtml(t('timesheet', 'calendar days after the workday'))}</span></div></td>
@@ -812,16 +827,59 @@
 	}
 
 	function hasNotificationChanges() {
-		return notificationInputErrors.size > 0 || JSON.stringify(accessRules) !== JSON.stringify(savedNotificationRules);
+		if (notificationInputErrors.size) return true;
+		const previousRules = new Map(savedNotificationRules.map(rule => [rule.id, rule]));
+		return JSON.stringify(notificationRulesPayload(accessRules, previousRules))
+			!== JSON.stringify(notificationRulesPayload(savedNotificationRules, previousRules));
 	}
 
 	function notificationValidationError() {
 		return notificationInputErrors.values().next().value;
 	}
 
+	function setReminderMailText(settings, audience, text) {
+		const mailTemplates = { ...settings.mailTemplates };
+		const translations = { ...mailTemplates[audience] };
+		if (text === null) delete translations[reminderMailLanguage];
+		else translations[reminderMailLanguage] = text;
+		if (Object.keys(translations).length) mailTemplates[audience] = translations;
+		else delete mailTemplates[audience];
+
+		const updated = { ...settings };
+		if (Object.keys(mailTemplates).length) updated.mailTemplates = mailTemplates;
+		else delete updated.mailTemplates;
+		return updated;
+	}
+
+	function getReminderMailChanges(previousSettings, draftSettings) {
+		const edits = new Map();
+		for (const audience of Object.keys(reminderMailLabels)) {
+			const previousText = previousSettings?.mailTemplates?.[audience]?.[reminderMailLanguage];
+			const draftText = draftSettings.mailTemplates?.[audience]?.[reminderMailLanguage];
+			if (draftText !== previousText) edits.set(audience, draftText ?? null);
+		}
+		return edits;
+	}
+
+	function notificationRulesPayload(rules, previousRules) {
+		return rules.map(rule => {
+			const settings = { ...rule.missingEntryReminders };
+			delete settings.mailTemplates;
+			const previousSettings = previousRules.get(rule.id)?.missingEntryReminders;
+			const edits = getReminderMailChanges(previousSettings, rule.missingEntryReminders);
+			if (edits.size) {
+				settings.mailTemplates = Object.fromEntries(
+					Array.from(edits, ([audience, text]) => [audience, { [reminderMailLanguage]: text }])
+				);
+			}
+			return { ...rule, missingEntryReminders: settings };
+		});
+	}
+
 	async function saveNotificationRules() {
+		const previousRules = new Map(savedNotificationRules.map(rule => [rule.id, rule]));
 		try {
-			const saved = await saveRules(accessRules);
+			const saved = await saveRules(notificationRulesPayload(accessRules, previousRules));
 			savedRulesRevision = saved.rulesRevision;
 			accessRules = saved.rules;
 			renderRules();
@@ -830,7 +888,6 @@
 			if (error.conflict) {
 				// Reapply only edited notification fields to the latest rule snapshot.
 				// A second save requires the user's review and still checks the new revision.
-				const previousRules = new Map(savedNotificationRules.map(rule => [rule.id, rule]));
 				const draftRules = new Map(accessRules.map(rule => [rule.id, rule]));
 				savedRulesRevision = error.conflict.rulesRevision;
 				savedNotificationRules = removeDuplicateEmployeeGroups(error.conflict.rules).rules;
@@ -845,10 +902,13 @@
 					for (const field of ['missingEntryReminders', 'employeeBalanceNotifications']) {
 						merged[field] = { ...rule[field] };
 						for (const key of Object.keys(draft[field])) {
-							if (JSON.stringify(previous[field][key]) !== JSON.stringify(draft[field][key])) {
+							if (key !== 'mailTemplates' && JSON.stringify(previous[field][key]) !== JSON.stringify(draft[field][key])) {
 								merged[field][key] = draft[field][key];
 							}
 						}
+					}
+					for (const [audience, text] of getReminderMailChanges(previous.missingEntryReminders, draft.missingEntryReminders)) {
+						merged.missingEntryReminders = setReminderMailText(merged.missingEntryReminders, audience, text);
 					}
 					merged.missingEntryReminders.enabled = merged.missingEntryReminders.notifyEmployees || merged.missingEntryReminders.notifyHr;
 					return merged;
@@ -949,6 +1009,30 @@
 			const replacement = Array.from(rulesContainer.querySelectorAll('.ts-rule')).find(item => item.dataset.ruleId === ruleId);
 			if (replacement) personSearchControls(replacement, 'mail')?.input.focus({ preventScroll: true });
 		}
+	}
+
+	if (reminderMailEditor.originals) {
+		rulesContainer.addEventListener('click', event => {
+			const button = event.target.closest('[data-edit-reminder-mail]');
+			if (!button) return;
+			const ruleId = button.closest('.ts-rule').dataset.ruleId;
+			const audience = button.dataset.editReminderMail;
+			const rule = accessRules.find(rule => rule.id === ruleId);
+			window.Timesheet?.config?.openNotificationMailEditor?.({
+				mode: 'reminder',
+				label: t('timesheet', reminderMailLabels[audience]),
+				original: reminderMailEditor.originals[audience],
+				text: rule.missingEntryReminders.mailTemplates?.[audience]?.[reminderMailLanguage],
+				maxLength: reminderMailEditor.maxLength,
+				apply(text) {
+					updateRule(ruleId, rule => ({
+						...rule,
+						missingEntryReminders: setReminderMailText(rule.missingEntryReminders, audience, text)
+					}));
+					updateNotificationSaveButton();
+				}
+			});
+		});
 	}
 
 	// Protect in-progress input from a pending save response.
@@ -1168,7 +1252,7 @@
 			const previousSettings = accessRules.find(rule => rule.id === ruleId)?.missingEntryReminders;
 			const recipientChanged = ['notifyEmployees', 'notifyHr'].includes(reminderInput.dataset.reminderKey);
 			const settings = readReminderSettings(ruleCard, recipientChanged && !previousSettings?.enabled);
-			updateRule(ruleId, rule => ({ ...rule, missingEntryReminders: settings }));
+			updateRule(ruleId, rule => ({ ...rule, missingEntryReminders: { ...rule.missingEntryReminders, ...settings } }));
 			if (selectsNotificationRule) updateNotificationInputError('reminder');
 			await saveAndRenderRules(accessRules);
 		} catch (error) {

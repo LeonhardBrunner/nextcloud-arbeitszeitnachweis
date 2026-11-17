@@ -165,7 +165,7 @@ namespace OCA\Timesheet\Service {
 		public array $summaries = [];
 		public function calculateCurrentBalance(string $userId): array {
 			$this->calls[] = $userId;
-			return $this->summaries[$userId] ?? ['dailyMin' => 480, 'overtimeMinutes' => 123, 'totalMinutes' => 456, 'lastEntryDate' => '2026-10-01'];
+			return $this->summaries[$userId] ?? ['dailyMin' => 480, 'overtimeMinutes' => 123, 'totalMinutes' => 0, 'currentMonthActualMinutes' => 456, 'lastEntryDate' => '2026-10-01'];
 		}
 	}
 	class HolidayService {
@@ -174,6 +174,13 @@ namespace OCA\Timesheet\Service {
 		public function getTerms(string $language): array {
 			return ['vacation' => 'Urlaub', 'timeOffInLieu' => 'Stundenausgleich'];
 		}
+	}
+}
+
+namespace OCP\L10N {
+	interface IFactory {
+		public function getLanguageIterator(\OCP\IUser $user): \Iterator;
+		public function get(string $app, ?string $language = null): \OCP\IL10N;
 	}
 }
 
@@ -228,6 +235,10 @@ namespace {
 	require_once __DIR__ . '/../../lib/Db/EmploymentStatusStore.php';
 	require_once __DIR__ . '/../../lib/Listener/EmployeeActivityListener.php';
 	require_once __DIR__ . '/../../lib/Controller/EmploymentStatusController.php';
+	require_once __DIR__ . '/../../lib/Service/MissingEntryReminderMailer.php';
+	require_once __DIR__ . '/../../lib/Service/NotificationMailTemplates.php';
+	require_once __DIR__ . '/../../lib/Service/HrWeeklyMailTemplates.php';
+	require_once __DIR__ . '/../../lib/Service/MissingEntryReminderSettings.php';
 	require_once __DIR__ . '/../../lib/Controller/PageController.php';
 	require_once __DIR__ . '/../../lib/Controller/OverviewController.php';
 
@@ -362,6 +373,14 @@ namespace {
 		}
 		public function getLanguageCode(): string {
 			return 'de';
+		}
+	}
+	class EmploymentMailLanguageFixture implements \OCP\L10N\IFactory {
+		public function getLanguageIterator(\OCP\IUser $user): \Iterator {
+			return new \ArrayIterator(['de']);
+		}
+		public function get(string $app, ?string $language = null): \OCP\IL10N {
+			return new EmploymentTranslationFixture();
 		}
 	}
 	class EmploymentAppConfigFixture implements \OCP\AppFramework\Services\IAppConfig {

@@ -38,12 +38,13 @@ class EntryMapper extends QBMapper {
 		}
 	}
 
-	public function upsertCommentOnly(string $userId, string $workDate, string $comment): Entry {
+	public function upsertCommentOnly(string $userId, string $workDate, string $comment, ?string $commentType = null): Entry {
 		$existingEntry = $this->findByUserAndDate($userId, $workDate);
 		$now = time();
 
 		if ($existingEntry) {
 			$existingEntry->setComment($comment);
+			$existingEntry->setCommentType($commentType);
 			$existingEntry->setUpdatedAt($now);
 			return $this->update($existingEntry);
 		}
@@ -55,6 +56,7 @@ class EntryMapper extends QBMapper {
 		$newEntry->setEndMin(null);
 		$newEntry->setBreakMinutes(0);
 		$newEntry->setComment($comment);
+		$newEntry->setCommentType($commentType);
 		$newEntry->setCreatedAt($now);
 		$newEntry->setUpdatedAt($now);
 

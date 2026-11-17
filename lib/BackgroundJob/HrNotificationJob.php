@@ -9,8 +9,9 @@ use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IUserManager;
 use OCP\AppFramework\Services\IAppConfig;
 use OCA\Timesheet\Service\HrNotificationService;
+use OCA\Timesheet\Service\HrWeeklyMailTemplates;
 use OCA\Timesheet\Service\EmployeeBalanceNotificationService;
-use OCP\IUser;
+
 use Psr\Log\LoggerInterface;
 use OCP\L10N\IFactory;
 
@@ -91,53 +92,35 @@ class HrNotificationJob extends TimedJob {
 				continue;
 			}
 
-			$translator = $this->lForUser($hrUser);
+			$language = $this->l10nFactory->getLanguageIterator($hrUser)->current();
+			$translator = $this->l10nFactory->get('timesheet', $language);
 
 			$subject = $translator->t("Timesheet Notifications") . " - " . $translator->l('date', $currentTime, ['width' => 'medium']);
 			$plainBody = $translator->t('Hello %1$s,', [$hrUser->getDisplayName()]) . "\n\n";
 			$htmlBody = "<!DOCTYPE html><html><body>";
 			$htmlBody .= "<p>" . $translator->t('Hello %1$s,', [htmlspecialchars($hrUser->getDisplayName())]) . "</p>";
 
-			// Add missing-entry warnings to both message formats.
-			if (!empty($notificationData['noEntry'])) {
-				$heading = $translator->t('No complete entry for at least %1$s days:', [$notificationData['noEntryDays']]);
-				$plainBody .= $heading . "\n";
-				$htmlBody .= "<p><strong>" . htmlspecialchars($heading) . "</strong></p><ul>";
-				foreach ($notificationData['noEntry'] as $warning) {
-					$line = $translator->t('%1$s (%2$s days without a complete entry)', [$warning['user'], $warning['days']]);
-					$plainBody .= " - " . $line . "\n";
-					$htmlBody .= "<li>" . htmlspecialchars($line) . "</li>";
+			foreach (HrWeeklyMailTemplates::ALERTS as $alert) {
+				$warnings = $notificationData[$alert] ?? [];
+				if ($warnings === []) {
+					continue;
 				}
-				$plainBody .= "\n";
-				$htmlBody .= "</ul>";
-			}
-			// Add overtime warnings.
-			if (!empty($notificationData['overtime'])) {
-				$plainBody .= $translator->t('Too much overtime:') . "\n";
-				$htmlBody .= "<p><strong>" . $translator->t('Too much overtime:') . "</strong></p><ul>";
-				foreach ($notificationData['overtime'] as $warning) {
-					$plainBody .= " - " . $translator->t('%1$s (%2$s overtime)', [$warning['user'], $warning['overtime']]) . "\n";
-					$htmlBody .= "<li>" . $translator->t(
-						'%1$s (%2$s overtime)',
-						[htmlspecialchars($warning['user']), $warning['overtime']]
-					) . "</li>";
+				$threshold = $notificationData['thresholds'][$alert] ?? (string)($notificationData['noEntryDays'] ?? '');
+				$lines = array_map(static fn (array $warning): string => HrWeeklyMailTemplates::entry($translator, $alert, $warning), $warnings);
+				$plainEntries = implode("\n", array_map(static fn (string $line): string => ' - ' . $line, $lines));
+				$htmlEntries = '<ul><li>' . implode('</li><li>', array_map('htmlspecialchars', $lines)) . '</li></ul>';
+				$template = $notificationData['weeklyMailTemplates'][$alert][$language] ?? null;
+				if ($template === null) {
+					$heading = HrWeeklyMailTemplates::heading($translator, $alert, $threshold);
+					$plainBody .= $heading . "\n" . $plainEntries . "\n\n";
+					$htmlBody .= '<p><strong>' . htmlspecialchars($heading) . '</strong></p>' . $htmlEntries;
+					continue;
 				}
-				$plainBody .= "\n";
-				$htmlBody  .= "</ul>";
-			}
-			// Add negative-balance warnings.
-			if (!empty($notificationData['negative'])) {
-				$plainBody .= $translator->t('Too many negative hours:') . "\n";
-				$htmlBody .= "<p><strong>" . $translator->t('Too many negative hours:') . "</strong></p><ul>";
-				foreach ($notificationData['negative'] as $warning) {
-					$plainBody .= " - " . $translator->t('%1$s (%2$s deficit)', [$warning['user'], $warning['deficit']]) . "\n";
-					$htmlBody .= "<li>" . $translator->t(
-						'%1$s (%2$s deficit)',
-						[htmlspecialchars($warning['user']), $warning['deficit']]
-					) . "</li>";
-				}
-				$plainBody .= "\n";
-				$htmlBody  .= "</ul>";
+				$plainBody .= strtr($template, ['{entries}' => $plainEntries, '{threshold}' => $threshold]) . "\n\n";
+				$htmlBody .= '<div>' . strtr(nl2br(htmlspecialchars($template), false), [
+					'{entries}' => $htmlEntries,
+					'{threshold}' => htmlspecialchars($threshold),
+				]) . '</div>';
 			}
 
 			$plainBody .= "\n"
@@ -176,10 +159,5 @@ class HrNotificationJob extends TimedJob {
 			'sent' => $sentCount,
 			'sendErrors' => $sendErrorCount,
 		]);
-	}
-
-	private function lForUser(IUser $user): \OCP\IL10N {
-		$language = $this->l10nFactory->getUserLanguage($user);
-		return $this->l10nFactory->get('timesheet', $language);
 	}
 }

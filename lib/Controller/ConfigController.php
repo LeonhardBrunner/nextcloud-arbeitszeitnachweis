@@ -16,6 +16,8 @@ use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\IRequest;
 use OCP\IUserSession;
+use OCP\Lock\LockedException;
+use OCP\PreConditionNotMetException;
 
 class ConfigController extends Controller {
 
@@ -79,7 +81,10 @@ class ConfigController extends Controller {
 	 * Read email notification preferences for the current HR user.
 	 */
 	public function getHrNotificationSettings(): DataResponse {
-		$currentUserId = $this->assertHrUser();
+		$currentUserId = $this->getHrUserId();
+		if ($currentUserId === null) {
+			return new DataResponse(['error' => 'Forbidden'], Http::STATUS_FORBIDDEN);
+		}
 
 		$settings = $this->hrPreferencesStore->getNotificationSettings($currentUserId);
 		return new DataResponse($settings, Http::STATUS_OK);
@@ -87,21 +92,29 @@ class ConfigController extends Controller {
 
 	/**
 	 * @NoAdminRequired
-	 * @NoCSRFRequired
 	 * @Route("/api/hr/notifications", methods={"PUT"})
 	 *
 	 * Store email notification preferences for the current HR user.
 	 */
 	public function setHrNotificationSettings(): DataResponse {
-		$currentUserId = $this->assertHrUser();
+		$currentUserId = $this->getHrUserId();
+		if ($currentUserId === null) {
+			return new DataResponse(['error' => 'Forbidden'], Http::STATUS_FORBIDDEN);
+		}
 
 		$payload = $this->request->getParams();
 		if (!is_array($payload)) {
 			$payload = [];
 		}
 
-		$settings = $this->hrPreferencesStore->saveNotificationSettings($currentUserId, $payload);
-		return new DataResponse($settings, Http::STATUS_OK);
+		try {
+			$settings = $this->hrPreferencesStore->saveNotificationSettings($currentUserId, $payload);
+			return new DataResponse($settings, Http::STATUS_OK);
+		} catch (\InvalidArgumentException) {
+			return new DataResponse(['error' => 'Invalid reminder mail template body'], Http::STATUS_BAD_REQUEST);
+		} catch (LockedException|PreConditionNotMetException) {
+			return new DataResponse(['error' => 'Changes could not be saved. Please try again.'], Http::STATUS_CONFLICT);
+		}
 	}
 
 	/**
@@ -112,7 +125,10 @@ class ConfigController extends Controller {
 	 * Read warning thresholds for the current HR user.
 	 */
 	public function getHrWarningThresholds(): DataResponse {
-		$currentUserId = $this->assertHrUser();
+		$currentUserId = $this->getHrUserId();
+		if ($currentUserId === null) {
+			return new DataResponse(['error' => 'Forbidden'], Http::STATUS_FORBIDDEN);
+		}
 
 		$settings = $this->hrPreferencesStore->getWarningThresholds($currentUserId);
 		return new DataResponse($settings, Http::STATUS_OK);
@@ -126,7 +142,10 @@ class ConfigController extends Controller {
 	 * Store warning thresholds for the current HR user.
 	 */
 	public function setHrWarningThresholds(): DataResponse {
-		$currentUserId = $this->assertHrUser();
+		$currentUserId = $this->getHrUserId();
+		if ($currentUserId === null) {
+			return new DataResponse(['error' => 'Forbidden'], Http::STATUS_FORBIDDEN);
+		}
 
 		$payload = $this->request->getParams();
 		if (!is_array($payload)) {
@@ -166,21 +185,9 @@ class ConfigController extends Controller {
 		return new DataResponse($rules, Http::STATUS_OK);
 	}
 
-	/**
-	 * Require an HR user and return its ID.
-	 */
-	private function assertHrUser(): string {
-		$currentUser = $this->userSession->getUser();
-		if (!$currentUser) {
-			throw new \Exception("Not logged in", Http::STATUS_FORBIDDEN);
-		}
-
-		$currentUserId = $currentUser->getUID();
-		if (!$this->hrService->isHr($currentUserId)) {
-			throw new \Exception("Access denied", Http::STATUS_FORBIDDEN);
-		}
-
-		return $currentUserId;
+	private function getHrUserId(): ?string {
+		$userId = $this->userSession->getUser()?->getUID();
+		return $userId !== null && $this->hrService->isHr($userId) ? $userId : null;
 	}
 
 	/**

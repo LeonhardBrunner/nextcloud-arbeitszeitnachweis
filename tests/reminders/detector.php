@@ -6,6 +6,7 @@ use OCA\Timesheet\Service\MissingEntryDetector;
 use OCA\Timesheet\Service\AbsenceCommentCatalog;
 
 require_once __DIR__ . '/../../lib/Service/AbsenceCommentCatalog.php';
+require_once __DIR__ . '/../../lib/Service/EntryCommentType.php';
 require_once __DIR__ . '/../../lib/Service/MissingEntryDetector.php';
 
 $absenceComments = new AbsenceCommentCatalog();
@@ -15,11 +16,12 @@ $failureCount = 0;
 
 // Fixed local dates make day boundaries and daylight-saving cases reproducible.
 $date = static fn(string $value): DateTimeImmutable => new DateTimeImmutable($value, new DateTimeZone('Europe/Berlin'));
-$entry = static fn(string $workDate, ?int $startMin = 480, ?int $endMin = 960, ?string $comment = null): array => [
+$entry = static fn(string $workDate, ?int $startMin = 480, ?int $endMin = 960, ?string $comment = null, ?string $commentType = null): array => [
 	'workDate' => $workDate,
 	'startMin' => $startMin,
 	'endMin' => $endMin,
 	'comment' => $comment,
+	'commentType' => $commentType,
 ];
 $assertSame = static function (mixed $expected, mixed $actual): void {
 	if ($expected !== $actual) {
@@ -136,6 +138,24 @@ foreach (['Urlaub', 'Stundenausgleich'] as $comment) {
 		});
 	}
 }
+
+$test('Explicit reasons exempt whole days independently of the display language, and one time is still incomplete', static function () use ($detector, $date, $entry, $assertSame, $weekdays): void {
+	foreach (['vacation' => 'Urlaub', 'sick' => 'Maladie', 'appointment' => 'Termin'] as $commentType => $label) {
+		foreach ([[null, null, []], [480, null, ['incomplete']], [null, 960, ['incomplete']], [480, 960, []]] as [$start, $end, $reasons]) {
+			$entries = [$entry('2026-10-12', $start, $end, $label, $commentType)];
+			$issues = $detector->findMissingEntries($date('2026-10-13'), '2026-10-12', 1, $weekdays, $entries, []);
+			$assertSame($reasons, array_column($issues, 'reason'));
+		}
+	}
+});
+$test('Explicit custom text cannot exempt a missing or incomplete day even when it matches a reason label', static function () use ($detector, $date, $entry, $assertSame, $weekdays): void {
+	foreach (['Urlaub', 'Krank', 'Termin', 'Stundenausgleich', 'Congés annuels'] as $label) {
+		$missing = [$entry('2026-10-12', null, null, $label, 'custom')];
+		$incomplete = [$entry('2026-10-12', 480, null, $label, 'custom')];
+		$assertSame([['date' => '2026-10-12', 'reason' => 'missing']], $detector->findMissingEntries($date('2026-10-13'), '2026-10-12', 1, $weekdays, $missing, []));
+		$assertSame([['date' => '2026-10-12', 'reason' => 'incomplete']], $detector->findMissingEntries($date('2026-10-13'), '2026-10-12', 1, $weekdays, $incomplete, []));
+	}
+});
 
 $test('Configured weekend workdays are checked', static function () use ($detector, $date, $assertSame): void {
 	$assertSame([

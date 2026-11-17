@@ -186,8 +186,8 @@
 		window.addEventListener('resize', reposition);
 		window.addEventListener('scroll', reposition, true);
 		new MutationObserver(() => {
-			if (active && !active.button.isConnected) hide();
-		}).observe(overview, { childList: true, subtree: true });
+			if (active && (!active.button.isConnected || active.button.hidden)) hide();
+		}).observe(overview, { childList: true, subtree: true, attributeFilter: ['hidden'] });
 	}
 
 

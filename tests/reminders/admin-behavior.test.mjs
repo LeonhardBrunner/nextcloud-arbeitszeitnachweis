@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const hrSettingsSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-rule-settings.js'), 'utf8');
+const hrSettingsSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-rule-settings-v3.js'), 'utf8');
 const copy = value => JSON.parse(JSON.stringify(value));
 const rulesRevision = value => String(value).padStart(64, '0');
 
@@ -164,7 +164,7 @@ async function openHrSettings(initialRules = [{ id: 'one', hrGroups: ['HR'], use
 	if (language === 'de' || language === 'de_DE') {
 		vm.runInContext(readFileSync(resolve(repositoryRoot, `l10n/${language}.js`), 'utf8'), context, { filename: `${language}.js` });
 	}
-	vm.runInContext(hrSettingsSource, context, { filename: 'timesheet-rule-settings.js' });
+	vm.runInContext(hrSettingsSource, context, { filename: 'timesheet-rule-settings-v3.js' });
 	await new Promise(setImmediate);
 
 	return {

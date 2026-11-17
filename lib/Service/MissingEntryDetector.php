@@ -16,7 +16,7 @@ class MissingEntryDetector {
 	 * Find overdue dates without changing entries or working-time balances.
 	 *
 	 * @param int[] $weekdays ISO weekdays, from Monday (1) to Sunday (7).
-	 * @param array<int, array{workDate:string,startMin:?int,endMin:?int,comment:?string}> $entries
+	 * @param array<int, array{workDate:string,startMin:?int,endMin:?int,comment:?string,commentType?:?string}> $entries
 	 * @param string[] $holidayDates
 	 * @param array<int, array{from:string,to:?string}> $excludedPeriods Inclusive start and exclusive end dates.
 	 * @return array<int, array{date:string,reason:string}>
@@ -87,7 +87,7 @@ class MissingEntryDetector {
 		return $inspectionStart;
 	}
 
-	/** @param array{workDate:string,startMin:?int,endMin:?int,comment:?string}|null $entry */
+	/** @param array{workDate:string,startMin:?int,endMin:?int,comment:?string,commentType?:?string}|null $entry */
 	private function getMissingEntryReason(?array $entry): ?string {
 		if ($entry === null) {
 			return 'missing';
@@ -102,11 +102,11 @@ class MissingEntryDetector {
 			return 'incomplete';
 		}
 
-		// Absence comments exempt whole days only; a started entry remains incomplete.
-		return $this->isExemptAbsenceComment($entry['comment']) ? null : 'missing';
-	}
-
-	private function isExemptAbsenceComment(?string $comment): bool {
-		return $this->absenceComments->isExemptComment($comment);
+		$commentType = $entry['commentType'] ?? null;
+		if ($commentType === null) {
+			// Only untouched legacy comments can still be recognized by their text.
+			return $this->absenceComments->isExemptComment($entry['comment']) ? null : 'missing';
+		}
+		return is_string($commentType) && EntryCommentType::tryFrom($commentType)?->isAbsence() ? null : 'missing';
 	}
 }

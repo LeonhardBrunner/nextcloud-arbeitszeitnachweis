@@ -8,11 +8,11 @@ import vm from 'node:vm';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const mailHelpSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-mail-help.js'), 'utf8');
 const headerSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-tour-launcher.js'), 'utf8');
-const tourSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-tour.js'), 'utf8');
+const tourSource = readFileSync(resolve(repositoryRoot, 'js/timesheet-guided-tour-v2.js'), 'utf8');
 const flush = () => new Promise(setImmediate);
 
 // Exercise the real tour with a small DOM and read-only application fixtures.
-function createFixture({ hr = false, hrDom = false, enabled = true, employeeCompleted = false, available = true, headerPresent = true, nestedSearch = false, helpPresent = true, freelancerControl = true, freelancerEnabled = false, viewportWidth = 1000, viewportHeight = 800, absenceTerms = { vacation: 'Vacation', timeOffInLieu: 'Time off in lieu' }, translate = message => message, respond = null, scheduleTimeout = callback => { setImmediate(callback); return 1; } } = {}) {
+function createFixture({ hr = false, hrDom = false, enabled = true, employeeCompleted = false, available = true, headerPresent = true, nestedSearch = false, helpPresent = true, freelancerControl = true, freelancerEnabled = false, viewportWidth = 1000, viewportHeight = 800, translate = message => message, respond = null, scheduleTimeout = callback => { setImmediate(callback); return 1; } } = {}) {
 	const events = new Map();
 	const windowEvents = new Map();
 	const requests = [];
@@ -161,7 +161,6 @@ function createFixture({ hr = false, hrDom = false, enabled = true, employeeComp
 	app.getBoundingClientRect = () => ({ left: 8, top: 50, right: viewportWidth - 8, bottom: viewportHeight, width: viewportWidth - 16, height: viewportHeight - 50 });
 	// The page exposes only the resolved eligibility, never a separate HR tour state.
 	Object.assign(app.dataset, { tourEnabled: String(enabled && !hr), tourVersion: '1', tourEmployeeCompleted: String(employeeCompleted), tourStateAvailable: String(available) });
-	Object.assign(app.dataset, { absenceVacation: absenceTerms.vacation, absenceTimeOffInLieu: absenceTerms.timeOffInLieu });
 	if (enabled && !hr) {
 		const body = [translate('Hello Timesheet team,'), '', '', translate('Best regards,'), translate('Your name')].join('\r\n');
 		const draft = subject => `mailto:karriere@xiller.com?subject=${encodeURIComponent(translate(subject))}&body=${encodeURIComponent(body)}`;
@@ -187,11 +186,16 @@ function createFixture({ hr = false, hrDom = false, enabled = true, employeeComp
 	const tableHead = element('thead', '', '', table);
 	const headerRow = element('tr', '', '', tableHead);
 	for (const label of ['Date', 'Status', 'Start', 'Break', 'End', 'Duration', 'Difference', 'Comment', 'Warning']) {
-		element('th', '', '', headerRow).textContent = label;
+		const headingClass = label === 'Comment' || label === 'Warning' ? `ts-${label.toLowerCase()}-heading` : '';
+		element('th', '', headingClass, headerRow).textContent = label;
 	}
 	const body = element('tbody', 'ts-body', '', table);
 	const row = element('tr', '', '', body);
-	for (const className of ['startTime', 'breakMinutes', 'endTime', 'ts-duration', 'ts-diff', 'ts-warn', 'ts-status', 'commentInput']) element(className.endsWith('Input') ? 'textarea' : className.includes('Time') || className === 'breakMinutes' ? 'input' : 'td', '', className, row);
+	for (const className of ['startTime', 'breakMinutes', 'endTime', 'ts-duration', 'ts-diff', 'ts-status']) element(className.includes('Time') || className === 'breakMinutes' ? 'input' : 'td', '', className, row);
+	const commentCell = element('td', '', 'ts-comment-cell', row);
+	element('select', '', 'commentSelect', commentCell);
+	element('textarea', '', 'commentInput', commentCell);
+	element('td', '', 'ts-warn', row);
 	element('div', 'ts-break-toggle', '', mine);
 	if (freelancerControl && !hr) {
 		const freelancerGroup = element('div', '', 'ts-employment-toggle', mine);
@@ -259,7 +263,7 @@ function createFixture({ hr = false, hrDom = false, enabled = true, employeeComp
 	};
 	vm.runInContext(mailHelpSource, context, { filename: 'timesheet-mail-help.js' });
 	vm.runInContext(headerSource, context, { filename: 'timesheet-tour-launcher.js' });
-	vm.runInContext(tourSource, context, { filename: 'timesheet-tour.js' });
+	vm.runInContext(tourSource, context, { filename: 'timesheet-guided-tour-v2.js' });
 	context.Timesheet.tour.init();
 	return {
 		context, document, app, requests, messages, copyCounts, element, dispatch, event: makeEvent, tour: context.Timesheet.tour,
@@ -476,7 +480,7 @@ test('the menu tour choice starts the existing tour and restores focus to the he
 	assert.equal(fixture.document.getElementById('ts-tour-help-menu').hidden, true);
 	assert.equal(launcher.getAttribute('aria-expanded'), 'false');
 	assert.equal(fixture.tour.getState().step, 'export');
-	assert.equal(fixture.tour.getState().total, 9);
+	assert.equal(fixture.tour.getState().total, 8);
 	await fixture.tour.end();
 	assert.equal(fixture.document.activeElement, launcher);
 	assert.equal(fixture.requests.length, 0);
@@ -553,16 +557,23 @@ test('the open help menu remains inside the viewport and repositions on resize i
 	}
 });
 
-test('the warning explanation highlights the empty warning cell and its heading before freelancer mode', async () => {
+test('comments and warnings highlight only their respective adjacent columns', async () => {
 	const fixture = createFixture();
+	const commentCell = fixture.document.querySelector('#ts-body tr:first-child .ts-comment-cell');
+	const commentHeading = fixture.document.querySelector('#ts-table thead .ts-comment-heading');
 	const warningCell = fixture.document.querySelector('#ts-body tr:first-child .ts-warn');
-	const warningHeading = fixture.document.querySelector('#ts-table thead th:nth-child(9)');
+	const warningHeading = fixture.document.querySelector('#ts-table thead .ts-warning-heading');
+	commentHeading.getBoundingClientRect = () => ({ left: 360, top: 120, right: 500, bottom: 145, width: 140, height: 25 });
+	commentCell.getBoundingClientRect = () => ({ left: 360, top: 155, right: 500, bottom: 180, width: 140, height: 25 });
 	warningHeading.getBoundingClientRect = () => ({ left: 500, top: 120, right: 640, bottom: 145, width: 140, height: 25 });
 	warningCell.getBoundingClientRect = () => ({ left: 500, top: 155, right: 640, bottom: 180, width: 140, height: 25 });
 	assert.equal(warningCell.textContent, '');
 	assert.equal(warningHeading.textContent, 'Warning');
 	await fixture.tour.start();
 	await advanceToStep(fixture, 'comments');
+	const commentFrames = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+	assert.equal(commentFrames.length, 1);
+	assert.deepEqual(['x', 'y', 'width', 'height'].map(attribute => Number(commentFrames[0].getAttribute(attribute))), [360, 115, 140, 70]);
 	fixture.document.getElementById('ts-tour-next').click();
 	await flush(); await flush();
 	assert.equal(fixture.tour.getState().step, 'warnings');
@@ -570,10 +581,7 @@ test('the warning explanation highlights the empty warning cell and its heading 
 	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Breaks that exceed or fall below the limits and missing timesheets trigger warnings and should be corrected promptly.');
 	const frames = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
 	assert.equal(frames.length, 1);
-	assert.equal(Number(frames[0].getAttribute('x')), 495);
-	assert.equal(Number(frames[0].getAttribute('y')), 115);
-	assert.equal(Number(frames[0].getAttribute('width')), 150);
-	assert.equal(Number(frames[0].getAttribute('height')), 70);
+	assert.deepEqual(['x', 'y', 'width', 'height'].map(attribute => Number(frames[0].getAttribute(attribute))), [500, 115, 140, 70]);
 	fixture.document.getElementById('ts-tour-back').click();
 	await flush(); await flush();
 	assert.equal(fixture.tour.getState().step, 'comments');
@@ -595,7 +603,7 @@ test('the far-right warning column becomes visible on narrow screens and restore
 	for (const columnLeft of [1000, -1000]) {
 		const fixture = createFixture({ viewportWidth: 320, viewportHeight: 568 });
 		const warningCell = fixture.document.querySelector('#ts-body tr:first-child .ts-warn');
-		const warningHeading = fixture.document.querySelector('#ts-table thead th:nth-child(9)');
+		const warningHeading = fixture.document.querySelector('#ts-table thead .ts-warning-heading');
 		for (const [control, top] of [[warningHeading, 100], [warningCell, 160]]) {
 			control.getBoundingClientRect = () => ({ left: columnLeft - fixture.app.scrollLeft, right: columnLeft + 150 - fixture.app.scrollLeft, top, bottom: top + 30, width: 150, height: 30 });
 		}
@@ -617,7 +625,7 @@ test('the far-right warning column becomes visible on narrow screens and restore
 test('the warning row moves above the explanation when a short screen has no free side', async () => {
 	const fixture = createFixture({ viewportWidth: 1000, viewportHeight: 400 });
 	const warningCell = fixture.document.querySelector('#ts-body tr:first-child .ts-warn');
-	const warningHeading = fixture.document.querySelector('#ts-table thead th:nth-child(9)');
+	const warningHeading = fixture.document.querySelector('#ts-table thead .ts-warning-heading');
 	const startInput = fixture.document.querySelector('#ts-body tr:first-child .startTime');
 	fixture.app.clientHeight = 350;
 	fixture.app.scrollHeight = 1100;
@@ -640,19 +648,19 @@ test('the warning row moves above the explanation when a short screen has no fre
 	assert.equal(fixture.app.scrollTop, 0);
 });
 
-test('the employee tour explains nine sections in the requested order', async () => {
+test('the employee tour explains eight sections in the requested order', async () => {
 	const fixture = createFixture();
 	await fixture.tour.start();
 	const visitedSteps = [];
 	for (let index = 0; index < fixture.tour.getState().total; index++) {
 		visitedSteps.push(fixture.tour.getState().step);
-		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, `Step ${index + 1} of 9`);
+		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, `Step ${index + 1} of 8`);
 		if (index < fixture.tour.getState().total - 1) {
 			fixture.document.getElementById('ts-tour-next').click();
 			await flush(); await flush();
 		}
 	}
-	assert.deepEqual(visitedSteps, ['export', 'working-time', 'federal-state', 'comments', 'warnings', 'freelancer-mode', 'profile', 'help', 'tour-access']);
+	assert.deepEqual(visitedSteps, ['export', 'federal-state', 'comments', 'warnings', 'freelancer-mode', 'profile', 'help', 'tour-access']);
 	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Help and tour');
 	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Questions and suggestions for HR. The guide can be restarted using the tour icon.');
 	assert.equal(fixture.requests.length, 0);
@@ -670,10 +678,10 @@ test('freelancer mode highlights the complete switch without changing either sav
 		control.addEventListener('change', () => { changed++; });
 		await fixture.tour.start();
 		await advanceToStep(fixture, 'freelancer-mode');
-		assert.equal(fixture.tour.getState().index, 5, 'Freelancer mode immediately follows the fifth warning step');
+		assert.equal(fixture.tour.getState().index, 4, 'Freelancer mode immediately follows the warning step');
 		assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Freelancer mode');
 		assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'Freelancer mode disables warning emails about missing or incomplete entries, overtime and negative balances for the employee and HR.');
-		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, 'Step 6 of 9');
+		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, 'Step 5 of 8');
 		const holes = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
 		assert.equal(holes.length, 1, 'The label and both switch states share one highlight');
 		assert.deepEqual(['x', 'y', 'width', 'height'].map(attribute => Number(holes[0].getAttribute(attribute))), [215, 195, 410, 54]);
@@ -701,12 +709,12 @@ test('a missing or hidden freelancer switch omits only its optional tour step', 
 		const fixture = createFixture({ freelancerControl: hidden });
 		if (hidden) fixture.document.querySelector('#tab-mine .ts-employment-toggle').hidden = true;
 		await fixture.tour.start();
-		assert.equal(fixture.tour.getState().total, 8);
+		assert.equal(fixture.tour.getState().total, 7);
 		await advanceToStep(fixture, 'warnings');
 		fixture.document.getElementById('ts-tour-next').click();
 		await flush(); await flush();
 		assert.equal(fixture.tour.getState().step, 'profile');
-		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, 'Step 6 of 8');
+		assert.equal(fixture.document.getElementById('ts-tour-progress').textContent, 'Step 5 of 7');
 		await fixture.tour.end();
 		assert.equal(fixture.requests.length, 0);
 	}
@@ -776,7 +784,7 @@ test('the combined export highlight fits narrow left-to-right and right-to-left 
 	}
 });
 
-test('working time and federal state each highlight only their own field and label', async () => {
+test('export advances directly to the federal state field and its label', async () => {
 	const fixture = createFixture();
 	const targetGroups = [
 		['config-daily-min-mine', 30, 100],
@@ -789,18 +797,13 @@ test('working time and federal state each highlight only their own field and lab
 		field.getBoundingClientRect = () => ({ left: left + 140, right: left + 220, top, bottom: top + 40, width: 80, height: 40 });
 	}
 	await fixture.tour.start();
-	await advanceToStep(fixture, 'working-time');
-	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Working time');
-	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'The start of work can be chosen individually in accordance with company guidelines.');
-	let frame = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
-	assert.equal(frame.length, 1);
-	assert.equal(Number(frame[0].getAttribute('x')), 25);
-	assert.equal(Number(frame[0].getAttribute('y')), 95);
-	assert.equal(Number(frame[0].getAttribute('width')), 230);
-	await advanceToStep(fixture, 'federal-state');
+	assert.equal(fixture.tour.getState().step, 'export');
+	fixture.document.getElementById('ts-tour-next').click();
+	await flush(); await flush();
+	assert.equal(fixture.tour.getState().step, 'federal-state');
 	assert.equal(fixture.document.getElementById('ts-tour-title').textContent, 'Federal state');
 	assert.equal(fixture.document.getElementById('ts-tour-description').textContent, 'The public holidays shown in the Status column depend on the selected federal state.');
-	frame = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
+	const frame = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
 	assert.equal(frame.length, 1);
 	assert.equal(Number(frame[0].getAttribute('x')), 395);
 	assert.equal(Number(frame[0].getAttribute('y')), 195);
@@ -826,7 +829,7 @@ test('the final launcher step closes the profile and ending restores unsaved fie
 		await fixture.tour.start();
 		const choices = fixture.document.getElementById('export-mine-xlsx-choice-ui');
 		assert.equal(choices.classList.contains('is-visible'), true);
-		await advanceToStep(fixture, 'working-time');
+		await advanceToStep(fixture, 'federal-state');
 		assert.equal(choices.classList.contains('is-visible'), false);
 		assert.equal(fixture.app.classList.contains('ts-tour-export-preview'), false);
 		fixture.document.getElementById('ts-tour-back').click();
@@ -858,23 +861,14 @@ test('the final launcher step closes the profile and ending restores unsaved fie
 	}
 });
 
-test('absence comment guidance uses shared account-language terms rather than fixed German labels', async () => {
-	for (const absenceTerms of [
-		{ vacation: 'Vacation', timeOffInLieu: 'Time off in lieu' },
-		{ vacation: 'Congés annuels', timeOffInLieu: 'Repos compensateur' },
-		{ vacation: '年次休暇', timeOffInLieu: '代休' },
-	]) {
-		const fixture = createFixture({ absenceTerms });
+test('comment guidance explains the different reminder behavior of presets and custom comments', async () => {
+	const english = 'Use the Comment column to record your own notes about the workday. If both start and end times are missing, only the preset reasons in the Comment column prevent a notification. Otherwise, entries with no time or only one time are marked as incomplete.';
+	for (const localized of [null, 'Lokalisierter Hinweis zur Kommentarspalte.']) {
+		const fixture = createFixture();
+		if (localized !== null) fixture.app.dataset.tourCommentsDescription = localized;
 		await fixture.tour.start();
-		while (fixture.tour.getState().step !== 'comments') {
-			fixture.document.getElementById('ts-tour-next').click();
-			await flush(); await flush();
-		}
-		const description = fixture.document.getElementById('ts-tour-description').textContent;
-		assert.ok(description.includes(absenceTerms.vacation), description);
-		assert.ok(description.includes(absenceTerms.timeOffInLieu), description);
-		assert.doesNotMatch(description, /Urlaub|Stundenausgleich|\{vacation\}|\{timeOffInLieu\}/u);
-		assert.doesNotMatch(description, /approval|warning/u);
+		await advanceToStep(fixture, 'comments');
+		assert.equal(fixture.document.getElementById('ts-tour-description').textContent, localized ?? english);
 		assert.equal(fixture.requests.length, 0);
 		await fixture.tour.end();
 	}
@@ -899,7 +893,7 @@ test('completed accounts retain manual access; unavailable progress never auto-s
 	assert.equal(completed.document.getElementById('ts-tour-invitation'), null);
 	await completed.tour.start();
 	assert.equal(completed.tour.getState().step, 'export');
-	assert.equal(completed.tour.getState().total, 9);
+	assert.equal(completed.tour.getState().total, 8);
 	await completed.tour.end();
 	const unavailable = createFixture({ available: false });
 	assert.equal(unavailable.document.getElementById('ts-tour-invitation'), null);
@@ -983,7 +977,7 @@ test('employee tours never load HR data even when unrelated HR markup is present
 	const fixture = createFixture({ hrDom: true });
 	const originalTitle = fixture.document.querySelector('#hr-user-title span').textContent;
 	await fixture.tour.start();
-	assert.equal(fixture.tour.getState().total, 9);
+	assert.equal(fixture.tour.getState().total, 8);
 	await advanceToEnd(fixture);
 	fixture.document.getElementById('ts-tour-next').click();
 	await flush(); await flush();
@@ -1105,19 +1099,19 @@ test('a delayed completion from an ended tour cannot finish or update a restarte
 	await fixture.tour.end();
 });
 
-test('working-time labels and fields fit narrow left-to-right and right-to-left scroll containers', async () => {
+test('the federal state field and label fit narrow left-to-right and right-to-left scroll containers', async () => {
 	for (const coordinates of [[50, 190], [140, 10]]) {
 		const fixture = createFixture({ viewportWidth: 320 });
-		const fields = [fixture.document.querySelector('label[for="config-daily-min-mine"]'), fixture.document.getElementById('config-daily-min-mine')];
+		const fields = [fixture.document.querySelector('label[for="config-state-mine"]'), fixture.document.getElementById('config-state-mine')];
 		fields.forEach((field, index) => {
 			const width = index === 0 ? 130 : 80;
 			field.getBoundingClientRect = () => ({ left: coordinates[index] - fixture.app.scrollLeft, right: coordinates[index] + width - fixture.app.scrollLeft, top: 160, bottom: 190, width, height: 30 });
 		});
 		await fixture.tour.start();
-		await advanceToStep(fixture, 'working-time');
+		await advanceToStep(fixture, 'federal-state');
 		for (const field of fields) {
 			const rectangle = field.getBoundingClientRect();
-			assert.ok(rectangle.left >= 8 && rectangle.right <= 312, 'The working-time field and its label remain visible together');
+			assert.ok(rectangle.left >= 8 && rectangle.right <= 312, 'The federal state field and its label remain visible together');
 		}
 		await fixture.tour.end();
 		assert.equal(fixture.app.scrollLeft, 0);
@@ -1180,15 +1174,15 @@ test('administrator-disabled tours create neither an invitation nor a launcher',
 
 
 
-test('adjacent working-time labels and fields share one frame instead of overlapping padded boxes', async () => {
+test('the adjacent federal state label and field share one frame instead of overlapping padded boxes', async () => {
 	const fixture = createFixture();
-	const fields = [fixture.document.querySelector('label[for="config-daily-min-mine"]'), fixture.document.getElementById('config-daily-min-mine')];
+	const fields = [fixture.document.querySelector('label[for="config-state-mine"]'), fixture.document.getElementById('config-state-mine')];
 	fields.forEach((field, index) => {
 		const left = 300 + index * 100;
 		field.getBoundingClientRect = () => ({ left, right: left + 100, top: 180, bottom: 210, width: 100, height: 30 });
 	});
 	await fixture.tour.start();
-	await advanceToStep(fixture, 'working-time');
+	await advanceToStep(fixture, 'federal-state');
 	const holes = fixture.document.querySelectorAll('#ts-tour-cutout g rect');
 	assert.equal(holes.length, 1);
 	assert.equal(Number(holes[0].getAttribute('x')), 295);
@@ -1198,13 +1192,13 @@ test('adjacent working-time labels and fields share one frame instead of overlap
 
 test('the explanation uses free horizontal space when a short viewport cannot fit it above or below', async () => {
 	const fixture = createFixture({ viewportWidth: 1000, viewportHeight: 400 });
-	const fields = [fixture.document.querySelector('label[for="config-daily-min-mine"]'), fixture.document.getElementById('config-daily-min-mine')];
+	const fields = [fixture.document.querySelector('label[for="config-state-mine"]'), fixture.document.getElementById('config-state-mine')];
 	fields.forEach((field, index) => {
 		const left = 300 + index * 90;
 		field.getBoundingClientRect = () => ({ left, right: left + 90, top: 150, bottom: 220, width: 90, height: 70 });
 	});
 	await fixture.tour.start();
-	await advanceToStep(fixture, 'working-time');
+	await advanceToStep(fixture, 'federal-state');
 	const box = fixture.document.getElementById('ts-tour-dialog');
 	const rectangle = { left: parseFloat(box.style.left), top: parseFloat(box.style.top), width: 360, height: 240 };
 	for (const hole of fixture.document.querySelectorAll('#ts-tour-cutout g rect')) {

@@ -32,6 +32,11 @@
 
 	// The HR list and weekly email use the same personal thresholds.
 	let notificationLoad = null;
+	let notificationSaveGeneration = 0;
+	const weeklyMailData = document.getElementById('ts-weekly-mail-editor-data');
+	const weeklyMailEditor = weeklyMailData ? JSON.parse(weeklyMailData.textContent) : null;
+	const weeklyMailDrafts = new Map();
+	let savedWeeklyMailTemplates = {};
 
 	function setThreshold(input, value) {
 		input.value = input.type === 'number' ? String(value) : utils.minToHm(value);
@@ -41,10 +46,14 @@
 		const section = document.getElementById('hr-notifications-section');
 		if (!appState.currentUserId || !section) return Promise.resolve();
 		if (notificationLoad) return notificationLoad;
+		if (savedNotificationSettings && configModule.hasPendingHrNotificationSettings?.()) return Promise.resolve();
+		const loadGeneration = notificationSaveGeneration;
 
 		notificationLoad = (async () => {
 			try {
 				const settings = await timesheet.api('/api/hr/notifications');
+				if (loadGeneration !== notificationSaveGeneration
+					|| (savedNotificationSettings && configModule.hasPendingHrNotificationSettings?.())) return;
 				applyHrNotificationSettings(section, settings);
 				section.disabled = false;
 				document.getElementById('hr-notification-load-error').hidden = true;
@@ -87,7 +96,62 @@
 		for (const input of section.querySelectorAll('[data-mail-enabled]')) {
 			input.checked = settings[input.dataset.mailEnabled];
 		}
+		savedWeeklyMailTemplates = settings.weeklyMailTemplates ?? {};
 		savedNotificationSettings = readNotificationSettings(section);
+	}
+
+	function initNotificationMailEditor(dialog) {
+		const textarea = document.getElementById('ts-reminder-mail-text');
+		const audience = document.getElementById('ts-reminder-mail-audience');
+		const scope = document.getElementById('ts-reminder-mail-scope');
+		const placeholders = document.getElementById('ts-reminder-mail-placeholders');
+		let edit;
+
+		textarea.addEventListener('input', () => textarea.setCustomValidity(''));
+		document.getElementById('ts-reminder-mail-reset').addEventListener('click', () => {
+			textarea.value = edit.original;
+			textarea.setCustomValidity('');
+		});
+		document.getElementById('ts-reminder-mail-cancel').addEventListener('click', () => dialog.close());
+		dialog.addEventListener('close', () => { if (!dialog.open) edit = null; });
+		dialog.querySelector('form').addEventListener('submit', event => {
+			event.preventDefault();
+			if (textarea.value.split('{entries}').length !== 2) {
+				textarea.setCustomValidity(textarea.dataset.invalidPlaceholderMessage);
+				textarea.reportValidity();
+				return;
+			}
+			edit.apply(textarea.value === edit.original ? null : textarea.value);
+			dialog.close();
+		});
+
+		return options => {
+			edit = options;
+			audience.textContent = edit.label;
+			scope.textContent = scope.dataset[edit.mode];
+			placeholders.textContent = placeholders.dataset[edit.mode];
+			textarea.maxLength = edit.maxLength;
+			textarea.value = edit.text ?? edit.original;
+			textarea.setCustomValidity('');
+			dialog.showModal();
+		};
+	}
+
+	function personalNotificationChanges(settings) {
+		const { warningThresholds, ...choices } = settings;
+		const patch = Object.fromEntries(
+			Object.entries(choices).filter(([key, value]) => value !== savedNotificationSettings[key])
+		);
+		const thresholds = Object.fromEntries(Object.entries(warningThresholds).filter(
+			([key, value]) => value !== savedNotificationSettings.warningThresholds[key]
+		));
+		if (Object.keys(thresholds).length) patch.warningThresholds = thresholds;
+		if (weeklyMailDrafts.size) {
+			patch.weeklyMailTemplates = Object.fromEntries(Array.from(
+				weeklyMailDrafts, ([alert, text]) => [alert, { [weeklyMailEditor.language]: text }]
+			));
+		}
+		return patch;
 	}
 
 	function initHrNotificationSettings() {
@@ -102,13 +166,42 @@
 		function hasPersonalChanges() {
 			if (!savedNotificationSettings) return false;
 			const draft = readNotificationSettings(section);
-			return JSON.stringify(draft) !== JSON.stringify(savedNotificationSettings);
+			return !draft || Object.keys(personalNotificationChanges(draft)).length > 0;
 		}
 
 		function updateSaveButton() {
 			saveButton.disabled = saving || !(hasPersonalChanges() || timesheet.hrNotificationRules?.hasChanges());
 		}
 		configModule.updateHrNotificationSaveButton = updateSaveButton;
+		configModule.hasPendingHrNotificationSettings = () => saving || hasPersonalChanges();
+
+		const dialog = document.getElementById('ts-reminder-mail-dialog');
+		if (dialog) {
+			const openMailEditor = initNotificationMailEditor(dialog);
+			configModule.openNotificationMailEditor = openMailEditor;
+
+			if (weeklyMailEditor) section.addEventListener('click', event => {
+				const button = event.target.closest('[data-edit-weekly-mail]');
+				if (!button || !savedNotificationSettings) return;
+				const alert = button.dataset.editWeeklyMail;
+				const language = weeklyMailEditor.language;
+				const persistedText = () => savedWeeklyMailTemplates[alert]?.[language] ?? null;
+				openMailEditor({
+					mode: 'weekly',
+					label: document.getElementById(button.getAttribute('aria-describedby')).textContent,
+					original: weeklyMailEditor.originals[alert],
+					text: weeklyMailDrafts.has(alert) ? weeklyMailDrafts.get(alert) : persistedText(),
+					maxLength: weeklyMailEditor.maxLength,
+					apply(text) {
+						if (text === persistedText()) weeklyMailDrafts.delete(alert);
+						else weeklyMailDrafts.set(alert, text);
+						errorStatus.textContent = '';
+						updateSaveButton();
+					}
+				});
+			});
+		}
+
 		section.addEventListener('input', () => {
 			errorStatus.textContent = '';
 			updateSaveButton();
@@ -116,12 +209,12 @@
 		saveButton.addEventListener('click', async () => {
 			if (saveButton.disabled) return;
 			const personal = savedNotificationSettings && readNotificationSettings(section);
-			const savePersonal = savedNotificationSettings && JSON.stringify(personal) !== JSON.stringify(savedNotificationSettings);
 			const group = timesheet.hrNotificationRules;
-			if (savePersonal && !personal) {
+			if (savedNotificationSettings && !personal) {
 				section.querySelector('input:invalid')?.reportValidity();
 				return;
 			}
+			const personalPatch = personal ? personalNotificationChanges(personal) : {};
 			const groupError = group?.validationError();
 			if (groupError) {
 				errorStatus.textContent = groupError;
@@ -136,11 +229,13 @@
 			document.getElementById('hr-notification-saved').textContent = '';
 			try {
 				if (group?.hasChanges()) await group.save();
-				if (savePersonal) {
+				if (Object.keys(personalPatch).length) {
+					notificationSaveGeneration++;
 					const result = await timesheet.api('/api/hr/notifications', {
 						method: 'PUT',
-						body: JSON.stringify(personal)
+						body: JSON.stringify(personalPatch)
 					});
+					weeklyMailDrafts.clear();
 					applyHrNotificationSettings(section, result);
 					if (document.getElementById('tab-hr')?.classList.contains('active')) {
 						timesheet.hr?.loadHrUserList?.();
